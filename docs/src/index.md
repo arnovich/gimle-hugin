@@ -548,6 +548,67 @@ title: Home
   </div>
 </div>
 
+<div class="showcase">
+  <h2>See It In Action</h2>
+  <p>Some fun examples of apps built with Hugin.</p>
+  <div class="showcase-videos">
+    <div class="showcase-video">
+      <video autoplay loop muted playsinline>
+        <source src="/assets/videos/the-hugins.mp4" type="video/mp4">
+      </video>
+      <h3><a href="https://github.com/gimlelabs/gimle-hugin/tree/main/apps/the_hugins">The Hugins</a></h3>
+      <p>AI creatures exploring, crafting, and planning in an isometric world.</p>
+    </div>
+    <div class="showcase-video">
+      <video autoplay loop muted playsinline>
+        <source src="/assets/videos/rap-machine.mp4" type="video/mp4">
+      </video>
+      <h3><a href="https://github.com/gimlelabs/gimle-hugin/tree/main/apps/rap_machine">Rap Machine</a></h3>
+      <p>Multi-agent rap battles with AI rappers and judges.</p>
+    </div>
+  </div>
+  <p class="showcase-link">Explore more <a href="/examples/">examples and demo apps</a>.</p>
+</div>
+
+<div class="video-lightbox" id="video-lightbox">
+  <span class="video-lightbox-close">&times;</span>
+  <video autoplay loop muted playsinline id="lightbox-video">
+    <source src="" type="video/mp4">
+  </video>
+</div>
+
+<script>
+(function() {
+  const lightbox = document.getElementById('video-lightbox');
+  const lightboxVideo = document.getElementById('lightbox-video');
+  const closeBtn = lightbox.querySelector('.video-lightbox-close');
+
+  // Open lightbox when clicking showcase videos
+  document.querySelectorAll('.showcase-video video').forEach(video => {
+    video.addEventListener('click', () => {
+      const source = video.querySelector('source').src;
+      lightboxVideo.querySelector('source').src = source;
+      lightboxVideo.load();
+      lightbox.classList.add('active');
+    });
+  });
+
+  // Close lightbox
+  function closeLightbox() {
+    lightbox.classList.remove('active');
+    lightboxVideo.pause();
+  }
+
+  closeBtn.addEventListener('click', closeLightbox);
+  lightbox.addEventListener('click', (e) => {
+    if (e.target === lightbox) closeLightbox();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeLightbox();
+  });
+})();
+</script>
+
 ## Getting Started Quickly
 
 Install Hugin and let the agent builder guide you through creating your first agent.
