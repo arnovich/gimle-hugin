@@ -1,0 +1,6 @@
+# Place video files here:
+# - the-hugins.mp4
+# - rap-machine.mp4
+#
+# Convert screen recordings with ffmpeg:
+# ffmpeg -i input.mov -c:v libx264 -crf 28 -preset slow -an -movflags +faststart output.mp4
