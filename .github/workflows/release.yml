@@ -109,7 +109,7 @@ jobs:
           uv run hugin --help
 
       - name: Uninstall wheel install
-        run: uv pip uninstall gimle-hugin -- -y
+        run: uv pip uninstall gimle-hugin
 
       - name: Install from GitHub tag source
         run: uv pip install git+https://github.com/${{ github.repository }}.git@${{ steps.get_tag.outputs.tag }}
