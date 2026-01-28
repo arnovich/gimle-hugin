@@ -1,0 +1,30 @@
+<svg
+  width="240"
+  height="240"
+  viewBox="0 0 100 100"
+  xmlns="http://www.w3.org/2000/svg"
+>
+ 
+  <!-- Sun as half-circle arc -->
+  <path
+    d="M25 55
+       A25 25 0 0 1 75 55"
+    fill="none"
+    stroke="black"
+    stroke-width="4"
+    stroke-linecap="round"
+    shape-rendering="geometricPrecision"
+  />
+
+  <!-- Single wave under the sun -->
+  <path
+    d="M15 68
+       Q 35 60 55 68
+       T 95 68"
+    fill="none"
+    stroke="black"
+    stroke-width="4"
+    stroke-linecap="round"
+    shape-rendering="geometricPrecision"
+  />
+</svg>
