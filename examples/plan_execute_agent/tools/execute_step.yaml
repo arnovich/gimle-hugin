@@ -1,0 +1,8 @@
+name: execute_step
+description: Execute the current step in the plan
+implementation_path: plan_execute_agent.tools.execution_tools:execute_step
+parameters:
+  action:
+    type: string
+    description: Description of the action taken to execute this step
+    required: true

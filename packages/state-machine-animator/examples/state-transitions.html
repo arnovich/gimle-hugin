@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>State Transitions - Hugin Interaction Model</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5;
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      color: #2c3e50;
+      margin-bottom: 10px;
+    }
+
+    .description {
+      color: #666;
+      margin-bottom: 20px;
+      line-height: 1.6;
+    }
+
+    .animation-container {
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+      overflow: hidden;
+    }
+
+    #animation {
+      width: 100%;
+      height: 700px;
+    }
+
+    .controls {
+      display: flex;
+      gap: 10px;
+      padding: 15px;
+      background: #f8f9fa;
+      border-top: 1px solid #e0e0e0;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    button {
+      background: #3498db;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background 0.2s;
+    }
+
+    button:hover {
+      background: #2980b9;
+    }
+
+    button:disabled {
+      background: #bdc3c7;
+      cursor: not-allowed;
+    }
+
+    button.secondary {
+      background: #95a5a6;
+    }
+
+    button.secondary:hover {
+      background: #7f8c8d;
+    }
+
+    .legend {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 15px;
+      padding: 20px;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      margin-top: 20px;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .legend-color {
+      width: 24px;
+      height: 24px;
+      border-radius: 4px;
+      flex-shrink: 0;
+    }
+
+    .legend-text {
+      font-size: 13px;
+    }
+
+    .legend-text strong {
+      display: block;
+      color: #2c3e50;
+    }
+
+    .legend-text span {
+      color: #666;
+      font-size: 11px;
+    }
+
+    .tip {
+      text-align: center;
+      color: #999;
+      font-size: 12px;
+      margin-top: 15px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Hugin Interaction State Machine</h1>
+    <p class="description">
+      This diagram shows all possible state transitions in the Hugin agent framework.
+      Each node represents an interaction type, and arrows show valid transitions between them.
+    </p>
+
+    <div class="animation-container">
+      <div id="animation"></div>
+      <div class="controls">
+        <button id="reset-btn">Reset View</button>
+        <button id="zoom-in" class="secondary">Zoom In</button>
+        <button id="zoom-out" class="secondary">Zoom Out</button>
+      </div>
+    </div>
+
+    <div class="legend">
+      <div class="legend-item">
+        <div class="legend-color" style="background: #f39c12;"></div>
+        <div class="legend-text">
+          <strong>LLM Interactions</strong>
+          <span>AskOracle, OracleResponse</span>
+        </div>
+      </div>
+      <div class="legend-item">
+        <div class="legend-color" style="background: #3498db;"></div>
+        <div class="legend-text">
+          <strong>Tool Interactions</strong>
+          <span>ToolCall, ToolResult</span>
+        </div>
+      </div>
+      <div class="legend-item">
+        <div class="legend-color" style="background: #9b59b6;"></div>
+        <div class="legend-text">
+          <strong>Agent Interactions</strong>
+          <span>TaskDefinition, AgentCall, AgentResult, TaskResult, TaskChain</span>
+        </div>
+      </div>
+      <div class="legend-item">
+        <div class="legend-color" style="background: #e67e22;"></div>
+        <div class="legend-text">
+          <strong>Human Interactions</strong>
+          <span>AskHuman, HumanResponse, ExternalInput</span>
+        </div>
+      </div>
+    </div>
+
+    <p class="tip">Drag to pan, scroll to zoom</p>
+  </div>
+
+  <script type="module">
+    // State transition definitions for Hugin framework
+    const stateTransitions = {
+      // Task start
+      'TaskDefinition': ['AskOracle'],
+
+      // LLM interactions
+      'AskOracle': ['OracleResponse'],
+      'OracleResponse': ['ToolCall', 'AgentCall', 'AskHuman', 'AskOracle', 'TaskResult'],
+
+      // Tool interactions
+      'ToolCall': ['ToolResult'],
+      'ToolResult': ['AskOracle'],
+
+      // Agent delegation
+      'AgentCall': ['AgentResult'],
+      'AgentResult': ['AskOracle'],
+
+      // Human interactions
+      'AskHuman': ['HumanResponse'],
+      'HumanResponse': ['AskOracle'],
+      'ExternalInput': ['AskOracle'],
+
+      // Task completion
+      'TaskResult': ['TaskChain'],
+      'TaskChain': ['TaskDefinition'],
+    };
+
+    // Category colors
+    const categoryColors = {
+      llm: { bg: '#f39c12', border: '#e67e22' },
+      tool: { bg: '#3498db', border: '#2980b9' },
+      agent: { bg: '#9b59b6', border: '#8e44ad' },
+      user: { bg: '#e67e22', border: '#d35400' },
+      terminal: { bg: '#27ae60', border: '#1e8449' },
+    };
+
+    // State to category mapping
+    const stateCategories = {
+      'TaskDefinition': 'agent',
+      'TaskResult': 'terminal',
+      'TaskChain': 'agent',
+      'AskOracle': 'llm',
+      'OracleResponse': 'llm',
+      'ToolCall': 'tool',
+      'ToolResult': 'tool',
+      'AgentCall': 'agent',
+      'AgentResult': 'agent',
+      'AskHuman': 'user',
+      'HumanResponse': 'user',
+      'ExternalInput': 'user',
+    };
+
+    // Layout positions (manually positioned for clarity)
+    const statePositions = {
+      'TaskDefinition': { x: 100, y: 50 },
+      'AskOracle': { x: 100, y: 180 },
+      'OracleResponse': { x: 100, y: 310 },
+      'ToolCall': { x: 350, y: 230 },
+      'ToolResult': { x: 350, y: 360 },
+      'AgentCall': { x: 600, y: 230 },
+      'AgentResult': { x: 600, y: 360 },
+      'AskHuman': { x: 850, y: 230 },
+      'HumanResponse': { x: 850, y: 360 },
+      'ExternalInput': { x: 850, y: 100 },
+      'TaskResult': { x: 100, y: 480 },
+      'TaskChain': { x: 350, y: 480 },
+    };
+
+    // Create SVG manually for this static diagram
+    const container = document.getElementById('animation');
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('width', '100%');
+    svg.setAttribute('height', '100%');
+    svg.style.background = '#fafafa';
+    container.appendChild(svg);
+
+    // Pan and zoom state
+    let panX = 0, panY = 0, zoom = 1;
+    let isPanning = false, startX, startY;
+
+    // Create main group for transformations
+    const mainGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    svg.appendChild(mainGroup);
+
+    function updateTransform() {
+      mainGroup.setAttribute('transform', `translate(${panX}, ${panY}) scale(${zoom})`);
+    }
+
+    // Pan handlers
+    svg.addEventListener('mousedown', (e) => {
+      isPanning = true;
+      startX = e.clientX - panX;
+      startY = e.clientY - panY;
+      svg.style.cursor = 'grabbing';
+    });
+
+    svg.addEventListener('mousemove', (e) => {
+      if (!isPanning) return;
+      panX = e.clientX - startX;
+      panY = e.clientY - startY;
+      updateTransform();
+    });
+
+    svg.addEventListener('mouseup', () => {
+      isPanning = false;
+      svg.style.cursor = 'grab';
+    });
+
+    svg.addEventListener('mouseleave', () => {
+      isPanning = false;
+      svg.style.cursor = 'grab';
+    });
+
+    // Zoom handler
+    svg.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? 0.9 : 1.1;
+      zoom = Math.max(0.3, Math.min(3, zoom * delta));
+      updateTransform();
+    });
+
+    svg.style.cursor = 'grab';
+
+    // Arrow marker
+    const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+    defs.innerHTML = `
+      <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+        <polygon points="0 0, 10 3.5, 0 7" fill="#7f8c8d" />
+      </marker>
+      <marker id="arrowhead-highlight" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+        <polygon points="0 0, 10 3.5, 0 7" fill="#3498db" />
+      </marker>
+    `;
+    svg.appendChild(defs);
+
+    // Draw arrows first (so they're behind nodes)
+    const arrowGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    mainGroup.appendChild(arrowGroup);
+
+    const stateWidth = 140;
+    const stateHeight = 50;
+
+    function getConnectionPoint(fromState, toState) {
+      const from = statePositions[fromState];
+      const to = statePositions[toState];
+
+      const fromCenterX = from.x + stateWidth / 2;
+      const fromCenterY = from.y + stateHeight / 2;
+      const toCenterX = to.x + stateWidth / 2;
+      const toCenterY = to.y + stateHeight / 2;
+
+      const dx = toCenterX - fromCenterX;
+      const dy = toCenterY - fromCenterY;
+
+      let fromX, fromY, toX, toY;
+
+      // Determine exit point from source
+      if (Math.abs(dx) > Math.abs(dy)) {
+        // Horizontal dominant
+        if (dx > 0) {
+          fromX = from.x + stateWidth;
+          fromY = from.y + stateHeight / 2;
+        } else {
+          fromX = from.x;
+          fromY = from.y + stateHeight / 2;
+        }
+      } else {
+        // Vertical dominant
+        if (dy > 0) {
+          fromX = from.x + stateWidth / 2;
+          fromY = from.y + stateHeight;
+        } else {
+          fromX = from.x + stateWidth / 2;
+          fromY = from.y;
+        }
+      }
+
+      // Determine entry point to target
+      if (Math.abs(dx) > Math.abs(dy)) {
+        if (dx > 0) {
+          toX = to.x;
+          toY = to.y + stateHeight / 2;
+        } else {
+          toX = to.x + stateWidth;
+          toY = to.y + stateHeight / 2;
+        }
+      } else {
+        if (dy > 0) {
+          toX = to.x + stateWidth / 2;
+          toY = to.y;
+        } else {
+          toX = to.x + stateWidth / 2;
+          toY = to.y + stateHeight;
+        }
+      }
+
+      return { fromX, fromY, toX, toY };
+    }
+
+    // Draw all transition arrows
+    for (const [fromState, toStates] of Object.entries(stateTransitions)) {
+      for (const toState of toStates) {
+        const { fromX, fromY, toX, toY } = getConnectionPoint(fromState, toState);
+
+        // Special case for self-loop (OracleResponse -> AskOracle)
+        if (fromState === 'OracleResponse' && toState === 'AskOracle') {
+          const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          const pos = statePositions[fromState];
+          const targetPos = statePositions[toState];
+          // Draw a curved path to the left
+          path.setAttribute('d', `M ${pos.x} ${pos.y + stateHeight/2}
+                                  C ${pos.x - 80} ${pos.y + stateHeight/2},
+                                    ${targetPos.x - 80} ${targetPos.y + stateHeight/2},
+                                    ${targetPos.x} ${targetPos.y + stateHeight/2}`);
+          path.setAttribute('fill', 'none');
+          path.setAttribute('stroke', '#95a5a6');
+          path.setAttribute('stroke-width', '2');
+          path.setAttribute('marker-end', 'url(#arrowhead)');
+          arrowGroup.appendChild(path);
+          continue;
+        }
+
+        // Special case for TaskChain -> TaskDefinition (loop back)
+        if (fromState === 'TaskChain' && toState === 'TaskDefinition') {
+          const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          const from = statePositions[fromState];
+          const to = statePositions[toState];
+          // Draw curved path going up and left
+          path.setAttribute('d', `M ${from.x + stateWidth/2} ${from.y}
+                                  C ${from.x + stateWidth/2} ${from.y - 100},
+                                    ${to.x + stateWidth + 50} ${to.y + stateHeight/2},
+                                    ${to.x + stateWidth} ${to.y + stateHeight/2}`);
+          path.setAttribute('fill', 'none');
+          path.setAttribute('stroke', '#95a5a6');
+          path.setAttribute('stroke-width', '2');
+          path.setAttribute('marker-end', 'url(#arrowhead)');
+          path.setAttribute('stroke-dasharray', '5,5');
+          arrowGroup.appendChild(path);
+          continue;
+        }
+
+        // Regular curved arrow
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        const midX = (fromX + toX) / 2;
+        const midY = (fromY + toY) / 2;
+
+        // Add slight curve
+        const dx = toX - fromX;
+        const dy = toY - fromY;
+        const perpX = -dy * 0.1;
+        const perpY = dx * 0.1;
+
+        path.setAttribute('d', `M ${fromX} ${fromY} Q ${midX + perpX} ${midY + perpY} ${toX} ${toY}`);
+        path.setAttribute('fill', 'none');
+        path.setAttribute('stroke', '#95a5a6');
+        path.setAttribute('stroke-width', '2');
+        path.setAttribute('marker-end', 'url(#arrowhead)');
+        arrowGroup.appendChild(path);
+      }
+    }
+
+    // Draw state nodes
+    const nodeGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    mainGroup.appendChild(nodeGroup);
+
+    for (const [stateName, pos] of Object.entries(statePositions)) {
+      const category = stateCategories[stateName];
+      const colors = categoryColors[category];
+
+      const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      group.setAttribute('transform', `translate(${pos.x}, ${pos.y})`);
+      group.style.cursor = 'pointer';
+
+      // Background rect
+      const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      rect.setAttribute('width', stateWidth);
+      rect.setAttribute('height', stateHeight);
+      rect.setAttribute('rx', '8');
+      rect.setAttribute('fill', colors.bg);
+      rect.setAttribute('stroke', colors.border);
+      rect.setAttribute('stroke-width', '2');
+      group.appendChild(rect);
+
+      // State name
+      const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      text.setAttribute('x', stateWidth / 2);
+      text.setAttribute('y', stateHeight / 2 + 5);
+      text.setAttribute('text-anchor', 'middle');
+      text.setAttribute('fill', '#fff');
+      text.setAttribute('font-size', '12');
+      text.setAttribute('font-weight', '600');
+      text.textContent = stateName;
+      group.appendChild(text);
+
+      // Hover effect
+      group.addEventListener('mouseenter', () => {
+        rect.setAttribute('stroke-width', '4');
+        rect.setAttribute('filter', 'brightness(1.2)');
+      });
+      group.addEventListener('mouseleave', () => {
+        rect.setAttribute('stroke-width', '2');
+        rect.removeAttribute('filter');
+      });
+
+      nodeGroup.appendChild(group);
+    }
+
+    // Add title
+    const title = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    title.setAttribute('x', '500');
+    title.setAttribute('y', '580');
+    title.setAttribute('text-anchor', 'middle');
+    title.setAttribute('fill', '#999');
+    title.setAttribute('font-size', '14');
+    title.textContent = 'Arrows indicate valid state transitions';
+    mainGroup.appendChild(title);
+
+    // Controls
+    document.getElementById('reset-btn').addEventListener('click', () => {
+      panX = 0;
+      panY = 0;
+      zoom = 1;
+      updateTransform();
+    });
+
+    document.getElementById('zoom-in').addEventListener('click', () => {
+      zoom = Math.min(3, zoom * 1.2);
+      updateTransform();
+    });
+
+    document.getElementById('zoom-out').addEventListener('click', () => {
+      zoom = Math.max(0.3, zoom / 1.2);
+      updateTransform();
+    });
+  </script>
+</body>
+</html>

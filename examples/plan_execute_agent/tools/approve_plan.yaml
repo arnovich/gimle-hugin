@@ -1,0 +1,8 @@
+name: approve_plan
+description: Approve the current plan and transition to execution mode
+implementation_path: plan_execute_agent.tools.planning_tools:approve_plan
+parameters:
+  confirmation:
+    type: string
+    description: Confirmation message (e.g., "approved" or brief summary)
+    required: true

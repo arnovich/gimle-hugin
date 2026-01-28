@@ -1,0 +1,59 @@
+name: live
+description: A task for creatures to live and explore the world
+parameters:
+  world_id:
+    type: string
+    description: ''
+    required: false
+    default: ''
+  creature_name:
+    type: string
+    description: ''
+    required: false
+    default: ''
+  creature_description:
+    type: string
+    description: ''
+    required: false
+    default: ''
+  personality:
+    type: string
+    description: ''
+    required: false
+    default: ''
+  initial_x:
+    type: integer
+    description: ''
+    required: false
+    default: 0
+  initial_y:
+    type: integer
+    description: ''
+    required: false
+    default: 0
+prompt: 'You are {{ creature_name.value }}, and you have just awakened in this world
+  at position ({{ initial_x.value }}, {{ initial_y.value }}).
+
+
+  Your first action should be to look around and understand where you are. Then, start
+  exploring the world according to your personality: {{ personality.value }}.
+
+
+  Use the tools available to you to move around, observe your surroundings, and interact
+  with the world. Remember to always include the world_id "{{ world_id.value }}" when
+  calling tools.
+
+
+  Begin your journey!
+
+  '
+tools:
+- get_position
+- look
+- move
+- take
+- drop
+- say
+- talk_to
+system_template: creature_system
+llm_model: haiku-latest

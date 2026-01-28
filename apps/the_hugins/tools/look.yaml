@@ -1,0 +1,14 @@
+name: look
+description: "Look around and see a 3x3 grid of cells centered on your position. You can see terrain, objects, and other creatures in the 8 cells around you plus your own cell."
+parameters:
+  world_id:
+    type: string
+    description: The ID of the world you are in
+    required: true
+  reason:
+    type: string
+    description: Why you are performing this action
+    required: false
+is_interactive: false
+implementation_path: the_hugins.tools.look:look_tool
+options: {}

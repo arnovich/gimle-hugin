@@ -1,0 +1,54 @@
+name: technical_analysis_task
+description: Perform comprehensive technical analysis on a financial instrument
+parameters:
+  symbol:
+    type: string
+    description: The ticker symbol to analyze
+    required: true
+  additional_context:
+    type: string
+    description: Additional context or specific questions for the analysis
+    required: false
+prompt: 'Perform a comprehensive technical analysis on {{ symbol.value }}.
+
+
+  Your task:
+
+  1. Fetch historical data and technical indicators for {{ symbol.value }}
+
+  2. Analyze multiple timeframes (1mo, 3mo, 6mo) to understand trends
+
+  3. Evaluate all key indicators: SMA, RSI, MACD, Bollinger Bands, Volume
+
+  4. Identify current trend, momentum, and key support/resistance levels
+
+  5. Look for signal confluence (when multiple indicators agree)
+
+  6. Generate professional analysis chart
+
+  7. Save your complete findings as an insight with clear, actionable recommendations
+
+
+  Focus on:
+
+  - What is the current technical picture?
+
+  - What are the key levels to watch?
+
+  - Are indicators showing bullish or bearish signals?
+
+  - Is there strong signal confluence?
+
+  - What opportunities or risks does the technical analysis reveal?
+
+
+  {% if additional_context.value %}
+
+  Additional context: {{ additional_context.value }}
+
+  {% endif %}
+
+
+  When your analysis is complete, call the `finish` tool with your summary.
+
+  '

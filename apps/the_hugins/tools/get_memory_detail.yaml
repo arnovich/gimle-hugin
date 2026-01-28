@@ -1,0 +1,18 @@
+name: get_memory_detail
+description: "Get the full content of a specific memory by its ID. Use this after recall_memories to see complete details of a relevant memory."
+parameters:
+  world_id:
+    type: string
+    description: The ID of the world you are in
+    required: true
+  memory_id:
+    type: string
+    description: The ID of the memory to retrieve (from recall_memories results)
+    required: true
+  reason:
+    type: string
+    description: Why you are performing this action
+    required: false
+is_interactive: false
+implementation_path: the_hugins.tools.recall_memories:get_memory_detail_tool
+options: {}

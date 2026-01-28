@@ -1,0 +1,26 @@
+name: remember
+description: "Save an important long-term memory that persists across sessions. Use this for significant discoveries, relationships, favorite locations, or important events you want to recall later. Memory types: discovery (found something new), relationship (about another creature), location (a special place), event (something that happened), thought (an idea or reflection)."
+parameters:
+  world_id:
+    type: string
+    description: The ID of the world you are in
+    required: true
+  memory_type:
+    type: string
+    description: "Type of memory: discovery, relationship, location, event, or thought"
+    required: true
+  description:
+    type: string
+    description: What you want to remember - be descriptive so you can find it later
+    required: true
+  importance:
+    type: integer
+    description: How important is this memory from 1 (minor) to 10 (critical). Default is 5.
+    required: false
+  reason:
+    type: string
+    description: Why you are performing this action
+    required: false
+is_interactive: false
+implementation_path: the_hugins.tools.remember:remember_tool
+options: {}

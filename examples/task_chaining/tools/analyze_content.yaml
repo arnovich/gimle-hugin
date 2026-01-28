@@ -1,0 +1,10 @@
+name: analyze_content
+description: |
+  Analyze content for key metrics and patterns.
+  Takes extracted text data and produces analysis.
+implementation_path: task_chaining.tools.document_tools:analyze_content
+parameters:
+  content:
+    type: string
+    description: JSON string of extracted content to analyze
+    required: true

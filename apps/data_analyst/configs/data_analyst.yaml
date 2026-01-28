@@ -1,0 +1,16 @@
+name: data_analyst
+description: A data analyst agent with SQL query, visualization, and artifact saving capabilities
+system_template: data_analyst_system
+llm_model: sonnet-latest
+tools:
+  - describe_data
+  - sql_query
+  - calculate_statistics
+  - detect_anomalies
+  - visualize
+  - sql_query_and_visualize
+  - generate_report
+  - builtins.save_insight:save_insight
+  - builtins.finish:finish
+interactive: false
+options: {}

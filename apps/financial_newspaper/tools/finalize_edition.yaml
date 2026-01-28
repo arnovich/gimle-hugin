@@ -1,0 +1,10 @@
+name: "finalize_edition"
+description: "Finalize the newspaper edition. This automatically launches the editor to create the final layout with all your articles. Call this INSTEAD of 'finish' when you're done writing articles."
+parameters:
+  summary:
+    type: "string"
+    description: "Optional summary of the edition for the editor"
+    required: false
+is_interactive: false
+implementation_path: financial_newspaper.tools.finalize_edition:finalize_edition
+options: {}

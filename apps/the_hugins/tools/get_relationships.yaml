@@ -1,0 +1,14 @@
+name: get_relationships
+description: "Check your relationships with other creatures you have met. Shows who you know, your sentiment towards them (1-10 scale), relationship type, and interaction history."
+parameters:
+  world_id:
+    type: string
+    description: The ID of the world you are in
+    required: true
+  reason:
+    type: string
+    description: Why you are performing this action
+    required: false
+is_interactive: false
+implementation_path: the_hugins.tools.get_relationships:get_relationships_tool
+options: {}

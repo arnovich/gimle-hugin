@@ -1,0 +1,18 @@
+name: build
+description: "Build a structure at your current location. Requires specific materials in your inventory. Available structures: shelter (protection), marker (remember location), bridge (cross water), storage (keep items), campfire (warmth)."
+parameters:
+  world_id:
+    type: string
+    description: The ID of the world you are in
+    required: true
+  structure_type:
+    type: string
+    description: "Type of structure to build: shelter, marker, bridge, storage, or campfire"
+    required: true
+  reason:
+    type: string
+    description: Why you are performing this action
+    required: false
+is_interactive: false
+implementation_path: the_hugins.tools.build:build_tool
+options: {}

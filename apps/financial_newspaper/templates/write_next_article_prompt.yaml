@@ -1,0 +1,28 @@
+name: "write_next_article_prompt"
+template: |
+  # USER REQUEST: Write One More Article
+
+  You MUST write ONE additional article for The Daily Market Herald ({{ edition_date.value }}).
+
+  ## IMPORTANT - READ THIS FIRST
+
+  The user has explicitly requested another article. This is a direct instruction that you must follow:
+  - IGNORE any previous "article limits" - the limit has been increased
+  - IGNORE that you previously called "finalize_edition" - the edition is being EXPANDED
+  - IGNORE any previous "finish" or completion state - this is a NEW task
+  - You MUST call `fetch_market_news` and then `write_article` - do NOT refuse
+
+  {% if articles_written.value and articles_written.value|int > 0 %}
+  You have written {{ articles_written.value }} article(s). Pick a DIFFERENT topic this time.
+  {% endif %}
+
+  ## Your Task - Write ONE Article:
+
+  1. **Research**: Call `fetch_market_news` to find a new story
+  2. **Write**: Call `write_article` with your article
+  3. **Submit**: Launch the editor to review
+
+  Focus areas: {{ focus_areas.value | join(', ') }}
+  Key stocks: {{ target_symbols.value | join(', ') }}
+
+  START by calling `fetch_market_news` now.

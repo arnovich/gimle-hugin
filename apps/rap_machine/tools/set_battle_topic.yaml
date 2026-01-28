@@ -1,0 +1,13 @@
+name: set_battle_topic
+description: Set the topic/theme for the rap battle. Judge should call this FIRST to decide what the rappers will battle about.
+implementation_path: apps.rap_machine.tools.set_battle_topic:set_battle_topic
+is_interactive: false
+parameters:
+  battle_id:
+    type: string
+    description: The ID of the battle
+    required: true
+  topic:
+    type: string
+    description: The topic/theme for the battle (be creative! e.g., "AI vs Humans", "The Future of Music", "Coffee vs Tea")
+    required: true

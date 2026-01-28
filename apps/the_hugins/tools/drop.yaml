@@ -1,0 +1,26 @@
+name: drop
+description: "Drop an object from your inventory to your current cell or an adjacent cell."
+parameters:
+  world_id:
+    type: string
+    description: The ID of the world you are in
+    required: true
+  object_name:
+    type: string
+    description: Name of the object to drop
+    required: true
+  x:
+    type: integer
+    description: Optional x coordinate of the cell (defaults to your current position)
+    required: false
+  y:
+    type: integer
+    description: Optional y coordinate of the cell (defaults to your current position)
+    required: false
+  reason:
+    type: string
+    description: Why you are performing this action
+    required: false
+is_interactive: false
+implementation_path: the_hugins.tools.drop:drop_tool
+options: {}

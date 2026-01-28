@@ -1,0 +1,24 @@
+name: creature_planning
+description: Creature in planning mode - thinking about goals and making plans
+system_template: creature_planning_system
+llm_model: haiku-latest
+tools:
+  - get_position
+  - look
+  - get_inventory
+  - get_relationships
+  - make_plan
+  - check_plan
+  - update_plan
+  - get_goals
+  - explore_options
+  - evaluate_options
+  - build
+  - list_structures
+  - set_behavior_mode
+  - remember
+  - recall_memories
+  - get_memory_detail
+interactive: false
+options:
+  behavior_mode: planning

@@ -1,0 +1,41 @@
+name: refine_analysis
+description: Refine the analysis based on evaluator feedback
+prompt: |
+  You previously performed a data analysis. An evaluator has reviewed your work and provided feedback.
+
+  ## Your Initial Analysis
+  ---
+  {{ initial_analysis.value }}
+  ---
+
+  ## Evaluator Feedback
+  ---
+  {{ evaluation.value }}
+  ---
+
+  ## Your Task
+
+  Improve your analysis based on this feedback. Specifically:
+
+  1. **Address the weaknesses** identified in the evaluation
+  2. **Perform the suggested deeper analyses** (additional queries, statistics, visualizations)
+  3. **Explore the missing insights** the evaluator pointed out
+  4. **Build on your strengths** while fixing the gaps
+
+  You have access to all your analysis tools:
+  - describe_data, sql_query for data exploration
+  - calculate_statistics, detect_anomalies for deeper analysis
+  - visualize, sql_query_and_visualize for additional charts
+  - generate_report for the final improved report
+
+  Create a new, improved analysis that addresses the feedback. Generate a final HTML report that incorporates your deeper insights and additional visualizations.
+
+  When the improved report is generated, call the finish tool.
+chain_config: data_analyst
+parameters:
+  initial_analysis:
+    type: string
+    description: The initial analysis
+  evaluation:
+    type: string
+    description: The evaluator's feedback on the initial analysis

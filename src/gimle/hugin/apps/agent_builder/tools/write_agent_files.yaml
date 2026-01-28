@@ -1,0 +1,6 @@
+name: write_agent_files
+description: Write all generated files to the output directory. Creates the directory structure and saves all files.
+parameters: {}
+is_interactive: false
+implementation_path: agent_builder.tools.write_agent_files:write_agent_files
+options: {}

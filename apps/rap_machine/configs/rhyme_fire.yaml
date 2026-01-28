@@ -1,0 +1,10 @@
+name: rhyme_fire
+description: Rhyme Fire - Aggressive, hard-hitting rapper with powerful metaphors
+system_template: rapper_system
+llm_model: gpt-4o-mini
+tools:
+  - spit_bars
+  - builtins.finish:finish
+state_namespaces:
+  - common
+  - battles

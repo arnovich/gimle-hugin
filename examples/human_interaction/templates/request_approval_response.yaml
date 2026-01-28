@@ -1,0 +1,11 @@
+name: request_approval_response
+template: |
+  The user responded to your request for approval.
+
+  Response: {{ response }}
+
+  Follow your workflow:
+
+  1. ANALYZE THE RESPONSE
+     - Understand what the user is saying
+     - Identify the key decision or action that needs approval

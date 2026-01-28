@@ -1,0 +1,18 @@
+name: check_plan
+description: "Check the progress of one of your plans. Shows current step, completion percentage, and all step statuses. If no plan_id is given, shows your highest priority active plan."
+parameters:
+  world_id:
+    type: string
+    description: The ID of the world you are in
+    required: true
+  plan_id:
+    type: string
+    description: "Optional: specific plan ID to check (use get_goals to see all plan IDs)"
+    required: false
+  reason:
+    type: string
+    description: Why you are performing this action
+    required: false
+is_interactive: false
+implementation_path: the_hugins.tools.check_plan:check_plan_tool
+options: {}

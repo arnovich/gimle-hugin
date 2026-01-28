@@ -1,0 +1,8 @@
+name: request_replan
+description: Request to return to planning mode when stuck or need to revise the plan
+implementation_path: plan_execute_agent.tools.execution_tools:request_replan
+parameters:
+  reason:
+    type: string
+    description: Reason for requesting a replan
+    required: true

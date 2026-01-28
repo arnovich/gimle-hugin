@@ -1,0 +1,26 @@
+name: generate_tool
+description: Generate a tool implementation (Python) and definition (YAML). Creates both files needed for a working tool.
+parameters:
+  tool_name:
+    type: string
+    description: Name of the tool (snake_case)
+    required: true
+  description:
+    type: string
+    description: What the tool does
+    required: true
+  parameters_schema:
+    type: object
+    description: "Dict of parameter definitions: {param_name: {type: str, description: str, required: bool}}"
+    required: true
+  implementation_code:
+    type: string
+    description: "ACTUAL PYTHON CODE (not instructions). The function body that will execute. Must be valid Python with return statement. Example: 'result = param1.upper()\\nreturn ToolResponse(is_error=False, content={\"result\": result})'"
+    required: true
+  agent_name:
+    type: string
+    description: Name of the agent (for import path in generated YAML)
+    required: true
+is_interactive: false
+implementation_path: agent_builder.tools.generate_tool:generate_tool
+options: {}

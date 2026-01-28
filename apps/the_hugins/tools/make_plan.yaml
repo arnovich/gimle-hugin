@@ -1,0 +1,30 @@
+name: make_plan
+description: "Create a multi-step plan to achieve a goal. Break complex objectives into actionable steps that you can track. Each step should have a description and optionally a success condition."
+parameters:
+  world_id:
+    type: string
+    description: The ID of the world you are in
+    required: true
+  plan_name:
+    type: string
+    description: "Short name for the plan (e.g., 'Collect apples', 'Build shelter')"
+    required: true
+  plan_description:
+    type: string
+    description: What you want to achieve with this plan
+    required: true
+  steps:
+    type: array
+    description: "List of step objects with 'description' (required) and optional 'success_condition'"
+    required: true
+  priority:
+    type: integer
+    description: How important this plan is (1-10, default 5)
+    required: false
+  reason:
+    type: string
+    description: Why you are performing this action
+    required: false
+is_interactive: false
+implementation_path: the_hugins.tools.make_plan:make_plan_tool
+options: {}

@@ -1,0 +1,26 @@
+name: "technical_analysis"
+description: "Perform comprehensive technical analysis on stocks, currencies, commodities, or crypto. Calculates indicators (SMA, EMA, RSI, MACD, Bollinger Bands, Volume) and generates professional charts saved as artifacts."
+parameters:
+  symbol:
+    type: "string"
+    description: "Ticker symbol (e.g., AAPL for stocks, BTC-USD for crypto, EURUSD=X for forex, GC=F for gold)"
+    required: true
+  period:
+    type: "string"
+    description: "Time period for analysis: 1mo, 3mo, 6mo, 1y, 2y, 5y, max"
+    required: false
+  interval:
+    type: "string"
+    description: "Data interval: 1d (daily), 1wk (weekly), 1mo (monthly)"
+    required: false
+  indicators:
+    type: "array"
+    description: "List of technical indicators to calculate: sma, ema, rsi, macd, bollinger, volume"
+    required: false
+  generate_chart:
+    type: "boolean"
+    description: "Whether to generate and save a visualization chart as an artifact"
+    required: false
+is_interactive: false
+implementation_path: technical_analysis:technical_analysis
+options: {}

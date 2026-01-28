@@ -1,0 +1,9 @@
+name: explorer
+description: Explores a specific question in a branch and saves the result as an artifact
+system_template: explorer_system
+llm_model: haiku-latest
+tools:
+  - builtins.save_insight:save_insight
+  - builtins.finish:finish
+interactive: false
+options: {}

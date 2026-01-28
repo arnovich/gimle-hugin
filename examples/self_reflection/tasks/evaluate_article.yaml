@@ -1,0 +1,30 @@
+name: evaluate_article
+description: Self-evaluate the article draft
+prompt: |
+  Evaluate this article draft:
+
+  ---
+  {{ draft.value }}
+  ---
+
+  Provide a structured evaluation:
+
+  ## Overall Assessment
+  Rate the article from 1-10 and explain why.
+
+  ## Strengths
+  List 2-3 things the article does well.
+
+  ## Areas for Improvement
+  List 2-3 specific weaknesses with actionable suggestions.
+
+  ## Recommended Changes
+  Provide 3-5 specific edits or additions that would improve the article.
+
+  When done, call the finish tool with your evaluation.
+pass_result_as: evaluation
+chain_config: evaluator
+parameters:
+  draft:
+    type: string
+    description: The article draft to evaluate

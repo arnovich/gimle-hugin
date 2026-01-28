@@ -1,0 +1,4 @@
+name: document_agent
+description: Agent for document processing with task chaining
+system_template: document_system
+llm_model: haiku-latest

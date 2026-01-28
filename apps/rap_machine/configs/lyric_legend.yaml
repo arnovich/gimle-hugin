@@ -1,0 +1,10 @@
+name: lyric_legend
+description: Lyric Legend - Conscious rapper with deep philosophical themes and social commentary
+system_template: rapper_system
+llm_model: gpt-4.1-nano
+tools:
+  - spit_bars
+  - builtins.finish:finish
+state_namespaces:
+  - common
+  - battles

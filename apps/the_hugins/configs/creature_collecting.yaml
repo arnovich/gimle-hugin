@@ -1,0 +1,22 @@
+name: creature_collecting
+description: Creature in collecting mode - gathering items and resources
+system_template: creature_collecting_system
+llm_model: haiku-latest
+tools:
+  - get_position
+  - look
+  - move
+  - take
+  - drop
+  - get_inventory
+  - craft
+  - list_recipes
+  - dig
+  - plant
+  - use_item
+  - set_behavior_mode
+  - remember
+  - recall_memories
+interactive: false
+options:
+  behavior_mode: collecting

@@ -1,0 +1,14 @@
+name: "update_newspaper_layout"
+description: "Update the newspaper's front page layout with articles"
+parameters:
+  edition_title:
+    type: "string"
+    description: "Title for this edition (e.g., 'Morning Edition', 'Market Close')"
+    required: false
+  featured_article_id:
+    type: "string"
+    description: "ID of the article to feature prominently"
+    required: false
+is_interactive: false
+implementation_path: update_newspaper_layout:update_newspaper_layout
+options: {}

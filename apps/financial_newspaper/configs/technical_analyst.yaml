@@ -1,0 +1,9 @@
+name: "technical_analyst"
+description: "A specialized technical analysis expert that performs deep market analysis using indicators, patterns, and charting"
+system_template: "technical_analyst_system"
+llm_model: "haiku-latest"
+tools:
+  - "technical_analysis"
+  - "fetch_stock_data"
+  - "builtins.save_insight:save_insight"
+  - "builtins.finish:finish"

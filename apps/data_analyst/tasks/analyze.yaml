@@ -1,0 +1,32 @@
+name: analyze
+description: Analyze data from a file with self-reflection
+task_sequence: [evaluate_analysis, refine_analysis]
+pass_result_as: initial_analysis
+parameters:
+  data_source:
+    type: string
+    description: Path to the data file (CSV or SQLite)
+    default: apps/data_analyst/fixtures/sales.csv
+  focus:
+    type: string
+    description: Optional specific focus or instruction for the analysis
+    required: false
+prompt: |
+  Analyze the data from {{ data_source.value }}.
+  {% if focus.value %}
+
+  FOCUS: {{ focus.value }}
+  Pay special attention to this aspect in your analysis and report.
+  {% endif %}
+
+  Please:
+  1. Explore the data structure and understand what columns are available
+  2. Identify key trends and patterns in the data{% if focus.value %}, especially related to: {{ focus.value }}{% endif %}
+  3. Create visualizations to illustrate your findings (save the artifact_id from each)
+  4. Save important insights as artifacts
+  5. Generate a final HTML report using generate_report that includes:
+     - A descriptive title
+     - An executive summary of your analysis
+     - Your key findings with their associated chart artifact IDs
+
+  When the report is generated, use the finish tool.

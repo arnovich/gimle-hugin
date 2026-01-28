@@ -1,0 +1,13 @@
+name: call_rapper
+description: Call a rapper to perform their verse. The rapper will receive their opponent's last verse as context so they can respond directly. First call creates the rapper agent, subsequent calls reuse the same agent maintaining their memory.
+implementation_path: apps.rap_machine.tools.call_rapper:call_rapper
+is_interactive: false
+parameters:
+  battle_id:
+    type: string
+    description: The ID of the battle
+    required: true
+  rapper_number:
+    type: integer
+    description: Which rapper to call (1 or 2)
+    required: true

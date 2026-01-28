@@ -1,0 +1,31 @@
+name: "write_article"
+description: "Write and format a financial news article. IMPORTANT: This will automatically send the article to the editor for review - you will receive the editor's feedback before continuing."
+parameters:
+  headline:
+    type: "string"
+    description: "Article headline"
+    required: true
+  content:
+    type: "string"
+    description: "Article content/body - can reference technical analysis and chart findings"
+    required: true
+  category:
+    type: "string"
+    description: "Article category: 'breaking', 'analysis', 'markets', 'earnings', 'opinion'"
+    required: false
+  related_symbols:
+    type: "array"
+    description: "List of stock symbols mentioned in the article"
+    required: false
+  chart_artifact_ids:
+    type: "array"
+    description: "List of chart artifact IDs from technical_analysis to embed in the article"
+    required: false
+  skip_editor_review:
+    type: "boolean"
+    description: "If true, skip the automatic editor review (not recommended)"
+    required: false
+    default: false
+is_interactive: false
+implementation_path: financial_newspaper.tools.write_article:write_article
+options: {}

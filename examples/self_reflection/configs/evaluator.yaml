@@ -1,0 +1,6 @@
+name: evaluator
+description: Article evaluator with stronger model for better critique
+system_template: evaluator_system
+llm_model: sonnet-latest
+tools:
+  - builtins.finish:finish

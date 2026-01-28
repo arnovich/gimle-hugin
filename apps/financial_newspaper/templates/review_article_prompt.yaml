@@ -1,0 +1,44 @@
+name: "review_article_prompt"
+template: |
+  Review this article submission for The Daily Market Herald.
+
+  **Article ID**: {{ article_id.value }}
+  **Revision Number**: {{ revision_number.value }}
+
+  ---
+  ## Article Content:
+
+  {{ article_content.value }}
+
+  ---
+
+  ## Your Review Task:
+
+  Evaluate this article against our publication standards:
+
+  1. **Insight**: Does it provide unique analysis, not just news summaries?
+  2. **Accuracy**: Are facts correct and well-sourced?
+  3. **Technical Data**: Does it include relevant technical analysis (RSI, MACD, Bollinger Bands)?
+  4. **Clarity**: Is the writing clear and engaging?
+  5. **Reader Value**: Will readers learn something actionable?
+
+  {% if revision_number.value and revision_number.value|int > 0 %}
+  **Note**: This is revision #{{ revision_number.value }}. The journalist has revised based on previous feedback.
+  Be fair in your assessment but maintain our quality standards.
+  {% endif %}
+
+  After your evaluation, call the `finish` tool with your decision:
+
+  ```json
+  {
+    "decision": "approved" or "rejected",
+    "quality_score": 1-10,
+    "feedback": "specific feedback - what's good, what needs improvement",
+    "placement": "featured" / "top_story" / "regular"
+  }
+  ```
+
+  Remember:
+  - Score 7+ for approval
+  - Technical analysis is REQUIRED for stock articles
+  - Be constructive in feedback - help the journalist improve

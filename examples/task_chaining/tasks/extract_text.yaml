@@ -1,0 +1,24 @@
+name: extract_text
+description: Extract text from a document
+parameters:
+  document:
+    type: string
+    description: ''
+    required: false
+    default: ''
+prompt: 'Extract text from the following document:
+
+
+  {{ document.value }}
+
+
+  Use the extract_text tool to process the document.
+
+  When done call `finish` passing in the extracted text as the result.
+
+  '
+next_task: analyze_content
+pass_result_as: extracted_text
+tools:
+  - extract_text
+  - builtins.finish:finish

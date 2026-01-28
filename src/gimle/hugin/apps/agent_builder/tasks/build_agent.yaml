@@ -1,0 +1,90 @@
+name: build_agent
+description: Create a new Hugin agent based on user requirements
+task_sequence: [review_agent, finalize_agent]
+pass_result_as: generated_preview
+parameters:
+  agent_name:
+    type: string
+    description: Name of the agent to create
+    required: true
+  description:
+    type: string
+    description: What the agent should do
+    required: true
+  llm_model:
+    type: string
+    description: LLM model for the generated agent
+    required: false
+    default: haiku-latest
+  full_implementation:
+    type: boolean
+    description: Generate full implementations vs stubs
+    required: false
+    default: true
+  output_path:
+    type: string
+    description: Directory to write the agent files
+    required: true
+prompt: |
+  ## THE AGENT YOU MUST BUILD
+
+  **Name**: {{ agent_name.value }}
+  **Description**: {{ description.value }}
+  **Model**: {{ llm_model.value }}
+  **Output**: {{ output_path.value }}
+
+  READ THE DESCRIPTION ABOVE CAREFULLY. Every decision you make - the config name,
+  the tools you create, the system template, the task parameters - must directly
+  serve the description above. Do NOT create a generic agent.
+
+  ## Step-by-Step
+
+  1. **Analyze the description** - What specific tools does this agent need?
+     What parameters should the task accept? What domain knowledge should
+     the system template include?
+
+  2. **generate_config** - Name it `{{ agent_name.value }}` (not something generic).
+     Include custom tools specific to the description plus these required builtins:
+     - `builtins.save_text:save_text`
+     - `builtins.save_file:save_file`
+     - `builtins.finish:finish`
+
+  3. **generate_template** - Write a system prompt that makes the agent an expert
+     at exactly what the description says. Include domain-specific guidance,
+     not generic instructions.
+
+  4. **generate_task** - Define parameters that the user would need to provide
+     based on the description. Write a prompt that tells the agent exactly
+     what to do, referencing its specific tools. Instruct it to save outputs.
+
+  5. **generate_tool** for each custom tool - The `implementation_code` must be
+     ACTUAL PYTHON CODE. Example:
+
+     ```python
+     generate_tool(
+       tool_name="fetch_stock_data",
+       description="Fetch stock data from Yahoo Finance",
+       parameters_schema={
+         "ticker": {"type": "string", "description": "Stock ticker symbol", "required": True}
+       },
+       implementation_code='''
+     import yfinance as yf
+     stock = yf.Ticker(ticker)
+     info = stock.info
+     hist = stock.history(period="1mo")
+     return ToolResponse(
+         is_error=False,
+         content={"info": str(info), "history": str(hist.tail().to_dict())}
+     )
+     ''',
+       agent_name="{{ agent_name.value }}"
+     )
+     ```
+
+     WRONG: `implementation_code="Fetch the stock data and return it"`
+     RIGHT: Actual Python code with imports, logic, and return statement.
+
+  6. **preview_files** - Show all generated files.
+
+  7. **finish** - Call finish with the preview output.
+     Do NOT call write_agent_files - that happens after review.

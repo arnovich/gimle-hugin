@@ -1,0 +1,10 @@
+name: mic_master
+description: Mic Master - Technical perfectionist with precise flow and mathematical rhyme patterns
+system_template: rapper_system
+llm_model: gpt-4.1-mini
+tools:
+  - spit_bars
+  - builtins.finish:finish
+state_namespaces:
+  - common
+  - battles

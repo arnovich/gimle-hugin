@@ -1,0 +1,35 @@
+name: visualize
+description: Create a visualization from data. Supports various chart types including line, bar, scatter, histogram, and pie charts.
+parameters:
+  data:
+    type: string
+    description: JSON string of data to visualize (list of dictionaries with keys as column names)
+    required: true
+  chart_type:
+    type: string
+    description: "Type of chart: 'line', 'bar', 'scatter', 'histogram', 'pie', 'box'"
+    required: true
+  x_column:
+    type: string
+    description: Name of the column to use for x-axis
+    required: false
+  y_column:
+    type: string
+    description: Name of the column to use for y-axis (required for line, bar, scatter)
+    required: false
+  title:
+    type: string
+    description: Title for the chart
+    required: false
+  x_label:
+    type: string
+    description: Label for x-axis
+    required: false
+  y_label:
+    type: string
+    description: Label for y-axis
+    required: false
+is_interactive: false
+implementation_path: visualize:visualize_tool
+options:
+  include_reason: true

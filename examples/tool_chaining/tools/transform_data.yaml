@@ -1,0 +1,10 @@
+name: transform_data
+description: |
+  Transform validated data. Automatically chains to store_data.
+  This tool is typically called automatically by validate_data.
+implementation_path: tool_chaining.tools.pipeline_tools:transform_data
+parameters:
+  validated_data:
+    type: string
+    description: JSON string of validated data to transform
+    required: true

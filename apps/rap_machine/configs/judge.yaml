@@ -1,0 +1,14 @@
+name: judge
+description: An impartial judge that moderates rap battles and declares winners
+system_template: judge_system
+llm_model: opus-latest
+tools:
+  - set_battle_topic
+  - call_rapper
+  - get_battle_state
+  - declare_winner
+  - generate_battle_report
+state_namespaces:
+  - common
+  - battles
+  - battle_metadata

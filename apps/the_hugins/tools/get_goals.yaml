@@ -1,0 +1,18 @@
+name: get_goals
+description: "View all your current goals and plans. Shows priority, progress, and status for each. Plans include their current step and completion percentage. Use this to decide what to work on next."
+parameters:
+  world_id:
+    type: string
+    description: The ID of the world you are in
+    required: true
+  include_completed:
+    type: boolean
+    description: Whether to include completed/failed/abandoned items (default false)
+    required: false
+  reason:
+    type: string
+    description: Why you are performing this action
+    required: false
+is_interactive: false
+implementation_path: the_hugins.tools.get_goals:get_goals_tool
+options: {}

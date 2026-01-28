@@ -1,0 +1,15 @@
+name: agent_builder
+description: An agent that creates new Hugin agents based on user requirements
+system_template: builder_system
+llm_model: sonnet-latest
+tools:
+  - generate_config
+  - generate_task
+  - generate_template
+  - generate_tool
+  - preview_files
+  - write_agent_files
+  - builtins.save_file:save_file
+  - builtins.finish:finish
+interactive: false
+options: {}

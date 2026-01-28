@@ -1,0 +1,17 @@
+name: "review_article"
+description: "Review an article for publication quality and provide feedback"
+prompt: review_article_prompt
+parameters:
+  article_content:
+    type: string
+    description: The full article content to review
+    required: true
+  article_id:
+    type: string
+    description: The article ID for tracking
+    required: true
+  revision_number:
+    type: integer
+    description: Which revision this is (0=first submission)
+    required: false
+    default: 0

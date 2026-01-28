@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>State Transition Map - State Machine Animator</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5;
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      color: #2c3e50;
+      margin-bottom: 10px;
+    }
+
+    .description {
+      color: #666;
+      margin-bottom: 20px;
+      line-height: 1.6;
+    }
+
+    .diagram-container {
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      padding: 30px;
+      overflow-x: auto;
+    }
+
+    .diagram {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      min-width: 700px;
+    }
+
+    .header-row {
+      display: flex;
+      justify-content: center;
+      gap: 120px;
+      padding: 0 20px 15px 20px;
+      border-bottom: 2px solid #e0e0e0;
+      margin-bottom: 10px;
+    }
+
+    .column-header {
+      font-size: 14px;
+      font-weight: 600;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      width: 180px;
+      text-align: center;
+    }
+
+    .transition-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 120px;
+      padding: 10px 20px;
+      border-bottom: 1px solid #f0f0f0;
+    }
+
+    .transition-row:last-child {
+      border-bottom: none;
+    }
+
+    .source-side {
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      width: 180px;
+    }
+
+    .target-side {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 6px;
+      width: 180px;
+    }
+
+    .state-box {
+      padding: 10px 16px;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 500;
+      text-align: center;
+      min-width: 140px;
+      position: relative;
+    }
+
+    /* LLM/Oracle - Yellow */
+    .state-llm {
+      background: #fff9e6;
+      border: 2px solid #f0c000;
+      color: #8a6d00;
+    }
+
+    /* Tool - Blue */
+    .state-tool {
+      background: #e6f3ff;
+      border: 2px solid #2196f3;
+      color: #0d47a1;
+    }
+
+    /* Agent - Purple */
+    .state-agent {
+      background: #f3e5f5;
+      border: 2px solid #9c27b0;
+      color: #4a148c;
+    }
+
+    /* User/Human - Orange */
+    .state-user {
+      background: #fff3e0;
+      border: 2px solid #ff9800;
+      color: #e65100;
+    }
+
+    /* Terminal - Green */
+    .state-terminal {
+      background: #e8f5e9;
+      border: 2px solid #4caf50;
+      color: #1b5e20;
+    }
+
+    .legend {
+      display: flex;
+      gap: 20px;
+      margin-top: 20px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: #666;
+    }
+
+    .legend-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+    }
+
+    .legend-dot.llm { background: #f0c000; }
+    .legend-dot.tool { background: #2196f3; }
+    .legend-dot.agent { background: #9c27b0; }
+    .legend-dot.user { background: #ff9800; }
+    .legend-dot.terminal { background: #4caf50; }
+
+    svg.arrows {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+
+    .arrow-path {
+      fill: none;
+      stroke: #999;
+      stroke-width: 1.5;
+    }
+
+    .arrow-head {
+      fill: #999;
+    }
+
+    .info-box {
+      background: #e3f2fd;
+      border-left: 4px solid #2196f3;
+      padding: 15px;
+      border-radius: 4px;
+      margin-top: 20px;
+    }
+
+    .info-box h3 {
+      color: #1565c0;
+      margin-bottom: 8px;
+    }
+
+    .info-box p {
+      color: #555;
+      line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>State Transition Map</h1>
+    <p class="description">
+      This diagram shows all valid state transitions in the Hugin agent framework.
+      Source states are on the left, and their possible target states are on the right.
+      Each source can connect to multiple targets, visualizing the complete transition graph.
+    </p>
+
+    <div class="diagram-container">
+      <div id="diagram" style="position: relative;">
+        <!-- SVG arrows will be drawn here -->
+        <svg class="arrows" id="arrows"></svg>
+
+        <div class="diagram">
+          <!-- Header Row -->
+          <div class="header-row">
+            <div class="column-header">Source State</div>
+            <div class="column-header">Target States</div>
+          </div>
+
+          <!-- Transition rows will be added here by JavaScript -->
+          <div id="transitions"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="legend">
+      <div class="legend-item">
+        <div class="legend-dot llm"></div>
+        <span>LLM/Oracle</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-dot tool"></div>
+        <span>Tool</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-dot agent"></div>
+        <span>Agent/Task</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-dot user"></div>
+        <span>Human/User</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-dot terminal"></div>
+        <span>Terminal</span>
+      </div>
+    </div>
+
+    <div class="info-box">
+      <h3>Reading the Diagram</h3>
+      <p>
+        Each row shows a source state and all the states it can transition to.
+        For example, <strong>OracleResponse</strong> (the LLM's decision) can lead to
+        tool calls, agent calls, human questions, more oracle queries, or task completion.
+        This branching reflects the agent's decision-making capability at each step.
+      </p>
+    </div>
+  </div>
+
+  <script type="module">
+    // Define all valid transitions (matching Hugin framework)
+    const transitions = {
+      // Task start
+      'TaskDefinition': ['AskOracle'],
+
+      // LLM interactions
+      'AskOracle': ['OracleResponse'],
+      'OracleResponse': ['ToolCall', 'AgentCall', 'AskHuman', 'AskOracle', 'TaskResult'],
+
+      // Tool interactions
+      'ToolCall': ['ToolResult'],
+      'ToolResult': ['AskOracle'],
+
+      // Agent delegation
+      'AgentCall': ['AgentResult'],
+      'AgentResult': ['AskOracle'],
+
+      // Human interactions
+      'AskHuman': ['HumanResponse'],
+      'HumanResponse': ['AskOracle'],
+      'ExternalInput': ['AskOracle'],
+
+      // Task completion
+      'TaskResult': ['TaskChain'],
+      'TaskChain': ['TaskDefinition'],
+    };
+
+    // State categories for styling
+    const stateCategories = {
+      'TaskDefinition': 'agent',
+      'TaskResult': 'terminal',
+      'TaskChain': 'agent',
+      'AskOracle': 'llm',
+      'OracleResponse': 'llm',
+      'ToolCall': 'tool',
+      'ToolResult': 'tool',
+      'AgentCall': 'agent',
+      'AgentResult': 'agent',
+      'AskHuman': 'user',
+      'HumanResponse': 'user',
+      'ExternalInput': 'user',
+    };
+
+    const transitionsContainer = document.getElementById('transitions');
+    const arrowsSvg = document.getElementById('arrows');
+
+    // Create rows for each source and its targets
+    Object.entries(transitions).forEach(([source, targets]) => {
+      // Create row container
+      const row = document.createElement('div');
+      row.className = 'transition-row';
+
+      // Create source side
+      const sourceSide = document.createElement('div');
+      sourceSide.className = 'source-side';
+
+      const sourceBox = document.createElement('div');
+      sourceBox.className = `state-box state-${stateCategories[source]}`;
+      sourceBox.textContent = source;
+      sourceBox.id = `source-${source}`;
+      sourceSide.appendChild(sourceBox);
+
+      // Create target side
+      const targetSide = document.createElement('div');
+      targetSide.className = 'target-side';
+
+      targets.forEach(target => {
+        const targetBox = document.createElement('div');
+        targetBox.className = `state-box state-${stateCategories[target]}`;
+        targetBox.textContent = target;
+        targetBox.id = `target-${source}-${target}`;
+        targetSide.appendChild(targetBox);
+      });
+
+      row.appendChild(sourceSide);
+      row.appendChild(targetSide);
+      transitionsContainer.appendChild(row);
+    });
+
+    // Draw arrows after layout is complete
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        drawArrows();
+      }, 100);
+    });
+
+    function drawArrows() {
+      const diagram = document.getElementById('diagram');
+      const diagramRect = diagram.getBoundingClientRect();
+
+      // Clear existing arrows
+      arrowsSvg.innerHTML = '';
+
+      // Create arrow marker
+      const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+      const marker = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
+      marker.setAttribute('id', 'arrowhead');
+      marker.setAttribute('markerWidth', '10');
+      marker.setAttribute('markerHeight', '7');
+      marker.setAttribute('refX', '9');
+      marker.setAttribute('refY', '3.5');
+      marker.setAttribute('orient', 'auto');
+
+      const polygon = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+      polygon.setAttribute('points', '0 0, 10 3.5, 0 7');
+      polygon.setAttribute('class', 'arrow-head');
+
+      marker.appendChild(polygon);
+      defs.appendChild(marker);
+      arrowsSvg.appendChild(defs);
+
+      // Draw arrows for each transition
+      Object.entries(transitions).forEach(([source, targets]) => {
+        const sourceEl = document.getElementById(`source-${source}`);
+        const sourceRect = sourceEl.getBoundingClientRect();
+
+        targets.forEach(target => {
+          const targetEl = document.getElementById(`target-${source}-${target}`);
+          const targetRect = targetEl.getBoundingClientRect();
+
+          // Calculate positions relative to diagram container
+          const startX = sourceRect.right - diagramRect.left;
+          const startY = sourceRect.top + sourceRect.height / 2 - diagramRect.top;
+          const endX = targetRect.left - diagramRect.left;
+          const endY = targetRect.top + targetRect.height / 2 - diagramRect.top;
+
+          // Create curved path
+          const midX = (startX + endX) / 2;
+          const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          path.setAttribute('d', `M ${startX} ${startY} C ${midX} ${startY}, ${midX} ${endY}, ${endX} ${endY}`);
+          path.setAttribute('class', 'arrow-path');
+          path.setAttribute('marker-end', 'url(#arrowhead)');
+
+          arrowsSvg.appendChild(path);
+        });
+      });
+    }
+
+    // Redraw on resize
+    window.addEventListener('resize', () => {
+      requestAnimationFrame(() => {
+        drawArrows();
+      });
+    });
+  </script>
+</body>
+</html>

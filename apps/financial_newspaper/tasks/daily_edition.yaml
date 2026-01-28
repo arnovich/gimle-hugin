@@ -1,0 +1,24 @@
+name: "daily_edition"
+description: "Create a daily financial newspaper edition with market analysis and news"
+prompt: "daily_edition_prompt"
+parameters:
+  number_of_articles:
+    type: integer
+    description: "Number of articles to write for the edition"
+    required: false
+    default: 3
+  target_symbols:
+    type: array
+    description: "Stock symbols to focus on"
+    required: false
+    default: ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA"]
+  focus_areas:
+    type: array
+    description: "Areas of focus for the articles"
+    required: false
+    default: ["market_trends", "earnings", "tech_analysis", "economic_indicators"]
+  edition_date:
+    type: string
+    description: "Date for the edition"
+    required: false
+    default: "{{ current_date }}"

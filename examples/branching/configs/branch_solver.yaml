@@ -1,0 +1,8 @@
+name: branch_solver
+description: Explores a single solution approach in a branch (no branching tools)
+system_template: branch_solver_system
+llm_model: haiku-latest
+tools:
+  - builtins.finish:finish
+interactive: false
+options: {}

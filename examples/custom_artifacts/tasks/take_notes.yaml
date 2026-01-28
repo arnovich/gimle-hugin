@@ -1,0 +1,32 @@
+name: take_notes
+description: Research a topic and create structured research notes
+parameters:
+  topic:
+    type: string
+    description: The topic to research
+    required: true
+  tags:
+    type: array
+    description: Default tags to apply to notes
+    required: false
+    default: []
+prompt: |
+  Research the following topic and create structured research notes:
+
+  Topic: {{ topic.value }}
+  {% if tags.value %}
+  Default Tags: {{ tags.value | join(', ') }}
+  {% endif %}
+
+  Your workflow:
+  1. First, query existing artifacts to see if we have prior research
+  2. Research the topic using your knowledge
+  3. Create 2-3 structured research notes using the save_research_note tool:
+     - Give each note a clear, specific title
+     - Write detailed content in markdown format
+     - Add relevant tags (include the default tags if provided)
+     - Set an appropriate confidence level (low/medium/high)
+     - Include sources if you reference specific information
+  4. Summarize what you documented and finish
+
+  Create well-organized notes that would be useful for future reference!

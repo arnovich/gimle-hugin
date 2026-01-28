@@ -1,0 +1,64 @@
+name: battle
+description: Engage in a rap battle
+system_template: rapper_system
+llm_model: haiku-latest
+parameters:
+  rapper_name:
+    type: string
+    description: Rapper display name
+    required: true
+  rapper_description:
+    type: string
+    description: Rapper description
+    required: true
+  rap_style:
+    type: string
+    description: Rap style guidance
+    required: true
+  battle_topic:
+    type: string
+    description: Battle topic
+    required: true
+  opponent_last_verse:
+    type: string
+    description: Opponent's last verse (if any)
+    required: false
+    default: ""
+  battle_id:
+    type: string
+    description: Battle ID
+    required: true
+tools:
+  - spit_bars
+  - builtins.finish:finish
+prompt: |
+  You are {{ rapper_name.value }}, {{ rapper_description.value }}
+
+  You're now entering a rap battle in the arena! The topic is: "{{ battle_topic.value }}"
+
+  {% if opponent_last_verse.value %}
+  YOUR OPPONENT JUST SAID:
+  "{{ opponent_last_verse.value }}"
+
+  NOW IT'S YOUR TURN TO RESPOND! Hit back hard, flip their words, counter their points!
+  {% else %}
+  This is the opening - set the tone and bring the heat!
+  {% endif %}
+
+  YOUR TASK:
+  Use the spit_bars tool to drop ONE SHORT verse (2-4 bars ONLY!) about the battle topic.
+
+  Your mission:
+  - ACT as the rapper, don't talk about rapping
+  - Use your unique style: {{ rap_style.value }}
+  - Keep it SHORT and PUNCHY (2-4 bars max!)
+  {% if opponent_last_verse.value %}
+  - DIRECTLY RESPOND to what your opponent just said
+  - Flip their words, counter their points, call them out
+  {% endif %}
+  - Show creativity, wordplay, and personality
+  - DO NOT just describe what you would rap - actually rap!
+
+  Battle ID: {{ battle_id.value }}
+
+  REMEMBER: Keep it short (2-4 bars), drop your bars, and complete your turn!

@@ -1,0 +1,10 @@
+name: beat_boss
+description: Beat Boss - Old-school style with heavy emphasis on rhythm and storytelling
+system_template: rapper_system
+llm_model: gpt-4o
+tools:
+  - spit_bars
+  - builtins.finish:finish
+state_namespaces:
+  - common
+  - battles

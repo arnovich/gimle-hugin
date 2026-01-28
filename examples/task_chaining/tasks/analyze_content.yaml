@@ -1,0 +1,22 @@
+name: analyze_content
+description: Analyze extracted content
+parameters:
+  extracted_text:
+    type: string
+    description: ''
+    required: false
+    default: ''
+prompt: 'Analyze the following extracted content:
+
+
+  {{ extracted_text.value["result"] }}
+
+
+  Use the analyze_content tool with the extracted data.
+
+  '
+next_task: create_summary
+pass_result_as: analysis
+tools:
+  - analyze_content
+  - builtins.finish:finish

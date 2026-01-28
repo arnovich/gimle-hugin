@@ -1,0 +1,14 @@
+name: generate_template
+description: Generate a system template YAML file. Templates define the agent's personality and behavior guidelines.
+parameters:
+  template_name:
+    type: string
+    description: Name of the template (snake_case)
+    required: true
+  template_content:
+    type: string
+    description: The system prompt content that defines agent behavior
+    required: true
+is_interactive: false
+implementation_path: agent_builder.tools.generate_template:generate_template
+options: {}

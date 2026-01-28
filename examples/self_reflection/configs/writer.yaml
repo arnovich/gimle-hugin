@@ -1,0 +1,6 @@
+name: writer
+description: Article writer agent
+system_template: writer_system
+llm_model: haiku-latest
+tools:
+  - builtins.finish:finish

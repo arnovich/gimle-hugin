@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Combined State Machine & Stack View</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5;
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      color: #2c3e50;
+      margin-bottom: 10px;
+    }
+
+    .description {
+      color: #666;
+      margin-bottom: 20px;
+      line-height: 1.6;
+    }
+
+    .visualization {
+      display: flex;
+      gap: 30px;
+      margin-bottom: 20px;
+    }
+
+    .panel {
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+
+    .panel-header {
+      background: #f8f9fa;
+      padding: 12px 20px;
+      border-bottom: 1px solid #e0e0e0;
+      font-weight: 600;
+      color: #2c3e50;
+    }
+
+    .state-machine-panel {
+      flex: 2;
+    }
+
+    .stack-panel {
+      flex: 1;
+      min-width: 220px;
+    }
+
+    .state-machine-content {
+      padding: 30px;
+      position: relative;
+      min-height: 400px;
+    }
+
+    .stack-content {
+      padding: 20px;
+      min-height: 400px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .stack-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+    }
+
+    .stack-items {
+      display: flex;
+      flex-direction: column-reverse;
+      gap: 4px;
+    }
+
+    .state-node {
+      padding: 12px 20px;
+      border-radius: 24px;
+      font-size: 13px;
+      font-weight: 500;
+      text-align: center;
+      position: absolute;
+      min-width: 130px;
+      transition: all 0.3s ease;
+      cursor: default;
+    }
+
+    .state-node.active {
+      transform: scale(1.1);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+      z-index: 10;
+    }
+
+    .stack-item {
+      padding: 10px 16px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 500;
+      text-align: center;
+      opacity: 0;
+      transform: translateY(-20px);
+      animation: slideIn 0.3s ease forwards;
+    }
+
+    @keyframes slideIn {
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    /* LLM/Oracle - Yellow */
+    .cat-llm {
+      background: #fff9e6;
+      border: 2px solid #f0c000;
+      color: #8a6d00;
+    }
+
+    /* Tool - Blue */
+    .cat-tool {
+      background: #e6f3ff;
+      border: 2px solid #2196f3;
+      color: #0d47a1;
+    }
+
+    /* Agent - Purple */
+    .cat-agent {
+      background: #f3e5f5;
+      border: 2px solid #9c27b0;
+      color: #4a148c;
+    }
+
+    /* User/Human - Orange */
+    .cat-user {
+      background: #fff3e0;
+      border: 2px solid #ff9800;
+      color: #e65100;
+    }
+
+    /* Terminal - Green */
+    .cat-terminal {
+      background: #e8f5e9;
+      border: 2px solid #4caf50;
+      color: #1b5e20;
+    }
+
+    svg.arrows {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+
+    .arrow-path {
+      fill: none;
+      stroke: #ccc;
+      stroke-width: 2;
+      transition: stroke 0.3s ease;
+    }
+
+    .arrow-path.active {
+      stroke: #666;
+      stroke-width: 3;
+    }
+
+    .arrow-head {
+      fill: #ccc;
+    }
+
+    .controls {
+      display: flex;
+      gap: 10px;
+      padding: 15px 20px;
+      background: #f8f9fa;
+      border-top: 1px solid #e0e0e0;
+    }
+
+    button {
+      background: #3498db;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background 0.2s;
+    }
+
+    button:hover {
+      background: #2980b9;
+    }
+
+    button:disabled {
+      background: #bdc3c7;
+      cursor: not-allowed;
+    }
+
+    .legend {
+      display: flex;
+      gap: 20px;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-top: 20px;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: #666;
+    }
+
+    .legend-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+    }
+
+    .legend-dot.llm { background: #f0c000; }
+    .legend-dot.tool { background: #2196f3; }
+    .legend-dot.agent { background: #9c27b0; }
+    .legend-dot.user { background: #ff9800; }
+    .legend-dot.terminal { background: #4caf50; }
+
+    .current-state {
+      text-align: center;
+      padding: 10px;
+      font-size: 13px;
+      color: #666;
+      border-top: 1px solid #e0e0e0;
+      background: #fafafa;
+    }
+
+    .current-state strong {
+      color: #2c3e50;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>State Machine & Interaction Stack</h1>
+    <p class="description">
+      This visualization shows how an agent moves through the state machine while building up
+      an interaction stack. Watch the state diagram on the left highlight the current state,
+      while the stack on the right grows with each transition.
+    </p>
+
+    <div class="visualization">
+      <!-- State Machine Panel -->
+      <div class="panel state-machine-panel">
+        <div class="panel-header">State Machine</div>
+        <div class="state-machine-content" id="state-machine">
+          <svg class="arrows" id="arrows"></svg>
+          <!-- State nodes will be added here -->
+        </div>
+        <div class="controls">
+          <button id="play-btn">Play Animation</button>
+          <button id="step-btn">Step</button>
+          <button id="reset-btn">Reset</button>
+        </div>
+      </div>
+
+      <!-- Stack Panel -->
+      <div class="panel stack-panel">
+        <div class="panel-header">Interaction Stack</div>
+        <div class="stack-content">
+          <div class="stack-container">
+            <div class="stack-items" id="stack-items">
+              <!-- Stack items will be added here -->
+            </div>
+          </div>
+        </div>
+        <div class="current-state" id="current-state">
+          Current: <strong>—</strong>
+        </div>
+      </div>
+    </div>
+
+    <div class="legend">
+      <div class="legend-item">
+        <div class="legend-dot llm"></div>
+        <span>LLM/Oracle</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-dot tool"></div>
+        <span>Tool</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-dot agent"></div>
+        <span>Agent/Task</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-dot user"></div>
+        <span>Human/User</span>
+      </div>
+      <div class="legend-item">
+        <div class="legend-dot terminal"></div>
+        <span>Terminal</span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // State categories
+    const categories = {
+      'TaskDefinition': 'agent',
+      'AskOracle': 'llm',
+      'OracleResponse': 'llm',
+      'ToolCall': 'tool',
+      'ToolResult': 'tool',
+      'AgentCall': 'agent',
+      'AgentResult': 'agent',
+      'AskHuman': 'user',
+      'HumanResponse': 'user',
+      'TaskResult': 'terminal',
+    };
+
+    // State positions in the diagram (arranged in a flow)
+    const statePositions = {
+      'TaskDefinition': { x: 30, y: 30 },
+      'AskOracle': { x: 200, y: 30 },
+      'OracleResponse': { x: 370, y: 30 },
+      'ToolCall': { x: 480, y: 130 },
+      'ToolResult': { x: 340, y: 130 },
+      'AgentCall': { x: 480, y: 220 },
+      'AgentResult': { x: 340, y: 220 },
+      'AskHuman': { x: 480, y: 310 },
+      'HumanResponse': { x: 340, y: 310 },
+      'TaskResult': { x: 200, y: 180 },
+    };
+
+    // Valid transitions
+    const transitions = [
+      ['TaskDefinition', 'AskOracle'],
+      ['AskOracle', 'OracleResponse'],
+      ['OracleResponse', 'ToolCall'],
+      ['OracleResponse', 'AgentCall'],
+      ['OracleResponse', 'AskHuman'],
+      ['OracleResponse', 'AskOracle'],
+      ['OracleResponse', 'TaskResult'],
+      ['ToolCall', 'ToolResult'],
+      ['ToolResult', 'AskOracle'],
+      ['AgentCall', 'AgentResult'],
+      ['AgentResult', 'AskOracle'],
+      ['AskHuman', 'HumanResponse'],
+      ['HumanResponse', 'AskOracle'],
+    ];
+
+    // Example execution sequence (a typical agent flow)
+    const executionSequence = [
+      { state: 'TaskDefinition', label: 'Analyze quarterly sales' },
+      { state: 'AskOracle', label: 'How should I proceed?' },
+      { state: 'OracleResponse', label: 'Query the database first' },
+      { state: 'ToolCall', label: 'query_database' },
+      { state: 'ToolResult', label: '1,234 records found' },
+      { state: 'AskOracle', label: 'What patterns do I see?' },
+      { state: 'OracleResponse', label: 'Sales increased 15% in Q3' },
+      { state: 'ToolCall', label: 'generate_chart' },
+      { state: 'ToolResult', label: 'Chart created' },
+      { state: 'AskOracle', label: 'Should I summarize?' },
+      { state: 'OracleResponse', label: 'Yes, create final report' },
+      { state: 'TaskResult', label: 'Analysis complete' },
+    ];
+
+    const stateMachine = document.getElementById('state-machine');
+    const arrowsSvg = document.getElementById('arrows');
+    const stackItems = document.getElementById('stack-items');
+    const currentStateEl = document.getElementById('current-state');
+    const playBtn = document.getElementById('play-btn');
+    const stepBtn = document.getElementById('step-btn');
+    const resetBtn = document.getElementById('reset-btn');
+
+    let currentStep = 0;
+    let isPlaying = false;
+    const stateNodes = {};
+    const arrowPaths = {};
+
+    // Create state nodes
+    Object.entries(statePositions).forEach(([state, pos]) => {
+      const node = document.createElement('div');
+      node.className = `state-node cat-${categories[state]}`;
+      node.textContent = state;
+      node.style.left = pos.x + 'px';
+      node.style.top = pos.y + 'px';
+      node.id = `node-${state}`;
+      stateMachine.appendChild(node);
+      stateNodes[state] = node;
+    });
+
+    // Draw transition arrows
+    function drawArrows() {
+      arrowsSvg.innerHTML = '';
+
+      // Create arrow marker
+      const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+      const marker = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
+      marker.setAttribute('id', 'arrowhead');
+      marker.setAttribute('markerWidth', '10');
+      marker.setAttribute('markerHeight', '7');
+      marker.setAttribute('refX', '9');
+      marker.setAttribute('refY', '3.5');
+      marker.setAttribute('orient', 'auto');
+
+      const polygon = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+      polygon.setAttribute('points', '0 0, 10 3.5, 0 7');
+      polygon.setAttribute('class', 'arrow-head');
+
+      marker.appendChild(polygon);
+      defs.appendChild(marker);
+      arrowsSvg.appendChild(defs);
+
+      transitions.forEach(([from, to]) => {
+        const fromNode = stateNodes[from];
+        const toNode = stateNodes[to];
+
+        const fromRect = fromNode.getBoundingClientRect();
+        const toRect = toNode.getBoundingClientRect();
+        const containerRect = stateMachine.getBoundingClientRect();
+
+        // Calculate center points
+        const fromX = fromRect.left + fromRect.width / 2 - containerRect.left;
+        const fromY = fromRect.top + fromRect.height / 2 - containerRect.top;
+        const toX = toRect.left + toRect.width / 2 - containerRect.left;
+        const toY = toRect.top + toRect.height / 2 - containerRect.top;
+
+        // Adjust start/end to edge of nodes
+        const angle = Math.atan2(toY - fromY, toX - fromX);
+        const fromRadius = fromRect.width / 2;
+        const toRadius = toRect.width / 2;
+
+        const startX = fromX + Math.cos(angle) * fromRadius;
+        const startY = fromY + Math.sin(angle) * fromRadius;
+        const endX = toX - Math.cos(angle) * (toRadius + 10);
+        const endY = toY - Math.sin(angle) * (toRadius + 10);
+
+        // Create curved path
+        const midX = (startX + endX) / 2;
+        const midY = (startY + endY) / 2;
+
+        // Add slight curve
+        const perpX = -(endY - startY) * 0.15;
+        const perpY = (endX - startX) * 0.15;
+
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', `M ${startX} ${startY} Q ${midX + perpX} ${midY + perpY}, ${endX} ${endY}`);
+        path.setAttribute('class', 'arrow-path');
+        path.setAttribute('marker-end', 'url(#arrowhead)');
+        path.id = `arrow-${from}-${to}`;
+
+        arrowsSvg.appendChild(path);
+        arrowPaths[`${from}-${to}`] = path;
+      });
+    }
+
+    // Highlight current state and transition
+    function highlightState(state, prevState) {
+      // Remove all active states
+      Object.values(stateNodes).forEach(node => node.classList.remove('active'));
+      Object.values(arrowPaths).forEach(path => path.classList.remove('active'));
+
+      // Highlight current state
+      if (stateNodes[state]) {
+        stateNodes[state].classList.add('active');
+      }
+
+      // Highlight transition arrow
+      if (prevState && arrowPaths[`${prevState}-${state}`]) {
+        arrowPaths[`${prevState}-${state}`].classList.add('active');
+      }
+    }
+
+    // Add item to stack
+    function addToStack(state, label) {
+      const item = document.createElement('div');
+      item.className = `stack-item cat-${categories[state]}`;
+      item.innerHTML = `<strong>${state}</strong><br><small>${label}</small>`;
+      stackItems.appendChild(item);
+    }
+
+    // Update current state display
+    function updateCurrentState(state) {
+      currentStateEl.innerHTML = `Current: <strong>${state}</strong>`;
+    }
+
+    // Step to next state
+    function step() {
+      if (currentStep >= executionSequence.length) {
+        return false;
+      }
+
+      const { state, label } = executionSequence[currentStep];
+      const prevState = currentStep > 0 ? executionSequence[currentStep - 1].state : null;
+
+      highlightState(state, prevState);
+      addToStack(state, label);
+      updateCurrentState(state);
+
+      currentStep++;
+      return currentStep < executionSequence.length;
+    }
+
+    // Play animation
+    async function play() {
+      if (isPlaying) return;
+      isPlaying = true;
+      playBtn.disabled = true;
+      stepBtn.disabled = true;
+
+      while (currentStep < executionSequence.length && isPlaying) {
+        step();
+        await new Promise(resolve => setTimeout(resolve, 800));
+      }
+
+      isPlaying = false;
+      playBtn.disabled = false;
+      stepBtn.disabled = false;
+    }
+
+    // Reset
+    function reset() {
+      isPlaying = false;
+      currentStep = 0;
+      stackItems.innerHTML = '';
+      currentStateEl.innerHTML = 'Current: <strong>—</strong>';
+      Object.values(stateNodes).forEach(node => node.classList.remove('active'));
+      Object.values(arrowPaths).forEach(path => path.classList.remove('active'));
+      playBtn.disabled = false;
+      stepBtn.disabled = false;
+    }
+
+    // Event listeners
+    playBtn.addEventListener('click', play);
+    stepBtn.addEventListener('click', step);
+    resetBtn.addEventListener('click', reset);
+
+    // Initial draw
+    requestAnimationFrame(() => {
+      setTimeout(drawArrows, 100);
+    });
+
+    window.addEventListener('resize', drawArrows);
+  </script>
+</body>
+</html>

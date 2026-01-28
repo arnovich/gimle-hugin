@@ -1,0 +1,37 @@
+name: "create_layout_prompt"
+template: |
+  Create the final layout for today's edition of The Daily Market Herald.
+
+  ## Approved Articles:
+
+  {{ approved_articles.value }}
+
+  ## Your Task:
+
+  1. **Analyze the articles**: Review the quality scores and placement recommendations
+  2. **Select Featured Story**: Choose the highest quality_score article as FEATURED
+  3. **Arrange Top Stories**: Place articles scoring 7+ prominently
+  4. **Layout the rest**: Arrange remaining articles by quality score
+
+  ## Layout Guidelines:
+
+  - **Featured**: The single most important, highest-quality story (score 9+)
+  - **Top Stories**: 2-3 high-scoring articles (7+) that deserve prominence
+  - **Regular Grid**: Other approved articles arranged by quality
+
+  ## Action Required:
+
+  Call `update_newspaper_layout` with:
+  - `featured_article_id`: The ID of your chosen featured article
+
+  The tool will automatically arrange other articles based on the layout.
+
+  After updating the layout, call `finish` with a summary:
+  ```json
+  {
+    "layout_created": true,
+    "featured_article_id": "the-id-you-chose",
+    "total_articles": N,
+    "layout_summary": "Brief description of the layout"
+  }
+  ```

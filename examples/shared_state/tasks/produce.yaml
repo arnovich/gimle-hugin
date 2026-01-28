@@ -1,0 +1,21 @@
+name: produce
+description: Produce numbers to shared state
+prompt: 'You are a number producer. Write {{ count.value | default(5) }} numbers to
+  shared state.
+
+
+  For each number from 1 to {{ count.value | default(5) }}:
+
+  1. Use set_number to write it with a key like "num_1", "num_2", etc.
+
+  2. The value should be the number itself
+
+
+  After writing all numbers, use list_numbers to verify, then finish.
+
+  '
+parameters:
+  count:
+    type: integer
+    description: How many numbers to produce
+    default: 5

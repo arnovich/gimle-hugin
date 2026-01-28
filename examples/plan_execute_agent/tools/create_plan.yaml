@@ -1,0 +1,8 @@
+name: create_plan
+description: Create a step-by-step plan for the task
+implementation_path: plan_execute_agent.tools.planning_tools:create_plan
+parameters:
+  steps:
+    type: string
+    description: The plan steps, one per line
+    required: true

@@ -1,0 +1,29 @@
+name: calculate_statistics
+description: |
+  Perform statistical analysis on data. Supports multiple analysis types:
+  - descriptive: Mean, median, std, quartiles, skewness, kurtosis
+  - correlation: Correlation matrix between numeric columns
+  - distribution: Normality tests and distribution shape analysis
+  - group_comparison: Compare groups using t-test or ANOVA
+  - percentiles: Detailed percentile breakdown (p1, p5, p10, p25, p50, p75, p90, p95, p99)
+function: calculate_statistics_tool
+parameters:
+  data:
+    type: string
+    description: JSON string of data (list of dictionaries), typically from sql_query results
+    required: true
+  analysis_type:
+    type: string
+    description: "Type of analysis: descriptive, correlation, distribution, group_comparison, or percentiles"
+    required: true
+  columns:
+    type: array
+    description: List of column names to analyze
+    required: true
+  group_by:
+    type: string
+    description: Column name to group by (required for group_comparison analysis)
+    required: false
+implementation_path: calculate_statistics:calculate_statistics_tool
+options:
+  include_reason: true

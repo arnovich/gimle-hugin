@@ -1,0 +1,26 @@
+name: generate_config
+description: Generate an agent configuration YAML file. Call this first to define the agent's identity and capabilities.
+parameters:
+  agent_name:
+    type: string
+    description: Name of the agent (snake_case)
+    required: true
+  description:
+    type: string
+    description: Human-readable description of the agent
+    required: true
+  system_template:
+    type: string
+    description: Name of the system template (without .yaml extension)
+    required: true
+  llm_model:
+    type: string
+    description: LLM model to use (e.g., haiku-latest, sonnet-latest)
+    required: true
+  tools:
+    type: array
+    description: List of tool names the agent can use
+    required: true
+is_interactive: false
+implementation_path: agent_builder.tools.generate_config:generate_config
+options: {}

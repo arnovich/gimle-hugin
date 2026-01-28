@@ -1,0 +1,6 @@
+name: critic
+description: Article critic using stronger model for thorough evaluation
+system_template: critic_system
+llm_model: sonnet-latest
+tools:
+  - builtins.finish:finish

@@ -1,0 +1,14 @@
+name: create_branch
+description: Create a branch to explore a question (result saved as artifact)
+parameters:
+  branch_name:
+    type: string
+    description: Short name for the branch (use snake_case)
+    required: true
+  question:
+    type: string
+    description: The question to explore in this branch
+    required: true
+implementation_path: create_single_branch:create_single_branch
+options:
+  respond_with_text: true

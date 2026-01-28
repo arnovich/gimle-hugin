@@ -1,0 +1,10 @@
+name: list_examples
+description: List available Hugin examples with descriptions and key concepts. Use this to discover patterns and reference implementations before generating a new agent.
+parameters:
+  category:
+    type: string
+    description: Filter by category (basic, multi_agent, reflection, advanced). Leave empty for all examples.
+    required: false
+is_interactive: false
+implementation_path: agent_builder.tools.list_examples:list_examples
+options: {}

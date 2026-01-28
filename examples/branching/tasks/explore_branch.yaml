@@ -1,0 +1,36 @@
+name: explore_branch
+description: Explore a specific solution approach in a branch
+parameters:
+  problem:
+    type: string
+    description: The problem being solved
+    required: true
+  criteria:
+    type: string
+    description: Success criteria for evaluation
+    required: true
+  approach:
+    type: string
+    description: The specific approach to explore
+    required: true
+prompt: |
+  You are exploring a specific solution approach.
+
+  Problem: {{ problem.value }}
+  Criteria: {{ criteria.value }}
+
+  Your approach: {{ approach.value }}
+
+  Explore this approach thoroughly:
+  1. Analyze how this approach solves the problem
+  2. Consider the trade-offs relative to the criteria
+  3. Identify strengths and potential issues
+  4. Provide your assessment
+
+  When done, use the finish tool with your findings.
+
+# Branch tasks only have finish - no branching tools to prevent recursion
+tools:
+  - builtins.finish:finish
+
+system_template: branch_solver_system

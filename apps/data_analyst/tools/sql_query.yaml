@@ -1,0 +1,15 @@
+name: sql_query
+description: Execute a SQL query on a data source. Returns the query results as a structured data format.
+parameters:
+  query:
+    type: string
+    description: The SQL query to execute
+    required: true
+  data_source:
+    type: string
+    description: Path to the data source (SQLite database file, CSV file, or connection string)
+    required: true
+is_interactive: false
+implementation_path: sql_query:sql_query_tool
+options:
+  include_reason: true

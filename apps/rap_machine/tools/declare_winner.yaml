@@ -1,0 +1,28 @@
+name: declare_winner
+description: |
+  Declare the winner of the rap battle and END the battle.
+
+  WHEN TO USE THIS TOOL:
+  - When reached_max_rounds is TRUE in get_battle_state (this is the primary signal!)
+  - When turn_number >= max_rounds in the battle state
+  - When both rappers have had sufficient turns to showcase their skills
+
+  DO NOT use this tool too early - wait until the battle has reached max_rounds!
+  This tool will END the battle, so only call it when you're ready to make a final decision.
+
+parameters:
+  battle_id:
+    type: string
+    description: The ID of the battle to judge
+    required: true
+  winner:
+    type: string
+    description: The name of the winning rapper
+    required: true
+  reasoning:
+    type: string
+    description: SHORT explanation of why this rapper won (1-2 sentences max, highlight their strongest quality)
+    required: true
+is_interactive: false
+implementation_path: apps.rap_machine.tools.declare_winner:declare_winner
+options: {}

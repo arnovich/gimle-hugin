@@ -1,0 +1,42 @@
+repos:
+-   repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+    -   id: trailing-whitespace
+    -   id: end-of-file-fixer
+    -   id: check-yaml
+-   repo: https://github.com/pycqa/isort
+    rev: 5.12.0
+    hooks:
+    -   id: isort
+        exclude: _version\.py$
+-   repo: https://github.com/psf/black
+    rev: 25.1.0
+    hooks:
+    -   id: black
+        language_version: python3.12
+        exclude: _version\.py$
+
+-   repo: https://github.com/pycqa/flake8
+    rev: 6.1.0
+    hooks:
+    -   id: flake8
+        additional_dependencies: [flake8-docstrings]
+        args: ["--max-line-length=80", "--extend-ignore=E203,E501,W503"]
+
+-   repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.16.1
+    hooks:
+    -   id: mypy
+        args: [--config-file=mypy.ini]
+        exclude: ^(apps|tests)/
+        additional_dependencies:
+          - ollama>=0.6.1
+          - anthropic>=0.72.0
+          - openai>=1.0.0
+
+-   repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+    -   id: detect-secrets
+        args: ['--baseline', '.secrets.baseline']

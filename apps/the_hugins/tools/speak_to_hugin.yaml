@@ -1,0 +1,22 @@
+name: speak_to_hugin
+description: "Send a message directly to another Hugin's mind when you are adjacent (within 1 cell). This allows direct communication between Hugins. The other Hugin will receive your message and can respond."
+parameters:
+  world_id:
+    type: string
+    description: The ID of the world you are in
+    required: true
+  target_name:
+    type: string
+    description: Name of the Hugin to speak to
+    required: true
+  message:
+    type: string
+    description: The message to send to the other Hugin
+    required: true
+  reason:
+    type: string
+    description: Why you are performing this action
+    required: false
+is_interactive: false
+implementation_path: the_hugins.tools.speak_to_hugin:speak_to_hugin
+options: {}

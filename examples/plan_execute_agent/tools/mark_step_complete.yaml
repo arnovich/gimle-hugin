@@ -1,0 +1,8 @@
+name: mark_step_complete
+description: Mark the current step as complete and move to the next step
+implementation_path: plan_execute_agent.tools.execution_tools:mark_step_complete
+parameters:
+  notes:
+    type: string
+    description: Notes about the completed step (results, observations)
+    required: true

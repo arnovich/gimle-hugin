@@ -1,0 +1,11 @@
+name: note_taker
+description: Note-taking assistant that creates structured research notes
+system_template: note_taker_system
+llm_model: haiku-latest
+tools:
+  - save_research_note
+  - builtins.query_artifacts:query_artifacts
+  - builtins.get_artifact_content:get_artifact_content
+  - builtins.finish:finish
+interactive: false
+options: {}

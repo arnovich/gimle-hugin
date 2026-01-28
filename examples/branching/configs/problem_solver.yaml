@@ -1,0 +1,11 @@
+name: problem_solver
+description: Solves problems by exploring multiple approaches in parallel
+system_template: solver_system
+llm_model: haiku-latest
+tools:
+  - create_branch:create_branch
+  - compare_branches:compare_branches
+  - aggregate_branches:aggregate_branches
+  - builtins.finish:finish
+interactive: false
+options: {}

@@ -1,0 +1,12 @@
+name: "editor"
+description: "Senior editor who reviews articles for quality and creates the newspaper layout"
+system_template: "editor_system"
+llm_model: "sonnet-latest"
+tools:
+  - "update_newspaper_layout"
+  - "builtins.query_artifacts:query_artifacts"
+  - "builtins.get_artifact_content:get_artifact_content"
+  - "builtins.finish:finish"
+state_namespaces:
+  - common
+  - newspaper

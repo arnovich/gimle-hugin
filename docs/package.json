@@ -1,0 +1,16 @@
+{
+  "name": "hugin-docs",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "copy-animator": "cp -r ../packages/state-machine-animator/dist/* src/assets/js/animator/",
+    "dev": "eleventy --serve --port 8083",
+    "build": "npm run copy-animator && eleventy",
+    "build:watch": "eleventy --watch"
+  },
+  "devDependencies": {
+    "@11ty/eleventy": "^3.0.0",
+    "@11ty/eleventy-plugin-syntaxhighlight": "^5.0.0"
+  }
+}

@@ -1,0 +1,24 @@
+name: start_ping
+description: Start a ping-pong message exchange
+prompt: 'You are the ping agent. Start a ping-pong exchange with the pong agent.
+
+
+  1. First, use list_running_agents to find the pong agent''s ID
+
+  2. Send a "PING 1" message to the pong agent using send_to_agent
+
+  3. Wait for a response (it will appear as an external message)
+
+  4. Send "PING 2" back
+
+  5. After receiving 2 responses, call finish
+
+
+  Exchange {{ rounds.value | default(2) }} ping-pong messages.
+
+  '
+parameters:
+  rounds:
+    type: integer
+    description: Number of ping-pong rounds
+    default: 2

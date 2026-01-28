@@ -1,0 +1,8 @@
+name: evaluator
+description: Evaluator agent that critiques analysis quality and insight depth
+system_template: evaluator_system
+llm_model: sonnet-latest
+tools:
+  - builtins.finish:finish
+interactive: false
+options: {}

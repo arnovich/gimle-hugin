@@ -1,0 +1,10 @@
+# Execution mode config - focused on following the plan
+name: execution_mode
+description: Execution mode - follow the plan step by step
+system_template: execution_system
+llm_model: sonnet-latest
+tools:
+  - execute_step
+  - mark_step_complete
+  - request_replan
+  - builtins.finish:finish

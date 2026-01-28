@@ -1,0 +1,33 @@
+# Main agent config with state machine for plan/execute loop
+# This config defines the state machine but delegates to planning_mode/execution_mode configs
+name: planner_agent
+description: An agent that plans before executing, with ability to replan
+system_template: planner_system
+
+state_machine:
+  initial_state: planning_mode
+  transitions:
+    - name: start_execution
+      from_state: planning_mode
+      to_state: execution_mode
+      trigger:
+        type: tool_call
+        tool_name: approve_plan
+      priority: 10
+
+    - name: replan_requested
+      from_state: execution_mode
+      to_state: planning_mode
+      trigger:
+        type: tool_call
+        tool_name: request_replan
+      priority: 10
+
+    - name: replan_on_blocked
+      from_state: execution_mode
+      to_state: planning_mode
+      trigger:
+        type: state_pattern
+        pattern:
+          blocked: true
+      priority: 5

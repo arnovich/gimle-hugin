@@ -1,0 +1,22 @@
+name: talk_to
+description: "Initiate a conversation with another creature. You can optionally include a message to say to them. The creature must be within 2 cells of you."
+parameters:
+  world_id:
+    type: string
+    description: The ID of the world you are in
+    required: true
+  creature_name:
+    type: string
+    description: Name of the creature to talk to
+    required: true
+  message:
+    type: string
+    description: Optional message to say to the creature
+    required: false
+  reason:
+    type: string
+    description: Why you are performing this action
+    required: false
+is_interactive: false
+implementation_path: the_hugins.tools.talk_to:talk_to_tool
+options: {}

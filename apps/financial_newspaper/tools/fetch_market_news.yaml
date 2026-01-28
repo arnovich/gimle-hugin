@@ -1,0 +1,14 @@
+name: "fetch_market_news"
+description: "Fetch recent financial news headlines and summaries"
+parameters:
+  query:
+    type: "string"
+    description: "Search query for news (company name, ticker, or topic)"
+    required: false
+  limit:
+    type: "integer"
+    description: "Maximum number of news items to return"
+    required: false
+is_interactive: false
+implementation_path: fetch_market_news:fetch_market_news
+options: {}

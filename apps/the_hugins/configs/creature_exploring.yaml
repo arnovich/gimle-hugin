@@ -1,0 +1,16 @@
+name: creature_exploring
+description: Creature in exploration mode - wandering and discovering new places
+system_template: creature_exploring_system
+llm_model: haiku-latest
+tools:
+  - get_position
+  - look
+  - move
+  - say
+  - dig
+  - set_behavior_mode
+  - remember
+  - recall_memories
+interactive: false
+options:
+  behavior_mode: exploring

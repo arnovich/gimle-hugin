@@ -1,0 +1,15 @@
+name: read_example
+description: Read detailed information about a specific Hugin example. Returns README, configs, tasks, templates, and optionally tool implementations.
+parameters:
+  example_name:
+    type: string
+    description: Name of the example to read (e.g., basic_agent, tool_chaining)
+    required: true
+  include_tools:
+    type: boolean
+    description: Whether to include tool implementations (can be verbose)
+    required: false
+    default: false
+is_interactive: false
+implementation_path: agent_builder.tools.read_example:read_example
+options: {}

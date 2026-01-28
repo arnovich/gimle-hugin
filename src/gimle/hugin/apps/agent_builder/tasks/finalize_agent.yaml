@@ -1,0 +1,52 @@
+name: finalize_agent
+description: Fix issues from review and write agent files
+chain_config: agent_builder
+parameters:
+  review_feedback:
+    type: string
+    description: Feedback from the review step
+    required: true
+  agent_name:
+    type: string
+    description: Name of the agent being built
+    required: true
+  description:
+    type: string
+    description: Original description of what the agent should do
+    required: true
+  output_path:
+    type: string
+    description: Where to write the agent files
+    required: true
+prompt: |
+  The agent files for **{{ agent_name.value }}** have been reviewed.
+
+  ## ORIGINAL DESCRIPTION (what the user asked for)
+
+  {{ description.value }}
+
+  ## REVIEW FEEDBACK
+
+  {{ review_feedback.value }}
+
+  ## Your Task
+
+  ### If Status is APPROVED:
+  1. Call `write_agent_files` to write all files to {{ output_path.value }}
+  2. Call `finish` with success
+
+  ### If Status is NEEDS_FIXES:
+  1. Fix each issue using the appropriate tool:
+     - Config issues → `generate_config` (name MUST be `{{ agent_name.value }}`)
+     - Task issues → `generate_task`
+     - Template issues → `generate_template`
+     - Tool issues → `generate_tool` with ACTUAL PYTHON CODE as implementation_code
+
+  2. Focus especially on matching the original description above.
+     Every tool, parameter, and prompt should serve that description.
+
+  3. Call `preview_files` to verify fixes
+
+  4. Call `write_agent_files` to write to {{ output_path.value }}
+
+  5. Call `finish` with success

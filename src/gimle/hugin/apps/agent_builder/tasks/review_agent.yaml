@@ -1,0 +1,67 @@
+name: review_agent
+description: Review generated agent files for quality and alignment with description
+chain_config: reviewer
+pass_result_as: review_feedback
+parameters:
+  generated_preview:
+    type: string
+    description: Preview of all generated files
+    required: true
+  agent_name:
+    type: string
+    description: Name of the agent being built
+    required: true
+  description:
+    type: string
+    description: Original description of what the agent should do
+    required: true
+  output_path:
+    type: string
+    description: Where to write the agent files
+    required: true
+prompt: |
+  Review the generated agent files for **{{ agent_name.value }}**.
+
+  ## ORIGINAL DESCRIPTION (this is what the user asked for)
+
+  {{ description.value }}
+
+  ## GENERATED FILES
+
+  {{ generated_preview.value }}
+
+  ## Review Criteria
+
+  ### 1. MOST IMPORTANT: Does it match the description?
+  - Does the config name match `{{ agent_name.value }}`? (NOT a generic name)
+  - Do the tools directly serve the description?
+  - Does the system template include domain-specific expertise from the description?
+  - Does the task have parameters that match what the description implies?
+  - Does the task prompt reference the specific tools and domain?
+  - If the description mentions specific libraries/APIs, are they used in tools?
+
+  ### 2. Is the implementation_code actual Python?
+  - Each tool's code must be real Python with imports and return statements
+  - NOT instructions like "fetch the data and return it"
+
+  ### 3. Are required builtins included?
+  - `builtins.finish:finish`
+  - `builtins.save_text:save_text` or `builtins.save_file:save_file`
+
+  ### 4. Task parameter schema
+  - Parameters use strict format (type, description, required)
+
+  ## Your Response
+
+  **Status**: APPROVED or NEEDS_FIXES
+
+  **Description Alignment**:
+  - List specific things from the description that ARE reflected in the agent
+  - List specific things from the description that are MISSING from the agent
+
+  **Issues Found** (if any):
+  1. [File: filename] Issue → Fix
+
+  **Summary**: Brief overall assessment
+
+  When done, call finish with your review.

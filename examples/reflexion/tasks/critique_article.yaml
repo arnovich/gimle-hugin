@@ -1,0 +1,36 @@
+name: critique_article
+description: Provide structured critique of an article
+prompt: |
+  Please provide a thorough critique of this article:
+
+  ---
+  {{ article.value }}
+  ---
+
+  ## Your Evaluation
+
+  Provide a structured critique covering:
+
+  ### Overall Score
+  Rate the article from 1-10 and briefly explain your rating.
+
+  ### Strengths (2-3 points)
+  What does this article do well? Be specific.
+
+  ### Weaknesses (2-3 points)
+  What are the main areas for improvement? Be specific about the issues.
+
+  ### Recommended Changes
+  Provide 3-5 specific, actionable suggestions for improvement.
+  Prioritize the most impactful changes.
+
+  ### Summary
+  One paragraph summarizing your overall assessment and the key things
+  the writer should focus on in revision.
+
+  When done, call finish with your complete critique.
+parameters:
+  article:
+    type: string
+    description: The article to critique
+    required: true

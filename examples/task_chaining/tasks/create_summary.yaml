@@ -1,0 +1,20 @@
+name: create_summary
+description: Create a summary from analysis results
+parameters:
+  analysis:
+    type: string
+    description: ''
+    required: false
+    default: ''
+prompt: 'Create a summary from the following analysis:
+
+
+  {{ agent.stack.get_last_tool_result_interaction(tool_name="analyze_content").result }}
+
+
+  Use the create_summary tool to produce the final summary.
+
+  '
+tools:
+  - create_summary
+  - builtins.finish:finish

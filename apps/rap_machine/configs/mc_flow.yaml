@@ -1,0 +1,10 @@
+name: mc_flow
+description: MC Flow - A smooth, melodic rapper with clever wordplay
+system_template: rapper_system
+llm_model: sonnet-latest
+tools:
+  - spit_bars
+  - builtins.finish:finish
+state_namespaces:
+  - common
+  - battles

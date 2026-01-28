@@ -1,0 +1,12 @@
+name: create_branch
+description: Create a new branch to explore a solution approach
+parameters:
+  branch_name:
+    type: string
+    description: Name for the branch (e.g., 'optimized_for_speed')
+  approach_description:
+    type: string
+    description: Description of the approach this branch will explore
+implementation_path: create_branch:create_branch
+options:
+  respond_with_text: true

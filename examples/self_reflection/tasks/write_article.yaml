@@ -1,0 +1,18 @@
+name: write_article
+description: Write an article with self-reflection loop
+prompt: |
+  Write an article about: {{ topic.value }}
+
+  Create a well-structured article (300-500 words) that:
+  - Opens with an engaging introduction
+  - Develops key points with supporting details
+  - Concludes with a memorable takeaway
+
+  When finished, call the finish tool with your complete article.
+task_sequence: [evaluate_article, refine_article]
+pass_result_as: draft
+parameters:
+  topic:
+    type: string
+    description: The topic to write about
+    required: true

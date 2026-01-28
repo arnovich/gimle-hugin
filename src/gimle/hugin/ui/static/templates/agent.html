@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{title}</title>
+    <link rel="stylesheet" href="/static/css/agent.css">
+</head>
+<body>
+    <div class="container">
+        <h1>{title}</h1>
+
+        {config_html}
+
+        <div class="compact-header">
+            <div class="compact-info">
+                ID: {agent_id} &bull; Interactions: {num_interactions} &bull; Artifacts: {num_artifacts}
+            </div>
+        </div>
+
+        <div class="main-content-wrapper">
+            <div class="main-content">
+                {stack_html}
+
+                <!-- Artifacts Section -->
+                <div class="artifacts-list-section">
+                    <h2>Artifacts ({num_artifacts})</h2>
+                    <div class="artifacts-list-content">
+                        {artifacts_list_html}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Artifact Side Panel -->
+            <div id="artifact-panel" class="artifact-panel">
+                <div class="artifact-panel-header">
+                    <h3>Artifacts</h3>
+                    <div class="artifact-panel-controls">
+                        <button class="artifact-panel-expand" onclick="togglePanelSize()">Expand</button>
+                        <button class="artifact-panel-close" onclick="closeArtifactPanel()">&times;</button>
+                    </div>
+                </div>
+                <div id="artifact-panel-content" class="artifact-panel-content">
+                    <p class="artifact-panel-empty">Click on an interaction with artifacts to view them</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Artifact data from Python
+        const artifactsData = {artifacts_json};
+    </script>
+    <script src="/static/js/agent.js"></script>
+</body>
+</html>

@@ -1,0 +1,26 @@
+name: update_plan
+description: "Update the progress of a plan. You can mark the current step as completed, failed, or skipped, or abandon the entire plan. Use this to track your progress through multi-step plans."
+parameters:
+  world_id:
+    type: string
+    description: The ID of the world you are in
+    required: true
+  plan_id:
+    type: string
+    description: The ID of the plan to update
+    required: true
+  action:
+    type: string
+    description: "Action to take: 'complete_step' (mark done, advance), 'fail_step' (mark failed, plan fails), 'skip_step' (skip, advance), or 'abandon' (give up on plan)"
+    required: true
+  notes:
+    type: string
+    description: Optional notes about this update (e.g., why you skipped or what you learned)
+    required: false
+  reason:
+    type: string
+    description: Why you are performing this action
+    required: false
+is_interactive: false
+implementation_path: the_hugins.tools.update_plan:update_plan_tool
+options: {}

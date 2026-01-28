@@ -1,0 +1,24 @@
+name: "write_next_article"
+description: "Research and write the next article for an ongoing newspaper edition"
+prompt: "write_next_article_prompt"
+parameters:
+  target_symbols:
+    type: array
+    description: ""
+    required: false
+    default: ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA"]
+  focus_areas:
+    type: array
+    description: ""
+    required: false
+    default: ["market_trends", "earnings", "tech_analysis", "economic_indicators"]
+  edition_date:
+    type: string
+    description: ""
+    required: false
+    default: "{{ current_date }}"
+  articles_written:
+    type: string
+    description: ""
+    required: false
+    default: "{{ articles_written | default(0) }}"

@@ -1,0 +1,15 @@
+name: request_approval
+description: Request approval from a human for a proposed action
+parameters:
+  action:
+    type: string
+    description: The action you want to take
+  reason:
+    type: string
+    description: Why this action is needed
+  considerations:
+    type: string
+    description: Risks or important factors to consider
+implementation_path: request_approval:request_approval
+options:
+  respond_with_text: true

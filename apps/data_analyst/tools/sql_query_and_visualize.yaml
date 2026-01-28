@@ -1,0 +1,43 @@
+name: sql_query_and_visualize
+description: |
+  Execute a SQL query and automatically visualize the results in one step.
+  This tool chains sql_query -> visualize, reducing the number of tool calls
+  needed for the common pattern of querying data and creating a chart.
+  Use this when you know you want to query and visualize in sequence.
+parameters:
+  query:
+    type: string
+    description: The SQL query to execute
+    required: true
+  data_source:
+    type: string
+    description: Path to the data source (SQLite database file or CSV file)
+    required: true
+  chart_type:
+    type: string
+    description: "Type of chart: 'line', 'bar', 'scatter', 'histogram', 'pie', 'box'"
+    required: true
+  x_column:
+    type: string
+    description: Name of the column to use for x-axis
+    required: false
+  y_column:
+    type: string
+    description: Name of the column to use for y-axis (required for line, bar, scatter)
+    required: false
+  title:
+    type: string
+    description: Title for the chart
+    required: false
+  x_label:
+    type: string
+    description: Label for x-axis
+    required: false
+  y_label:
+    type: string
+    description: Label for y-axis
+    required: false
+is_interactive: false
+implementation_path: sql_query_and_visualize:sql_query_and_visualize
+options:
+  include_reason: true

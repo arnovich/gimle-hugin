@@ -1,0 +1,16 @@
+name: "analyze_article"
+description: "Fetch and analyze the full content of a news article from its URL"
+implementation_path: "analyze_article.analyze_article"
+parameters:
+  url:
+    type: "string"
+    description: "URL of the article to analyze"
+    required: true
+  focus_questions:
+    type: "array"
+    description: "Specific questions or angles to analyze in the article"
+    required: false
+    items:
+      type: "string"
+is_interactive: false
+options: {}

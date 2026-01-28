@@ -1,0 +1,23 @@
+name: refine_article
+description: Refine the article based on evaluation feedback
+prompt: |
+  Refine this article based on the evaluation feedback.
+
+  ## Original Draft
+  {{ draft.value }}
+
+  ## Evaluation Feedback
+  {{ evaluation.value }}
+
+  Carefully review the feedback and create an improved version of the article.
+  Address the specific weaknesses mentioned while preserving the strengths.
+
+  When done, call the finish tool with your refined article.
+chain_config: writer
+parameters:
+  draft:
+    type: string
+    description: The original article draft
+  evaluation:
+    type: string
+    description: The evaluation feedback

@@ -1,0 +1,10 @@
+name: verse_viper
+description: Verse Viper - Lightning-fast delivery with intricate wordplay and complex rhyme schemes
+system_template: rapper_system
+llm_model: haiku-latest
+tools:
+  - spit_bars
+  - builtins.finish:finish
+state_namespaces:
+  - common
+  - battles

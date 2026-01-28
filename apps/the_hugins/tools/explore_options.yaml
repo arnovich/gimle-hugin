@@ -1,0 +1,22 @@
+name: explore_options
+description: "Explore 2-3 options before making a decision. Creates parallel mental simulations to evaluate different choices. Use this when facing important decisions like which direction to go, whether to approach a creature, or what to do with items."
+parameters:
+  world_id:
+    type: string
+    description: The ID of the world you are in
+    required: true
+  options:
+    type: array
+    description: "List of 2-3 options to explore (e.g., ['go north', 'go south', 'stay here'])"
+    required: true
+  question:
+    type: string
+    description: "The question you're trying to answer (e.g., 'Which direction should I explore?')"
+    required: true
+  reason:
+    type: string
+    description: Why you are performing this action
+    required: false
+is_interactive: false
+implementation_path: the_hugins.tools.explore_options:explore_options_tool
+options: {}

@@ -1,0 +1,14 @@
+name: get_inventory
+description: "Check your inventory to see what items you are currently carrying. Returns a list of items with their names and descriptions."
+parameters:
+  world_id:
+    type: string
+    description: The ID of the world you are in
+    required: true
+  reason:
+    type: string
+    description: Why you are performing this action
+    required: false
+is_interactive: false
+implementation_path: the_hugins.tools.get_inventory:get_inventory_tool
+options: {}

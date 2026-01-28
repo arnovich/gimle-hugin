@@ -1,0 +1,8 @@
+name: analyze_task
+description: Analyze a task to understand its requirements and identify key components
+implementation_path: plan_execute_agent.tools.planning_tools:analyze_task
+parameters:
+  task_description:
+    type: string
+    description: Description of the task to analyze
+    required: true

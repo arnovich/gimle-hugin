@@ -1,0 +1,18 @@
+name: say
+description: "Say something that can be heard by nearby creatures (within 2 cells)."
+parameters:
+  world_id:
+    type: string
+    description: The ID of the world you are in
+    required: true
+  message:
+    type: string
+    description: The message to say
+    required: true
+  reason:
+    type: string
+    description: Why you are performing this action
+    required: false
+is_interactive: false
+implementation_path: the_hugins.tools.say:say_tool
+options: {}

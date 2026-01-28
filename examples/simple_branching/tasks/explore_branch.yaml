@@ -1,0 +1,26 @@
+name: explore_branch
+description: Explore a question in a branch and save the result as an artifact
+parameters:
+  question:
+    type: string
+    description: The specific question to explore
+    required: true
+prompt: |
+  You are exploring a question in a separate branch.
+
+  Question to investigate: {{ question.value }}
+
+  Review the context from the main branch, then investigate this question.
+  Provide a clear, focused answer with your findings.
+
+  When done:
+  1. Use save_insight to save your answer as an artifact (this makes it
+     visible to the user even though it's on a separate branch)
+  2. Use finish with finish_type='success'
+
+# Branch only has save_insight and finish - prevents recursive branch creation
+tools:
+  - builtins.save_insight:save_insight
+  - builtins.finish:finish
+
+system_template: explorer_system

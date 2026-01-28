@@ -1,0 +1,12 @@
+name: send_to_agent
+description: Send a message to another agent in the session
+parameters:
+  agent_id:
+    type: string
+    description: The ID of the target agent
+    required: true
+  message:
+    type: string
+    description: The message to send
+    required: true
+implementation_path: messaging:send_to_agent

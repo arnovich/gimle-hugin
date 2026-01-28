@@ -1,0 +1,37 @@
+name: write_with_feedback
+description: Write an article using the Reflexion pattern with critic feedback
+prompt: |
+  Write an article about: {{ topic.value }}
+
+  ## Instructions
+
+  1. First, write an initial draft (300-500 words) covering the topic thoroughly.
+
+  2. After completing your draft, use the launch_agent tool to get feedback.
+     IMPORTANT: Include the full article text in the task_description parameter,
+     as this is what the critic will see:
+     ```
+     launch_agent(
+       config_name="critic",
+       task_name="critique_article",
+       task_description="Please critique this article:\n\n[YOUR FULL ARTICLE TEXT HERE]\n\nProvide: 1) Overall score (1-10), 2) Strengths, 3) Weaknesses, 4) Specific improvement suggestions"
+     )
+     ```
+
+  3. Review the critic's feedback carefully. The critic uses a more powerful
+     model to provide thorough analysis.
+
+  4. Revise your article to address the feedback. Focus on:
+     - The specific weaknesses identified
+     - The recommended improvements
+     - Preserving the noted strengths
+
+  5. When you're satisfied with the quality, call finish with your final article.
+
+  Remember: Good writing often requires revision. Be open to feedback and
+  willing to make substantial changes when warranted.
+parameters:
+  topic:
+    type: string
+    description: The topic to write about
+    required: true

@@ -1,0 +1,8 @@
+name: "create_layout"
+description: "Create the final newspaper layout by ranking articles and calling update_newspaper_layout"
+prompt: create_layout_prompt
+parameters:
+  approved_articles:
+    type: string
+    description: JSON list of approved articles with quality scores and placement recommendations
+    required: true

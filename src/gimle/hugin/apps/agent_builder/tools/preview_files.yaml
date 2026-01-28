@@ -1,0 +1,6 @@
+name: preview_files
+description: Display all generated files for user review before writing to disk. Always call this before write_agent_files.
+parameters: {}
+is_interactive: false
+implementation_path: agent_builder.tools.preview_files:preview_files
+options: {}

@@ -1,0 +1,10 @@
+name: get_battle_state
+description: Get the current state of the rap battle
+parameters:
+  battle_id:
+    type: string
+    description: The ID of the battle to check
+    required: true
+is_interactive: false
+implementation_path: apps.rap_machine.tools.get_battle_state:get_battle_state
+options: {}

@@ -1,0 +1,8 @@
+name: reviewer
+description: Reviews generated agent files for quality issues
+system_template: reviewer_system
+llm_model: sonnet-latest
+tools:
+  - builtins.finish:finish
+interactive: false
+options: {}

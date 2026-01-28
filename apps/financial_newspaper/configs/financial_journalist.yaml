@@ -1,0 +1,20 @@
+name: "financial_journalist"
+description: "An autonomous financial journalist that creates market analysis and news articles with technical analysis capabilities and sub-agent delegation"
+system_template: "journalist_system"
+llm_model: "sonnet-latest"
+tools:
+  - "fetch_stock_data"
+  - "fetch_market_news"
+  - "analyze_article"
+  - "write_article"
+  - "finalize_edition"  # Triggers editor to create layout - use instead of finish
+  - "builtins.query_artifacts:query_artifacts"
+  - "builtins.get_artifact_content:get_artifact_content"
+  - "builtins.save_insight:save_insight"
+  - "builtins.list_agent_configs:list_agent_configs"
+  - "builtins.launch_agent:launch_agent"
+  - "builtins.list_running_agents:list_running_agents"
+  - "builtins.finish:finish"
+state_namespaces:
+  - common
+  - newspaper

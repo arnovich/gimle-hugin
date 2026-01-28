@@ -1,0 +1,23 @@
+name: delegate
+description: Delegate a computation task to a child agent
+prompt: 'You need to calculate the sum of all numbers from 1 to {{ n.value | default(10)
+  }}.
+
+
+  Instead of calculating this yourself, delegate this work to a child agent.
+
+  Use list_agent_configs to see available agents, then use launch_agent to
+
+  spawn a "child" agent to do the calculation.
+
+
+  Once you receive the result from the child agent, report the final answer
+
+  using the finish tool.
+
+  '
+parameters:
+  n:
+    type: integer
+    description: The upper bound for the sum calculation
+    default: 10

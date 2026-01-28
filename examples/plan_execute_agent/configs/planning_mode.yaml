@@ -1,0 +1,9 @@
+# Planning mode config - focused on analysis and planning
+name: planning_mode
+description: Planning mode - analyze the task and create a step-by-step plan
+system_template: planning_system
+llm_model: sonnet-latest
+tools:
+  - analyze_task
+  - create_plan
+  - approve_plan

@@ -1,0 +1,10 @@
+name: generate_battle_report
+description: Generate a static HTML report of the completed rap battle. This creates a standalone, shareable webpage with all verses, winner announcement, and judge's reasoning.
+parameters:
+  type: object
+  properties:
+    battle_id:
+      type: string
+      description: The ID of the battle to generate a report for
+  required:
+    - battle_id

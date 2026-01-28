@@ -1,0 +1,4 @@
+name: increment
+description: Increment the counter by 1
+parameters: {}
+implementation_path: parallel_agents.tools.counter_tools:increment

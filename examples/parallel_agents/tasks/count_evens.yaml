@@ -1,0 +1,15 @@
+name: count_evens
+description: Count even numbers up to a limit
+prompt: 'Count even numbers from 2 up to {{ limit.value | default(10) }}.
+
+
+  Use the increment tool to count each even number (2, 4, 6, ...).
+
+  When done, use get_count to verify your total, then finish.
+
+  '
+parameters:
+  limit:
+    type: integer
+    description: The upper limit for counting
+    default: 10

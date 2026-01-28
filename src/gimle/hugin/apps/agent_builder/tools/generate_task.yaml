@@ -1,0 +1,26 @@
+name: generate_task
+description: Generate a task definition YAML file. Tasks define what the agent should do.
+parameters:
+  task_name:
+    type: string
+    description: Name of the task (snake_case)
+    required: true
+  description:
+    type: string
+    description: Human-readable description of the task
+    required: true
+  prompt:
+    type: string
+    description: The prompt template (can include {{ parameter }} Jinja2 syntax)
+    required: true
+  parameters:
+    type: object
+    description: Dictionary of parameter names to parameter schema dicts (must include type + description; optional required/default/choices)
+    required: false
+  tools:
+    type: array
+    description: List of tool names available for this task (optional, uses config tools if not specified)
+    required: false
+is_interactive: false
+implementation_path: agent_builder.tools.generate_task:generate_task
+options: {}

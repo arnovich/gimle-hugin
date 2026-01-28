@@ -1,0 +1,34 @@
+name: analyze_topic
+description: Analyze a topic, spawning branches for follow-up questions
+parameters:
+  topic:
+    type: string
+    description: The topic to analyze
+    required: false
+    default: The impact of remote work on team productivity
+  focus:
+    type: string
+    description: What aspect to focus on
+    required: false
+    default: Both benefits and challenges
+prompt: |
+  Analyze the following topic:
+
+  Topic: {{ topic.value }}
+  Focus: {{ focus.value }}
+
+  As you analyze, you may encounter interesting follow-up questions.
+  Use create_branch to explore these in separate branches - this keeps
+  your main analysis clean while still exploring side questions.
+
+  Example branches you might create:
+  - "What are the employee perspectives on this?"
+  - "How might this differ for different industries?"
+
+  The branches will save their findings as artifacts for the user to see.
+
+  Workflow:
+  1. Begin your main analysis
+  2. When you encounter interesting questions, use create_branch
+  3. Continue your main analysis (branches run in parallel)
+  4. Finish with your analysis

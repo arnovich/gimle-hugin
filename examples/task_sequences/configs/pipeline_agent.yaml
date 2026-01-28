@@ -1,0 +1,9 @@
+name: pipeline_agent
+description: Agent that processes data through a multi-stage pipeline
+system_template: pipeline_system
+llm_model: haiku-latest
+tools:
+  - process_data:process_data
+  - builtins.finish:finish
+interactive: false
+options: {}

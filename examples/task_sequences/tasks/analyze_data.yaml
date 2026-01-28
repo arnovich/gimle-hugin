@@ -1,0 +1,29 @@
+name: analyze_data
+description: Analyze transformed data (Stage 3)
+parameters:
+  transformed_data:
+    type: string
+    description: ''
+    required: false
+    default: ''
+pass_result_as: analysis_results
+prompt: 'STAGE 3: ANALYZE
+
+
+  Transformed Data from previous stage: {{ transformed_data.value }}
+
+
+  Your task:
+
+  1. Analyze the data for patterns and trends
+
+  2. Identify key insights (e.g., most popular product, best customer)
+
+  3. Calculate statistics
+
+  4. Use process_data to output your analysis results
+
+
+  The analysis results will be passed to the final stage.
+
+  '

@@ -1,0 +1,34 @@
+name: evaluate_analysis
+description: Evaluate the initial analysis for insight quality and depth
+prompt: |
+  Evaluate the following data analysis for insight quality and depth.
+
+  ## Initial Analysis
+  ---
+  {{ initial_analysis.value }}
+  ---
+
+  ## Your Task
+
+  Critically assess this analysis focusing on:
+
+  1. **Insight Quality**: Are the findings actionable or just surface-level observations?
+  2. **Depth of Analysis**: Did it go beyond describing the obvious? Were correlations explored?
+  3. **Completeness**: Are there missed patterns, unexplored dimensions, or unanswered questions?
+  4. **Statistical Rigor**: Were appropriate methods used? Are conclusions well-supported?
+
+  Provide your evaluation with:
+  - **Strengths**: What was done well
+  - **Weaknesses**: Specific areas lacking depth or rigor
+  - **Suggested Improvements**: Concrete analyses to perform (be specific about what queries, statistics, or visualizations would add value)
+  - **Missing Insights**: What questions should have been answered but weren't
+
+  Be specific and constructive. The goal is to guide a refined analysis that produces deeper, more actionable insights.
+
+  When done, call the finish tool with your complete evaluation.
+pass_result_as: evaluation
+chain_config: evaluator
+parameters:
+  initial_analysis:
+    type: string
+    description: The initial analysis to evaluate

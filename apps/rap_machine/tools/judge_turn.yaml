@@ -1,0 +1,18 @@
+name: judge_turn
+description: Judge the current state of the battle and decide whether to continue or end it
+parameters:
+  battle_id:
+    type: string
+    description: The ID of the battle to judge
+    required: true
+  action:
+    type: string
+    description: Action to take - 'continue' to let battle go on, 'end' to finish the battle
+    required: true
+  commentary:
+    type: string
+    description: Optional commentary on the current state of the battle
+    required: false
+is_interactive: false
+implementation_path: apps.rap_machine.tools.judge_turn:judge_turn
+options: {}

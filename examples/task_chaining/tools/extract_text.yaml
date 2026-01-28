@@ -1,0 +1,10 @@
+name: extract_text
+description: |
+  Extract and clean text from a document.
+  Simulates text extraction from various document formats.
+implementation_path: task_chaining.tools.document_tools:extract_text
+parameters:
+  document:
+    type: string
+    description: The document content to extract text from
+    required: true

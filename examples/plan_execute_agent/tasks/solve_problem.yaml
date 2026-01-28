@@ -1,0 +1,17 @@
+name: solve_problem
+description: Solve a problem using plan-then-execute approach
+parameters:
+  problem:
+    type: string
+    description: ''
+    required: false
+    default: ''
+prompt: 'Please solve the following problem:
+
+
+  {{ problem.value }}
+
+
+  Start by analyzing the problem and creating a plan.
+
+  '

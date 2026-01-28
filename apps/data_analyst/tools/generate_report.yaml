@@ -1,0 +1,30 @@
+name: generate_report
+description: |
+  Generate an HTML report summarizing the analysis findings with embedded visualizations.
+  Use this at the end of your analysis to create a professional report that includes:
+  - Executive summary of the analysis
+  - Key findings with descriptions
+  - Embedded charts/visualizations from your analysis
+
+  The report will be saved as both a timestamped file and "latest.html" for easy access.
+parameters:
+  title:
+    type: string
+    description: Title for the report (e.g., "Sales Data Analysis Report")
+    required: true
+  summary:
+    type: string
+    description: Executive summary describing the overall analysis and main conclusions
+    required: true
+  findings:
+    type: array
+    description: |
+      List of findings to include in the report. Each finding should be an object with:
+      - title: Short title for the finding
+      - description: Detailed description of what was discovered
+      - chart_artifact_id: Optional artifact ID of a visualization (from visualize tool)
+    required: true
+is_interactive: false
+implementation_path: generate_report:generate_report
+options:
+  include_reason: true

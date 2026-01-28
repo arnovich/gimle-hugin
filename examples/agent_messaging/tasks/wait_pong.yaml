@@ -1,0 +1,24 @@
+name: wait_pong
+description: Wait for pings and respond with pongs
+prompt: 'You are the pong agent. Wait for ping messages and respond with pongs.
+
+
+  When you receive a message from the ping agent:
+
+  1. Read the ping message (it will appear as an external message)
+
+  2. Use list_running_agents to find the ping agent''s ID
+
+  3. Send back a "PONG" response using send_to_agent
+
+  4. After {{ rounds.value | default(2) }} exchanges, call finish
+
+
+  Respond to each ping with a pong.
+
+  '
+parameters:
+  rounds:
+    type: integer
+    description: Number of ping-pong rounds
+    default: 2

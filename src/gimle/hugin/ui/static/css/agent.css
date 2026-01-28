@@ -1,0 +1,650 @@
+/* Agent Page - Standalone View Styles */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    line-height: 1.6;
+    color: #333;
+    background: #f5f5f5;
+    padding: 20px;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    padding: 30px;
+}
+
+h1 {
+    color: #2c3e50;
+    margin-bottom: 10px;
+    border-bottom: 3px solid #3498db;
+    padding-bottom: 10px;
+}
+
+h2 {
+    color: #34495e;
+    margin-top: 30px;
+    margin-bottom: 15px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid #ecf0f1;
+}
+
+h3 {
+    color: #555;
+    margin-top: 20px;
+    margin-bottom: 10px;
+}
+
+/* Compact header styles */
+.compact-header {
+    margin-top: 15px;
+    margin-bottom: 15px;
+}
+
+.compact-config {
+    background: #f8f9fa;
+    padding: 8px 12px;
+    border-radius: 4px;
+    border-left: 3px solid #9c27b0;
+    font-size: 0.85em;
+    color: #555;
+    line-height: 1.4;
+}
+
+.compact-info {
+    background: #f8f9fa;
+    padding: 8px 12px;
+    border-radius: 4px;
+    border-left: 3px solid #3498db;
+    font-size: 0.85em;
+    color: #555;
+    line-height: 1.4;
+}
+
+.compact-config strong {
+    color: #2c3e50;
+    font-weight: 600;
+}
+
+/* Artifacts section */
+.artifacts-section {
+    margin-top: 30px;
+}
+
+.artifact-item {
+    background: #f8f9fa;
+    border: 1px solid #e0e0e0;
+    border-radius: 5px;
+    padding: 20px;
+    margin-bottom: 20px;
+    transition: box-shadow 0.2s;
+}
+
+.artifact-item:hover {
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+.artifact-item.error {
+    border-color: #e74c3c;
+    background: #fee;
+}
+
+.artifact-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #ecf0f1;
+}
+
+.artifact-header h3 {
+    margin: 0;
+    color: #2c3e50;
+}
+
+.artifact-id {
+    font-size: 0.85em;
+    color: #7f8c8d;
+    font-family: monospace;
+}
+
+.artifact-content {
+    margin-top: 15px;
+}
+
+.artifact-content pre {
+    background: #2c3e50;
+    color: #ecf0f1;
+    padding: 15px;
+    border-radius: 5px;
+    overflow-x: auto;
+    font-size: 0.9em;
+    line-height: 1.5;
+}
+
+.artifact-content pre code {
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+}
+
+.artifact-content h1,
+.artifact-content h2,
+.artifact-content h3,
+.artifact-content h4 {
+    margin-top: 20px;
+    margin-bottom: 10px;
+    color: #2c3e50;
+}
+
+.artifact-content p {
+    margin-bottom: 10px;
+}
+
+.artifact-content table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 15px 0;
+}
+
+.artifact-content table th,
+.artifact-content table td {
+    border: 1px solid #ddd;
+    padding: 8px;
+    text-align: left;
+}
+
+.artifact-content table th {
+    background: #3498db;
+    color: white;
+}
+
+.artifact-content table tr:nth-child(even) {
+    background: #f8f9fa;
+}
+
+.stack-section {
+    margin-top: 30px;
+}
+
+.agent-section {
+    margin-top: 30px;
+}
+
+/* Main content wrapper for side panel layout */
+.main-content-wrapper {
+    display: flex;
+    position: relative;
+    margin-top: 20px;
+}
+
+.main-content {
+    flex: 1;
+    transition: margin-right 0.3s ease;
+}
+
+.main-content-wrapper.artifact-panel-open .main-content {
+    margin-right: 400px;
+}
+
+/* Flowchart visualization styles - very compact version */
+.stack-visualization {
+    margin-top: 10px;
+}
+
+.flowchart {
+    margin-top: 5px;
+}
+
+.flowchart-main {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin: 5px 0;
+}
+
+.flowchart-item {
+    margin: 0;
+    width: 100%;
+    max-width: 400px;
+}
+
+.flowchart-box {
+    background: white;
+    border: 2px solid #ddd;
+    border-radius: 4px;
+    padding: 6px 10px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+    transition: all 0.2s;
+}
+
+.flowchart-box:hover {
+    box-shadow: 0 2px 4px rgba(0,0,0,0.15);
+}
+
+.flowchart-box-clickable {
+    cursor: pointer;
+}
+
+.flowchart-box-clickable:hover {
+    border-color: #3498db;
+    transform: translateY(-1px);
+}
+
+.flowchart-box-selected {
+    border-color: #3498db;
+    border-width: 3px;
+    box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
+}
+
+.flowchart-box-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2px;
+    gap: 8px;
+}
+
+.flowchart-box-type {
+    font-weight: bold;
+    font-size: 0.85em;
+    color: #2c3e50;
+    flex: 1;
+}
+
+.flowchart-box-branch {
+    font-size: 0.7em;
+    color: #e67e22;
+    background: #fff3e0;
+    padding: 1px 4px;
+    border-radius: 2px;
+}
+
+.flowchart-box-artifacts-badge {
+    font-size: 0.7em;
+    color: #2980b9;
+    background: #e8f4f8;
+    padding: 1px 4px;
+    border-radius: 2px;
+    cursor: pointer;
+}
+
+.flowchart-box-details {
+    font-size: 0.75em;
+    color: #555;
+    margin: 2px 0;
+    padding: 3px 5px;
+    background: #f8f9fa;
+    border-radius: 2px;
+    line-height: 1.2;
+}
+
+.flowchart-arrow {
+    text-align: center;
+    font-size: 12px;
+    color: #3498db;
+    margin: 0;
+    font-weight: bold;
+    line-height: 1;
+    height: 8px;
+}
+
+/* Artifact Side Panel */
+.artifact-panel {
+    position: fixed;
+    right: -400px;
+    top: 0;
+    width: 400px;
+    height: 100vh;
+    background: white;
+    box-shadow: -2px 0 8px rgba(0,0,0,0.15);
+    transition: right 0.3s ease, width 0.3s ease;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+}
+
+.artifact-panel-open {
+    right: 0;
+}
+
+.artifact-panel-wide {
+    width: 70vw;
+}
+
+.artifact-panel-fullscreen {
+    width: 100vw;
+}
+
+.main-content-wrapper.artifact-panel-wide .main-content {
+    margin-right: 70vw;
+}
+
+.main-content-wrapper.artifact-panel-fullscreen .main-content {
+    margin-right: 100vw;
+}
+
+.artifact-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px;
+    border-bottom: 2px solid #ecf0f1;
+    background: #f8f9fa;
+}
+
+.artifact-panel-header h3 {
+    margin: 0;
+    color: #2c3e50;
+    font-size: 1.1em;
+}
+
+.artifact-panel-close {
+    background: #e74c3c;
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 28px;
+    height: 28px;
+    font-size: 20px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    padding: 0;
+}
+
+.artifact-panel-close:hover {
+    background: #c0392b;
+}
+
+.artifact-panel-controls {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.artifact-panel-expand {
+    background: #3498db;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 4px 10px;
+    font-size: 0.85em;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.artifact-panel-expand:hover {
+    background: #2980b9;
+}
+
+.artifact-panel-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 15px;
+}
+
+.artifact-panel-empty {
+    color: #7f8c8d;
+    text-align: center;
+    margin-top: 50px;
+    font-style: italic;
+}
+
+.artifact-panel-item {
+    margin-bottom: 20px;
+    border: 1px solid #e0e0e0;
+    border-radius: 5px;
+    overflow: hidden;
+}
+
+.artifact-panel-item-header {
+    background: #f8f9fa;
+    padding: 10px 15px;
+    border-bottom: 1px solid #e0e0e0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.artifact-panel-item-header h4 {
+    margin: 0;
+    color: #2c3e50;
+    font-size: 0.95em;
+}
+
+.artifact-panel-item-id {
+    font-size: 0.75em;
+    color: #7f8c8d;
+    font-family: monospace;
+}
+
+.artifact-panel-item-content {
+    padding: 15px;
+}
+
+/* Color coding for interaction types */
+.flowchart-yellow .flowchart-box {
+    background: #fff9c4;
+    border-color: #fbc02d;
+}
+
+.flowchart-blue .flowchart-box {
+    background: #e3f2fd;
+    border-color: #2196f3;
+}
+
+.flowchart-purple .flowchart-box {
+    background: #f3e5f5;
+    border-color: #9c27b0;
+}
+
+.flowchart-green .flowchart-box {
+    background: #e8f5e9;
+    border-color: #4caf50;
+}
+
+.flowchart-gray .flowchart-box {
+    background: #f5f5f5;
+    border-color: #9e9e9e;
+}
+
+.flowchart-branches {
+    margin-top: 20px;
+    padding-top: 15px;
+    border-top: 2px dashed #ddd;
+}
+
+.flowchart-branches h3 {
+    color: #e67e22;
+    margin-bottom: 10px;
+    font-size: 1.1em;
+}
+
+.flowchart-branch {
+    margin: 15px 0;
+    padding: 12px;
+    background: #fffbf0;
+    border-radius: 6px;
+    border-left: 3px solid #e67e22;
+}
+
+.flowchart-branch h4 {
+    color: #e67e22;
+    margin-bottom: 8px;
+    font-size: 0.95em;
+}
+
+.flowchart-branch .flowchart-main {
+    margin: 5px 0;
+}
+
+/* Artifacts List Section Styles */
+.artifacts-list-section {
+    margin-top: 20px;
+}
+
+.artifacts-list-section h2 {
+    margin: 0 0 8px 0;
+    color: #2c3e50;
+    font-size: 1em;
+    font-weight: 600;
+    border: none;
+    padding: 8px 12px;
+    background: #f8f9fa;
+    cursor: pointer;
+    user-select: none;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    transition: background 0.2s;
+}
+
+.artifacts-list-section h2:hover {
+    background: #e9ecef;
+}
+
+.artifacts-list-section h2::before {
+    content: '\25B6';
+    display: inline-block;
+    margin-right: 8px;
+    transition: transform 0.2s;
+    font-size: 0.8em;
+}
+
+.artifacts-list-section h2.expanded::before {
+    transform: rotate(90deg);
+}
+
+.artifacts-list-content {
+    display: none;
+    margin-top: 8px;
+    padding: 10px;
+    background: #f8f9fa;
+    border-radius: 4px;
+}
+
+.artifacts-list-content.expanded {
+    display: block;
+}
+
+.artifacts-list-empty {
+    color: #7f8c8d;
+    font-style: italic;
+    text-align: center;
+    padding: 20px;
+}
+
+.artifacts-list-item {
+    background: white;
+    border: 1px solid #e0e0e0;
+    border-radius: 4px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.artifacts-list-item:hover {
+    border-color: #3498db;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.artifacts-list-item:last-child {
+    margin-bottom: 0;
+}
+
+.artifacts-list-item-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+}
+
+.artifacts-list-item-type {
+    font-weight: 600;
+    color: #2c3e50;
+    font-size: 0.9em;
+}
+
+.artifacts-list-item-id {
+    font-size: 0.75em;
+    color: #7f8c8d;
+    font-family: monospace;
+    background: #ecf0f1;
+    padding: 2px 6px;
+    border-radius: 3px;
+}
+
+.artifacts-list-item-interaction {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.8em;
+    padding: 4px 8px;
+    background: #e8f4f8;
+    border-radius: 3px;
+    cursor: pointer;
+}
+
+.artifacts-list-item-interaction:hover {
+    background: #d4ecf4;
+}
+
+.artifacts-list-item-interaction-label {
+    color: #7f8c8d;
+}
+
+.artifacts-list-item-interaction-type {
+    color: #2980b9;
+    font-weight: 500;
+}
+
+.artifacts-list-item-interaction-id {
+    color: #7f8c8d;
+    font-family: monospace;
+    font-size: 0.9em;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .container {
+        padding: 15px;
+    }
+
+    .flowchart-item {
+        max-width: 100%;
+    }
+
+    .flowchart-box {
+        padding: 5px 8px;
+    }
+
+    .flowchart-box-header {
+        flex-wrap: wrap;
+        gap: 4px;
+    }
+
+    .flowchart-box-branch {
+        margin-top: 2px;
+    }
+
+    .artifact-panel {
+        width: 100%;
+        right: -100%;
+    }
+
+    .main-content-wrapper.artifact-panel-open .main-content {
+        margin-right: 0;
+    }
+}

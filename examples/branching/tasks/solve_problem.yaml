@@ -1,0 +1,38 @@
+name: solve_problem
+description: Solve a problem by exploring multiple approaches in parallel
+parameters:
+  problem:
+    type: string
+    description: ''
+    required: false
+    default: Find the most efficient way to sort a list of 1 million integers
+  criteria:
+    type: string
+    description: ''
+    required: false
+    default: Balance between execution speed and memory usage
+prompt: 'Solve the following problem by exploring multiple approaches in parallel:
+
+
+  Problem: {{ problem.value }}
+
+
+  Success Criteria: {{ criteria.value }}
+
+
+  Follow your workflow:
+
+  1. Analyze the problem and identify 2-3 distinct solution approaches
+
+  2. Create a branch for each approach using create_branch
+
+  3. Let each branch explore its solution independently
+
+  4. Compare the results from all branches
+
+  5. Provide your recommendation based on the criteria
+
+
+  Remember: Each branch should explore ONE distinct approach!
+
+  '

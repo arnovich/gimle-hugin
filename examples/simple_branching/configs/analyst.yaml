@@ -1,0 +1,9 @@
+name: analyst
+description: Analyzes topics and can spawn branches for follow-up questions
+system_template: analyst_system
+llm_model: haiku-latest
+tools:
+  - create_branch:create_branch
+  - builtins.finish:finish
+interactive: false
+options: {}

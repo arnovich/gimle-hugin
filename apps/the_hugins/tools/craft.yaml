@@ -1,0 +1,18 @@
+name: craft
+description: "Craft a new item by combining ingredients from your inventory. The ingredients are consumed to create the new item. Use list_recipes to see what you can craft."
+parameters:
+  world_id:
+    type: string
+    description: The ID of the world you are in
+    required: true
+  recipe_name:
+    type: string
+    description: "Name of the recipe to craft (e.g., 'basic_tool', 'flower_crown')"
+    required: true
+  reason:
+    type: string
+    description: Why you are performing this action
+    required: false
+is_interactive: false
+implementation_path: the_hugins.tools.craft:craft_tool
+options: {}

@@ -1,0 +1,14 @@
+name: refine_article_prompt
+template: |
+  Refine this article based on the evaluation feedback.
+
+  ## Original Draft
+  {{ draft.value }}
+
+  ## Evaluation Feedback
+  {{ evaluation.value }}
+
+  Carefully review the feedback and create an improved version of the article.
+  Address the specific weaknesses mentioned while preserving the strengths.
+
+  When done, call the finish tool with your refined article.

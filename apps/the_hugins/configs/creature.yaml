@@ -1,0 +1,68 @@
+name: creature
+description: An autonomous creature living in a 2D world
+system_template: creature_system
+llm_model: haiku-latest
+tools:
+  # Perception & Movement
+  - get_position
+  - look
+  - move
+  # Items
+  - take
+  - drop
+  - get_inventory
+  # Communication
+  - say
+  - talk_to
+  - speak_to_hugin
+  # Memory
+  - remember
+  - recall_memories
+  - get_memory_detail
+  # Social & Behavior
+  - get_relationships
+  - set_behavior_mode
+interactive: false
+options: {}
+
+# State machine for behavior mode transitions
+# Creatures start in exploring mode and can switch modes using set_behavior_mode tool
+# The tool sets shared state 'target_behavior_mode' which triggers transitions
+state_machine:
+  initial_state: creature_exploring
+  transitions:
+    - name: to_exploring
+      from_state: "*"
+      to_state: creature_exploring
+      trigger:
+        type: state_pattern
+        pattern:
+          target_behavior_mode: exploring
+      priority: 10
+
+    - name: to_collecting
+      from_state: "*"
+      to_state: creature_collecting
+      trigger:
+        type: state_pattern
+        pattern:
+          target_behavior_mode: collecting
+      priority: 10
+
+    - name: to_socializing
+      from_state: "*"
+      to_state: creature_socializing
+      trigger:
+        type: state_pattern
+        pattern:
+          target_behavior_mode: socializing
+      priority: 10
+
+    - name: to_planning
+      from_state: "*"
+      to_state: creature_planning
+      trigger:
+        type: state_pattern
+        pattern:
+          target_behavior_mode: planning
+      priority: 10

@@ -1,0 +1,10 @@
+name: create_summary
+description: |
+  Create a human-readable summary from analysis results.
+  This is typically the final step in the document processing pipeline.
+implementation_path: task_chaining.tools.document_tools:create_summary
+parameters:
+  analysis:
+    type: string
+    description: JSON string of analysis results to summarize
+    required: true

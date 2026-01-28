@@ -1,0 +1,36 @@
+name: "daily_edition_prompt"
+template: |
+  Create today's edition of The Daily Market Herald for {{ edition_date.value }}.
+
+  Target symbols: {{ target_symbols.value | join(', ') }}
+  Initial target: {{ number_of_articles.value }} articles (more may be requested later)
+
+  ## WORKFLOW:
+
+  ### STEP 1: Research
+  1. Use `fetch_market_news` to survey headlines
+  2. Launch `technical_analyst` for technical data:
+     ```
+     launch_agent(config_name="technical_analyst", task_name="analyze_SYMBOL", task_description="Technical analysis for SYMBOL")
+     ```
+
+  ### STEP 2: Write articles
+  Use `write_article` for each article. Include technical analysis data (RSI, MACD, etc).
+
+  **NOTE**: `write_article` AUTOMATICALLY sends your article to the editor for review.
+  After writing, you will receive editor feedback. Handle it:
+  - If approved: continue to next article
+  - If rejected: revise based on feedback and rewrite
+
+  ### STEP 3: Finalize (for now)
+  After writing {{ number_of_articles.value }} article(s), call `finalize_edition`:
+  ```
+  finalize_edition(summary="Brief summary of today's edition")
+  ```
+  This triggers the editor to create the newspaper layout. Note: The user may request additional articles later - the edition can be expanded.
+
+  ## REMINDERS:
+  - Get technical analysis BEFORE writing
+  - Each `write_article` triggers automatic editor review
+  - Use `finalize_edition` when done (NOT `finish`)
+  - NEVER launch `financial_journalist` (that's you!)

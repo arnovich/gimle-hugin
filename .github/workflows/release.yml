@@ -1,0 +1,197 @@
+name: Release
+
+on:
+  release:
+    types:
+      - published
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Run tests
+        run: uv run pytest
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Needed for hatch-vcs to determine version from tags
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Create virtual environment
+        run: uv venv --python 3.12
+
+      - name: Install build dependencies
+        run: uv pip install build hatchling hatch-vcs
+
+      - name: Build package
+        run: uv run python -m build
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  upload-release-assets:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Upload assets to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.release.tag_name }}
+          files: dist/*
+          fail_on_unmatched_files: true
+
+  test-install:
+    needs: upload-release-assets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Create virtual environment
+        run: uv venv --python 3.12
+
+      - name: Extract tag name
+        id: get_tag
+        run: echo "tag=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Install from built wheel
+        run: uv pip install dist/*.whl
+
+      - name: Verify wheel installation
+        run: |
+          uv run python -c "import gimle.hugin; print(f'Successfully installed gimle-hugin version: {gimle.hugin.__version__}')"
+          uv run hugin --help
+
+      - name: Uninstall wheel install
+        run: uv pip uninstall -y gimle-hugin
+
+      - name: Install from GitHub tag source
+        run: uv pip install git+https://github.com/${{ github.repository }}.git@${{ steps.get_tag.outputs.tag }}
+
+      - name: Verify source installation
+        run: |
+          uv run python -c "import gimle.hugin; print(f'Successfully installed gimle-hugin version: {gimle.hugin.__version__}')"
+          uv run hugin --help
+
+  publish-pypi:
+    needs: test-install
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      id-token: write
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish package to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+
+  test-pypi-install:
+    needs: publish-pypi
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Create virtual environment
+        run: uv venv --python 3.12
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Extract version from wheel filename
+        id: get_version
+        run: |
+          python - <<'PY'
+          import glob
+          import os
+          wheel = sorted(glob.glob("dist/*.whl"))
+          if not wheel:
+            raise SystemExit("No wheel found in dist/")
+          wheel = wheel[0]
+          base = os.path.basename(wheel)
+          # wheel filename: {distribution}-{version}-...
+          version = base.split("-", 2)[1]
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+            f.write(f"version={version}\n")
+          print("wheel:", base)
+          print("version:", version)
+          PY
+
+      - name: Install from PyPI (retry until available)
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.get_version.outputs.version }}"
+          echo "Waiting for gimle-hugin==${VERSION} to be available on PyPI..."
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            if uv pip install "gimle-hugin==${VERSION}"; then
+              echo "Installed gimle-hugin==${VERSION} from PyPI."
+              break
+            fi
+            echo "Attempt ${attempt}/10 failed; sleeping before retry..."
+            sleep 20
+          done
+
+      - name: Verify PyPI installation
+        run: |
+          uv run python -c "import gimle.hugin; print(f'Successfully installed gimle-hugin version: {gimle.hugin.__version__}')"
+          uv run hugin --help

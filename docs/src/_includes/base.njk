@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ title }}{% if title != "Home" %} | Hugin{% endif %}</title>
+  <meta name="description" content="{{ description or site.description }}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/css/style.css">
+
+  {# Google Analytics 4 (GA4) #}
+  {% if env.ga4MeasurementId %}
+    <script async src="https://www.googletagmanager.com/gtag/js?id={{ env.ga4MeasurementId }}"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', '{{ env.ga4MeasurementId }}');
+    </script>
+  {% endif %}
+</head>
+<body>
+  <header>
+    {% set conceptsActive = '/concepts/' in page.url %}
+    {% set howToActive = '/how-to/' in page.url %}
+    <div class="container header-main">
+      <a href="/" class="logo">Hugin</a>
+      <nav>
+        <a href="/getting-started/"{% if page.url == '/getting-started/' %} class="active"{% endif %}>Getting Started</a>
+        <a href="/how-to/"{% if howToActive %} class="active"{% endif %}>How-To</a>
+        <a href="/concepts/"{% if conceptsActive %} class="active"{% endif %}>Concepts</a>
+        <a href="/cli/"{% if page.url == '/cli/' %} class="active"{% endif %}>CLI</a>
+        <a href="/examples/"{% if '/examples/' in page.url %} class="active"{% endif %}>Examples</a>
+        <a href="/api/"{% if '/api/' in page.url %} class="active"{% endif %}>API</a>
+        <a href="https://github.com/gimlelabs/gimle-hugin" class="github-link">GitHub</a>
+      </nav>
+    </div>
+
+    {% if conceptsActive %}
+      <div class="header-subnav" aria-label="Concepts pages">
+        <div class="container header-subnav-inner">
+          <a href="/concepts/agents/"{% if page.url == '/concepts/agents/' %} class="active"{% endif %}>Sessions &amp; Agents</a>
+          <a href="/concepts/stacks/"{% if page.url == '/concepts/stacks/' %} class="active"{% endif %}>Stacks &amp; Interactions</a>
+          <a href="/concepts/tools/"{% if page.url == '/concepts/tools/' %} class="active"{% endif %}>Tools</a>
+        </div>
+      </div>
+    {% endif %}
+
+    {% if howToActive %}
+      <div class="header-subnav" aria-label="How-To guides">
+        <div class="container header-subnav-inner">
+          <a href="/how-to/create-agent/"{% if page.url == '/how-to/create-agent/' %} class="active"{% endif %}>Create an Agent</a>
+          <a href="/how-to/use-creator/"{% if page.url == '/how-to/use-creator/' %} class="active"{% endif %}>Use the Creator</a>
+          <a href="/how-to/use-monitor/"{% if page.url == '/how-to/use-monitor/' %} class="active"{% endif %}>Use the Monitor</a>
+        </div>
+      </div>
+    {% endif %}
+  </header>
+
+  <main>
+    <div class="container">
+      {{ content | safe }}
+    </div>
+  </main>
+
+  <footer>
+    <div class="container">
+      Part of the <a href="https://gimlelabs.com">Gimle</a> project.
+    </div>
+  </footer>
+
+  <script type="module" src="/assets/js/animator/state-machine-animator.js"></script>
+</body>
+</html>

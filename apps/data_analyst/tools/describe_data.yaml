@@ -1,0 +1,18 @@
+name: describe_data
+description: |
+  Generate a comprehensive profile of a dataset including column types,
+  missing values, unique counts, basic statistics, and suggested analyses.
+  Use this FIRST when starting analysis to understand the data structure.
+function: describe_data_tool
+parameters:
+  data_source:
+    type: string
+    description: Path to CSV file or SQLite database to profile
+    required: true
+  table_name:
+    type: string
+    description: Table name (required for SQLite databases, optional for CSV)
+    required: false
+implementation_path: describe_data:describe_data_tool
+options:
+  include_reason: true

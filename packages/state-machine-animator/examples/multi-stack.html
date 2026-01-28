@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Multi-Stack Interaction - State Machine Animator</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5;
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 1000px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      color: #2c3e50;
+      margin-bottom: 10px;
+    }
+
+    .description {
+      color: #666;
+      margin-bottom: 20px;
+      line-height: 1.6;
+    }
+
+    .animation-container {
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+      overflow: hidden;
+    }
+
+    #animation {
+      width: 100%;
+      height: 600px;
+    }
+
+    .controls {
+      display: flex;
+      gap: 10px;
+      padding: 15px;
+      background: #f8f9fa;
+      border-top: 1px solid #e0e0e0;
+    }
+
+    button {
+      background: #27ae60;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background 0.2s;
+    }
+
+    button:hover {
+      background: #219a52;
+    }
+
+    button:disabled {
+      background: #bdc3c7;
+      cursor: not-allowed;
+    }
+
+    .flow-diagram {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 15px;
+      padding: 20px;
+      background: #e8f5e9;
+      border-radius: 8px;
+      margin-top: 20px;
+    }
+
+    .flow-step {
+      text-align: center;
+      padding: 15px;
+      background: white;
+      border-radius: 8px;
+      border: 2px solid #4caf50;
+      min-width: 120px;
+    }
+
+    .flow-step .number {
+      display: inline-block;
+      width: 24px;
+      height: 24px;
+      background: #4caf50;
+      color: white;
+      border-radius: 50%;
+      line-height: 24px;
+      margin-bottom: 8px;
+      font-weight: bold;
+      font-size: 12px;
+    }
+
+    .flow-step .label {
+      color: #2c3e50;
+      font-size: 13px;
+    }
+
+    .flow-arrow {
+      color: #4caf50;
+      font-size: 24px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Multi-Stack Interaction (Sub-Agent)</h1>
+    <p class="description">
+      This animation demonstrates how a parent agent can delegate work to a sub-agent.
+      The parent stack pushes an AgentCall, the child agent executes its task,
+      and returns an AgentResult to the parent.
+    </p>
+
+    <div class="animation-container">
+      <div id="animation"></div>
+      <div class="controls">
+        <button id="play-btn">Play Animation</button>
+        <button id="reset-btn">Reset</button>
+      </div>
+    </div>
+
+    <div class="flow-diagram">
+      <div class="flow-step">
+        <div class="number">1</div>
+        <div class="label">Parent pushes<br>AgentCall</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">
+        <div class="number">2</div>
+        <div class="label">Child receives<br>task</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">
+        <div class="number">3</div>
+        <div class="label">Child<br>executes</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">
+        <div class="number">4</div>
+        <div class="label">Child returns<br>result</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">
+        <div class="number">5</div>
+        <div class="label">Parent receives<br>AgentResult</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">
+        <div class="number">6</div>
+        <div class="label">Parent<br>completes task</div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { StateMachineAnimator } from '../dist/state-machine-animator.js';
+
+    const animator = new StateMachineAnimator({
+      container: '#animation',
+      theme: 'light',
+      responsive: true,
+    });
+
+    const playBtn = document.getElementById('play-btn');
+    const resetBtn = document.getElementById('reset-btn');
+
+    async function runAnimation() {
+      playBtn.disabled = true;
+
+      await animator.playMultiStackInteraction({
+        parentStack: {
+          id: 'parent',
+          label: 'Coordinator Agent',
+          states: [],
+        },
+        childStack: {
+          id: 'child',
+          label: 'Analysis Agent',
+          states: [],
+        },
+        parentExecution: [
+          { type: 'TaskDefinition', label: 'Analyze and summarize data' },
+          { type: 'AskOracle', label: 'What should I do?' },
+          { type: 'OracleResponse', label: 'I need to analyze this data...' },
+          { type: 'ToolCall', label: 'check_data_format' },
+        ],
+        callState: { type: 'AgentCall', label: 'Delegate: analyze_data' },
+        childExecution: [
+          { type: 'TaskDefinition', label: 'Analyze the dataset' },
+          { type: 'AskOracle', label: 'Analyzing...' },
+          { type: 'OracleResponse', label: 'Running statistical analysis...' },
+          { type: 'ToolCall', label: 'compute_statistics' },
+          { type: 'ToolResult', label: 'Stats computed' },
+          { type: 'TaskResult', label: 'Analysis complete' },
+        ],
+        resultState: { type: 'AgentResult', label: 'Analysis: 95% accuracy' },
+        parentCompletion: [
+          { type: 'AskOracle', label: 'What should I do next?' },
+          { type: 'OracleResponse', label: 'Summarizing results...' },
+          { type: 'ToolCall', label: 'generate_report' },
+          { type: 'ToolResult', label: 'Report generated' },
+          { type: 'TaskResult', label: 'Task completed successfully' },
+        ],
+        options: {
+          childPosition: 'right',
+          animateChildSteps: true,
+          animateParentSteps: true,
+        },
+      });
+
+      playBtn.disabled = false;
+    }
+
+    playBtn.addEventListener('click', runAnimation);
+
+    resetBtn.addEventListener('click', () => {
+      animator.reset();
+      playBtn.disabled = false;
+    });
+
+    // Run initial animation
+    runAnimation();
+  </script>
+</body>
+</html>

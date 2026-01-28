@@ -1,0 +1,10 @@
+name: ping
+description: Agent that sends ping messages
+system_template: ping_system
+llm_model: haiku-latest
+tools:
+  - send_to_agent:send_to_agent
+  - builtins.list_running_agents:list_running_agents
+  - builtins.finish:finish
+interactive: false
+options: {}

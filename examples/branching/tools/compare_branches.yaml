@@ -1,0 +1,4 @@
+name: compare_branches
+description: Compare results from all branches
+parameters: {}
+implementation_path: compare_branches:compare_branches

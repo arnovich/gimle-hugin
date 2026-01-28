@@ -1,0 +1,26 @@
+name: recall_memories
+description: "Search your long-term memories for relevant information from previous sessions. Use keywords to find memories about discoveries, relationships, locations, or events you saved before."
+parameters:
+  world_id:
+    type: string
+    description: The ID of the world you are in
+    required: true
+  query:
+    type: string
+    description: Search terms to find relevant memories (e.g., 'apple', 'Fluffy', 'forest')
+    required: true
+  memory_type:
+    type: string
+    description: "Optional filter: discovery, relationship, location, event, or thought"
+    required: false
+  limit:
+    type: integer
+    description: Maximum number of memories to return (default 5)
+    required: false
+  reason:
+    type: string
+    description: Why you are performing this action
+    required: false
+is_interactive: false
+implementation_path: the_hugins.tools.recall_memories:recall_memories_tool
+options: {}

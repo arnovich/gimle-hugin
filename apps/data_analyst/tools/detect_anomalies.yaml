@@ -1,0 +1,30 @@
+name: detect_anomalies
+description: |
+  Detect anomalies and outliers in numeric data using statistical methods.
+  Methods available:
+  - iqr: Interquartile Range method (default). Values beyond Q1-1.5*IQR or Q3+1.5*IQR
+  - zscore: Standard Z-score method. Values with |z| > 3 (default threshold)
+  - modified_zscore: More robust method using median and MAD. Better for non-normal data.
+  Returns anomaly counts, examples, and recommendations for investigation.
+function: detect_anomalies_tool
+parameters:
+  data:
+    type: string
+    description: JSON string of data (list of dictionaries), typically from sql_query results
+    required: true
+  columns:
+    type: array
+    description: List of numeric column names to check for anomalies
+    required: true
+  method:
+    type: string
+    description: "Detection method: 'iqr' (default), 'zscore', or 'modified_zscore'"
+    required: false
+    default: "iqr"
+  threshold:
+    type: number
+    description: Custom threshold (IQR multiplier for 'iqr', z-score threshold for others)
+    required: false
+implementation_path: detect_anomalies:detect_anomalies_tool
+options:
+  include_reason: true

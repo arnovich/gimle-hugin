@@ -1,0 +1,4 @@
+name: get_count
+description: Get the current count
+parameters: {}
+implementation_path: parallel_agents.tools.counter_tools:get_count

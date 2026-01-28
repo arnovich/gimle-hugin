@@ -1,0 +1,10 @@
+name: rapper
+description: A skilled rapper agent that battles with bars and wordplay
+system_template: rapper_system
+llm_model: haiku-latest
+tools:
+  - spit_bars
+  - builtins.finish:finish
+state_namespaces:
+  - common
+  - battles

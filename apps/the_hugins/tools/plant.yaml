@@ -1,0 +1,18 @@
+name: plant
+description: "Plant a seed from your inventory at your current location. The seed will grow into a harvestable item after some time. Plantable items: seed, herb_seed, flower_seed, berry_seed, mushroom_spore, acorn."
+parameters:
+  world_id:
+    type: string
+    description: The ID of the world you are in
+    required: true
+  seed_name:
+    type: string
+    description: Name of the seed to plant (e.g., 'seed', 'acorn')
+    required: true
+  reason:
+    type: string
+    description: Why you are performing this action
+    required: false
+is_interactive: false
+implementation_path: the_hugins.tools.plant:plant_tool
+options: {}

@@ -1,0 +1,18 @@
+name: set_behavior_mode
+description: "Switch your behavior mode. Available modes: exploring (discover new places), collecting (gather items), socializing (interact with creatures), planning (think about goals). Switching modes changes your available tools and focus area."
+parameters:
+  world_id:
+    type: string
+    description: The ID of the world you are in
+    required: true
+  mode:
+    type: string
+    description: "The mode to switch to: exploring, collecting, socializing, or planning"
+    required: true
+  reason:
+    type: string
+    description: Why you are performing this action
+    required: false
+is_interactive: false
+implementation_path: the_hugins.tools.set_behavior_mode:set_behavior_mode_tool
+options: {}
