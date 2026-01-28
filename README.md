@@ -4,7 +4,7 @@
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 
 <p align="center">
-  <img src="./hugin.gif?raw=1" alt="Hugin demo" width="900" />
+  <img src="https://raw.githubusercontent.com/gimlelabs/gimle-hugin/main/hugin.gif" alt="Hugin demo" width="900" />
 </p>
 
 A framework for building agents with a focus on longer running, creative, reasoning tasks.
