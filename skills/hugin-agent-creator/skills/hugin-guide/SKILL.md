@@ -5,7 +5,39 @@ description: Comprehensive guide for creating Hugin AI agents. Use when building
 
 # Hugin Agent Creation Guide
 
-This guide helps you create Hugin AI agents. For detailed schema references, see the `references/` directory in this plugin.
+This skill helps you create Hugin AI agents. It provides an overview and directs you to detailed reference documentation.
+
+## How to Use This Skill
+
+1. **Quick Start**: Follow the minimal agent example below
+2. **Detailed Info**: Read the appropriate reference file for schemas and examples
+3. **Scaffolding**: Use `/hugin-agent-creator:hugin-scaffold` to generate starter files
+
+## Reference Files (Read These for Details)
+
+When the user needs detailed information about a specific topic, **read the appropriate reference file** from this plugin directory:
+
+| Topic | Reference File | When to Read |
+|-------|---------------|--------------|
+| Config files | `references/config-reference.md` | User asks about config options, models, tools |
+| Task files | `references/task-reference.md` | User asks about tasks, parameters, prompts, pipelines |
+| System templates | `references/template-reference.md` | User asks about system prompts, agent personality |
+| Custom tools | `references/tool-reference.md` | User wants to create tools, use ToolResponse/AgentCall/AskHuman |
+| Agent patterns | `references/patterns.md` | User needs architecture guidance, pattern examples |
+
+**Important**: These reference files contain detailed schemas, field descriptions, and complete examples. Read them when answering specific questions.
+
+## Starter Templates
+
+When the user wants to create files, **read and adapt the starter templates** from this plugin:
+
+| Template | File | Use For |
+|----------|------|---------|
+| Config | `templates/minimal-config.yaml` | Creating agent configs |
+| Task | `templates/minimal-task.yaml` | Creating task definitions |
+| System template | `templates/minimal-template.yaml` | Creating system prompts |
+| Tool definition | `templates/tool-definition.yaml` | Creating tool YAML |
+| Tool implementation | `templates/tool-implementation.py` | Creating tool Python code |
 
 ## Quick Start: Minimal Agent (3 Files)
 
@@ -15,96 +47,32 @@ A working agent needs just 3 files:
 my_agent/
 ├── configs/my_agent.yaml      # Agent configuration
 ├── tasks/my_task.yaml         # Task definition
-├── templates/my_system.yaml   # System prompt template
+└── templates/my_system.yaml   # System prompt template
 ```
 
-### 1. Config (`configs/my_agent.yaml`)
-
-```yaml
-name: my_agent
-description: What this agent does
-system_template: my_system
-llm_model: haiku-latest
-tools:
-  - builtins.finish:finish
-interactive: false
-options: {}
-```
-
-### 2. Task (`tasks/my_task.yaml`)
-
-```yaml
-name: my_task
-description: What this task accomplishes
-parameters:
-  input:
-    type: string
-    description: The input to process
-    required: false
-    default: "default value"
-prompt: |
-  Process this input: {{ input.value }}
-
-  When complete, use the finish tool.
-```
-
-### 3. Template (`templates/my_system.yaml`)
-
-```yaml
-name: my_system
-template: |
-  You are a helpful AI assistant.
-
-  When you have completed the task, use the finish tool to indicate completion.
-```
-
-### Run It
+### Run Command
 
 ```bash
 uv run hugin run --task my_task --task-path ./my_agent
 ```
 
-## Directory Structure
-
-```
-agent_directory/
-├── configs/           # Agent configurations (.yaml)
-├── tasks/            # Task definitions (.yaml)
-├── templates/        # Jinja2 system templates (.yaml)
-└── tools/           # Custom tools (.py + .yaml)
-```
-
-## Core Concepts
+## Core Concepts (Overview)
 
 ### Config
-Defines an agent's identity: model, system template, available tools. One config can run many tasks.
-
-**Key fields:**
-- `name`: Unique identifier
-- `system_template`: References template by name
-- `llm_model`: `haiku-latest`, `sonnet-latest`, or `opus-4-5`
-- `tools`: List of available tools (format: `namespace.tool:alias`)
-- `interactive`: `true` for human-in-the-loop agents
+Defines an agent's identity: model, system template, available tools.
+- **Read `references/config-reference.md` for full schema**
 
 ### Task
-Defines what an agent should do. Contains the prompt and parameters.
-
-**Key fields:**
-- `name`: Unique identifier
-- `prompt`: Jinja2 template with `{{ param.value }}` syntax
-- `parameters`: Typed inputs with defaults
-- `task_sequence`: Optional list of follow-up tasks
-- `pass_result_as`: Parameter name for passing result to next task
+Defines what an agent should do: prompt, parameters, optional pipeline.
+- **Read `references/task-reference.md` for full schema**
 
 ### Template
 System prompt that sets agent behavior and personality.
-
-**Key fields:**
-- `name`: Referenced by configs/tasks
-- `template`: The system prompt content
+- **Read `references/template-reference.md` for examples**
 
 ### Tool
-Extends agent capabilities. Consists of YAML definition + Python implementation.
+Extends agent capabilities with Python code.
+- **Read `references/tool-reference.md` for implementation guide**
 
 ## Built-in Tools
 
@@ -139,48 +107,22 @@ Do you need multiple agents running together?
 └── Yes → Multi-agent pattern (shared state via env_vars)
 ```
 
-## Common Patterns
+**For detailed pattern examples, read `references/patterns.md`**
 
-### 1. Minimal Agent
-Just config + task + template. Uses only built-in tools.
+## Common Patterns (Summary)
 
-### 2. Tool Agent
-Adds custom tools for specific capabilities. See `references/tool-reference.md`.
+1. **Minimal Agent** - Config + task + template, built-in tools only
+2. **Tool Agent** - Custom tools for specific capabilities
+3. **Pipeline Agent** - Multi-stage processing with result passing
+4. **Human-in-the-Loop** - Requires human approval during execution
+5. **Agent Delegation** - Spawns specialized sub-agents
+6. **Multi-Agent** - Multiple agents sharing state
 
-### 3. Pipeline Agent
-Multi-stage processing with result passing between tasks:
+## Workflow for Helping Users
 
-```yaml
-# First task
-task_sequence:
-  - stage_2
-  - stage_3
-pass_result_as: stage_1_result
-```
-
-### 4. Human-in-the-Loop
-Set `interactive: true` in config, use `AskHuman` in tools.
-
-### 5. Agent Delegation
-Use `builtins.launch_agent` or return `AgentCall` from custom tool.
-
-### 6. Multi-Agent
-Multiple agents sharing state via `environment.env_vars`.
-
-## Reference Documentation
-
-For detailed schemas and examples:
-- `references/config-reference.md` - Config YAML schema
-- `references/task-reference.md` - Task YAML schema
-- `references/template-reference.md` - System template patterns
-- `references/tool-reference.md` - Custom tool creation
-- `references/patterns.md` - Detailed pattern examples
-
-## Starter Templates
-
-Copy-paste templates in `templates/` directory:
-- `minimal-config.yaml`
-- `minimal-task.yaml`
-- `minimal-template.yaml`
-- `tool-definition.yaml`
-- `tool-implementation.py`
+1. **Understand what they want to build** - Ask clarifying questions if needed
+2. **Recommend a pattern** - Use the decision tree above
+3. **Read the relevant reference** - Get detailed schema information
+4. **Read the starter template** - Use as base for their files
+5. **Customize for their use case** - Replace placeholders, add their logic
+6. **Provide the run command** - Show how to test the agent

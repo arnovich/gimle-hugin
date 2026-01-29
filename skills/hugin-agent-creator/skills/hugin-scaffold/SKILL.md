@@ -3,13 +3,14 @@ name: hugin-scaffold
 description: Generate starter files for a new Hugin agent
 argument-hint: "[agent-name] [type: minimal|tool|pipeline]"
 allowed-tools:
+  - Read
   - Write
   - Bash
 ---
 
 # Hugin Agent Scaffold Generator
 
-Generate starter files for a new Hugin agent based on the provided arguments.
+Generate starter files for a new Hugin agent by reading templates from this plugin and customizing them.
 
 ## Arguments
 
@@ -22,242 +23,155 @@ Example invocations:
 - `/hugin-agent-creator:hugin-scaffold data_processor tool` - Creates agent with custom tool
 - `/hugin-agent-creator:hugin-scaffold report_generator pipeline` - Creates multi-stage pipeline
 
-## Directory Structure to Create
+## Implementation Steps
 
-For ALL types, create under `./[agent_name]/`:
+### Step 1: Parse Arguments
+Extract `agent_name` and `type` from user input. Validate `agent_name` is snake_case.
 
-```
-[agent_name]/
-├── configs/
-│   └── [agent_name].yaml
-├── tasks/
-│   └── [task_name].yaml
-├── templates/
-│   └── [agent_name]_system.yaml
-└── tools/                      # Only for 'tool' type
-    ├── [tool_name].yaml
-    └── [tool_name].py
+### Step 2: Create Directory Structure
+Use Bash to create the directories:
+
+```bash
+mkdir -p [agent_name]/configs [agent_name]/tasks [agent_name]/templates
+# For 'tool' type also:
+mkdir -p [agent_name]/tools
 ```
 
-## Templates by Type
+### Step 3: Read and Customize Templates
 
-### Minimal Type
+**IMPORTANT**: Read the actual template files from this plugin, then customize them.
 
-**configs/[agent_name].yaml:**
-```yaml
-name: [agent_name]
-description: [Agent description - ask user or generate from name]
-system_template: [agent_name]_system
-llm_model: haiku-latest
-tools:
-  - builtins.finish:finish
-interactive: false
-options: {}
-```
+#### For ALL types, read these templates:
 
-**tasks/[agent_name]_task.yaml:**
-```yaml
-name: [agent_name]_task
-description: Main task for [agent_name]
-parameters:
-  input:
-    type: string
-    description: Input to process
-    required: false
-    default: "Hello, world!"
-prompt: |
-  Process this input: {{ input.value }}
+1. **Read** `templates/minimal-config.yaml` from this plugin
+   - Replace `my_agent` with `[agent_name]`
+   - Replace `my_system` with `[agent_name]_system`
+   - For 'tool' type: add the custom tool to the tools list
+   - Write to `[agent_name]/configs/[agent_name].yaml`
 
-  When complete, use the finish tool with your result.
-```
+2. **Read** `templates/minimal-task.yaml` from this plugin
+   - Replace `my_task` with `[agent_name]_task`
+   - Write to `[agent_name]/tasks/[agent_name]_task.yaml`
 
-**templates/[agent_name]_system.yaml:**
-```yaml
-name: [agent_name]_system
-template: |
-  You are a helpful AI assistant.
+3. **Read** `templates/minimal-template.yaml` from this plugin
+   - Replace `my_system` with `[agent_name]_system`
+   - Write to `[agent_name]/templates/[agent_name]_system.yaml`
 
-  Your task is to help the user accomplish their goals. Be concise and clear in your responses.
+#### For 'tool' type, also read:
 
-  When you have completed the task, use the finish tool to indicate completion.
-```
+4. **Read** `templates/tool-definition.yaml` from this plugin
+   - Replace `my_tool` with `[agent_name]_tool`
+   - Write to `[agent_name]/tools/[agent_name]_tool.yaml`
 
-### Tool Type
+5. **Read** `templates/tool-implementation.py` from this plugin
+   - Replace `my_tool` with `[agent_name]_tool`
+   - Write to `[agent_name]/tools/[agent_name]_tool.py`
 
-Same as minimal, plus:
+#### For 'pipeline' type:
 
-**tools/[agent_name]_tool.yaml:**
-```yaml
-name: [agent_name]_tool
-description: Custom tool for [agent_name]
-parameters:
-  data:
-    type: string
-    description: Data to process
-implementation_path: [agent_name]_tool:[agent_name]_tool
-```
+Instead of the single task, create 3 stage tasks:
 
-**tools/[agent_name]_tool.py:**
-```python
-"""Custom tool for [agent_name]."""
+1. **Read** `templates/minimal-task.yaml` as base, then create:
 
-from typing import TYPE_CHECKING
+   **tasks/stage_1_extract.yaml:**
+   ```yaml
+   name: stage_1_extract
+   description: Extract data from input (Stage 1)
+   parameters:
+     raw_input:
+       type: string
+       description: Raw input data
+       required: false
+       default: "Sample input data"
+   task_sequence:
+     - stage_2_transform
+     - stage_3_output
+   pass_result_as: extracted_data
+   prompt: |
+     STAGE 1: EXTRACT
 
-from gimle.hugin.tools.tool import Tool, ToolResponse
+     Raw Input: {{ raw_input.value }}
 
-if TYPE_CHECKING:
-    from gimle.hugin.interaction.stack import Stack
+     Your task:
+     1. Parse the raw input
+     2. Extract key information
+     3. Use finish with your structured extraction as the result
 
+     The result will be passed to Stage 2.
+   ```
 
-@Tool.register(
-    name="[agent_name]_tool",
-    description="Custom tool for [agent_name]",
-    parameters={
-        "data": {
-            "type": "string",
-            "description": "Data to process",
-            "required": True,
-        },
-    },
-    is_interactive=False,
-)
-def [agent_name]_tool(stack: "Stack", data: str) -> ToolResponse:
-    """Process data and return result.
+   **tasks/stage_2_transform.yaml:**
+   ```yaml
+   name: stage_2_transform
+   description: Transform extracted data (Stage 2)
+   parameters:
+     extracted_data:
+       type: string
+       description: Data from Stage 1
+       required: false
+       default: ""
+   pass_result_as: transformed_data
+   prompt: |
+     STAGE 2: TRANSFORM
 
-    Args:
-        stack: The stack (auto-injected)
-        data: Data to process
+     Extracted Data: {{ extracted_data.value }}
 
-    Returns:
-        ToolResponse with processed result
-    """
-    # TODO: Implement your tool logic here
-    result = f"Processed: {data}"
+     Your task:
+     1. Transform the extracted data
+     2. Apply any necessary processing
+     3. Use finish with your transformed result
 
-    return ToolResponse(
-        is_error=False,
-        content={
-            "result": result,
-            "message": "Processing complete",
-        },
-    )
-```
+     The result will be passed to Stage 3.
+   ```
 
-Update config to include the tool:
-```yaml
-tools:
-  - [agent_name]_tool:[agent_name]_tool
-  - builtins.finish:finish
-```
+   **tasks/stage_3_output.yaml:**
+   ```yaml
+   name: stage_3_output
+   description: Generate final output (Stage 3)
+   parameters:
+     transformed_data:
+       type: string
+       description: Data from Stage 2
+       required: false
+       default: ""
+   prompt: |
+     STAGE 3: OUTPUT
 
-### Pipeline Type
+     Transformed Data: {{ transformed_data.value }}
 
-Creates a 3-stage pipeline:
+     Your task:
+     1. Generate the final output
+     2. Format it appropriately
+     3. Use finish with your final result
+   ```
 
-**configs/[agent_name].yaml:**
-```yaml
-name: [agent_name]
-description: Multi-stage pipeline agent
-system_template: [agent_name]_system
-llm_model: haiku-latest
-tools:
-  - builtins.finish:finish
-interactive: false
-options: {}
-```
+2. Update the system template for pipeline context:
+   ```yaml
+   name: [agent_name]_system
+   template: |
+     You are a data processing assistant working in a multi-stage pipeline.
 
-**tasks/stage_1_extract.yaml:**
-```yaml
-name: stage_1_extract
-description: Extract data from input (Stage 1)
-parameters:
-  raw_input:
-    type: string
-    description: Raw input data
-    required: false
-    default: "Sample input data"
-task_sequence:
-  - stage_2_transform
-  - stage_3_output
-pass_result_as: extracted_data
-prompt: |
-  STAGE 1: EXTRACT
+     Follow your stage instructions carefully. Your output will be passed to the next stage.
 
-  Raw Input: {{ raw_input.value }}
+     Always use the finish tool when your stage is complete, including your result.
+   ```
 
-  Your task:
-  1. Parse the raw input
-  2. Extract key information
-  3. Use finish with your structured extraction as the result
+### Step 4: Print Success Message
 
-  The result will be passed to Stage 2.
-```
-
-**tasks/stage_2_transform.yaml:**
-```yaml
-name: stage_2_transform
-description: Transform extracted data (Stage 2)
-parameters:
-  extracted_data:
-    type: string
-    description: Data from Stage 1
-    required: false
-    default: ""
-task_sequence: []
-pass_result_as: transformed_data
-prompt: |
-  STAGE 2: TRANSFORM
-
-  Extracted Data: {{ extracted_data.value }}
-
-  Your task:
-  1. Transform the extracted data
-  2. Apply any necessary processing
-  3. Use finish with your transformed result
-
-  The result will be passed to Stage 3.
-```
-
-**tasks/stage_3_output.yaml:**
-```yaml
-name: stage_3_output
-description: Generate final output (Stage 3)
-parameters:
-  transformed_data:
-    type: string
-    description: Data from Stage 2
-    required: false
-    default: ""
-prompt: |
-  STAGE 3: OUTPUT
-
-  Transformed Data: {{ transformed_data.value }}
-
-  Your task:
-  1. Generate the final output
-  2. Format it appropriately
-  3. Use finish with your final result
-```
-
-**templates/[agent_name]_system.yaml:**
-```yaml
-name: [agent_name]_system
-template: |
-  You are a data processing assistant working in a multi-stage pipeline.
-
-  Follow your stage instructions carefully. Your output will be passed to the next stage.
-
-  Always use the finish tool when your stage is complete, including your result.
-```
-
-## After Scaffolding
-
-Print these next steps:
+After creating all files, print:
 
 ```
 Created [agent_name] agent ([type] type)
 
 Directory: ./[agent_name]/
+
+Files created:
+  - configs/[agent_name].yaml
+  - tasks/[task_name].yaml
+  - templates/[agent_name]_system.yaml
+  [If tool type:]
+  - tools/[agent_name]_tool.yaml
+  - tools/[agent_name]_tool.py
 
 Run your agent:
   uv run hugin run --task [task_name] --task-path ./[agent_name]
@@ -274,11 +188,13 @@ Next steps:
 For more guidance: /hugin-agent-creator:hugin-guide
 ```
 
-## Implementation Instructions
+## Template File Locations
 
-1. Parse arguments to get agent_name and type
-2. Validate agent_name is snake_case
-3. Create directory structure using Bash mkdir
-4. Write all files using the Write tool
-5. Replace all `[agent_name]` placeholders with actual name
-6. Print the "After Scaffolding" message
+All templates are in this plugin's `templates/` directory:
+- `templates/minimal-config.yaml`
+- `templates/minimal-task.yaml`
+- `templates/minimal-template.yaml`
+- `templates/tool-definition.yaml`
+- `templates/tool-implementation.py`
+
+**Always read these files** rather than hardcoding their content. This ensures scaffolded agents use the latest template versions.
