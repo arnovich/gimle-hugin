@@ -17,6 +17,10 @@ Practical, step-by-step guides for common tasks with Hugin.
     <p>Let the interactive wizard generate a complete agent for you based on a description of what you want it to do.</p>
   </div>
   <div class="feature">
+    <h3><a href="/how-to/use-claude-code/">Use Claude Code</a></h3>
+    <p>Use the Claude Code plugin to have AI assistants help you build Hugin agents with guidance and scaffolding.</p>
+  </div>
+  <div class="feature">
     <h3><a href="/how-to/use-monitor/">Use the Monitor</a></h3>
     <p>Visualize and debug your agent's execution with the real-time web dashboard.</p>
   </div>
@@ -26,6 +30,7 @@ Practical, step-by-step guides for common tasks with Hugin.
 
 - **New to Hugin?** Start with [Create an Agent](/how-to/create-agent/) to understand the fundamentals.
 - **Want something fast?** Use the [Agent Creator](/how-to/use-creator/) to generate an agent in minutes.
+- **Using Claude Code or Cursor?** The [Claude Code plugin](/how-to/use-claude-code/) helps AI assistants build agents for you.
 - **Debugging an agent?** Learn to use the [Monitor](/how-to/use-monitor/) to see what's happening.
 
 ## Other Resources
