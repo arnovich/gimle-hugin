@@ -29,7 +29,7 @@ repos:
     hooks:
     -   id: mypy
         args: [--config-file=mypy.ini]
-        exclude: ^(apps|tests)/
+        exclude: ^(apps|tests|skills)/
         additional_dependencies:
           - ollama>=0.6.1
           - anthropic>=0.72.0

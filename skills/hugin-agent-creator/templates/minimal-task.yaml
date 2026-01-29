@@ -1,0 +1,29 @@
+# Hugin Task Template
+# Copy and customize for your task
+
+name: my_task                     # Unique identifier
+description: What this task does   # Human-readable description
+parameters:
+  input:                          # Parameter name
+    type: string                  # string | integer | number | boolean | array
+    description: Input to process # Shown in CLI help
+    required: false               # true = must be provided
+    default: "Hello, world!"      # Used if not provided
+  # Add more parameters as needed
+prompt: |
+  Process this input: {{ input.value }}
+
+  When complete, use the finish tool with your result.
+
+# Optional overrides:
+# tools:
+#   - special_tool:special
+#   - builtins.finish:finish
+# system_template: different_template
+# llm_model: sonnet-latest
+
+# For pipelines:
+# task_sequence:
+#   - next_task
+#   - final_task
+# pass_result_as: my_result

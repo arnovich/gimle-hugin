@@ -1,0 +1,13 @@
+# Hugin Agent Config Template
+# Copy and customize for your agent
+
+name: my_agent                    # Unique identifier
+description: What this agent does  # Human-readable description
+system_template: my_system        # Name of template in templates/
+llm_model: haiku-latest           # haiku-latest | sonnet-latest | opus-4-5
+tools:
+  - builtins.finish:finish        # Required: allows task completion
+  # - builtins.save_insight:save  # Optional: save artifacts
+  # - my_tool:my_tool             # Custom tool from tools/
+interactive: false                # true if using AskHuman
+options: {}
