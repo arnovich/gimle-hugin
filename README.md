@@ -41,9 +41,24 @@ I am a big fan of vibe coding and one of the intentions of Hugin was to make a f
 
 As a show case of this, all the apps in the `apps` folder are 100% vibed (which does show a bit in terms the code quality 😄) using either Claude Code or Cursor.
 
-Generally, I think they did a pretty good job, so I have left them as vibed and so far I haven’t found any bugs in the agentic flows - but lots in the UI 😆.
+Generally, I think they did a pretty good job, so I have left them as vibed and so far I haven't found any bugs in the agentic flows - but lots in the UI 😆.
 
 Similarly all the tests and much of the CLI are mostly vibed - although this had to do more with time constraints than anything else.
+
+### Claude Code Plugin
+
+To help Claude Code (and other coding agents) build Hugin agents, there's a plugin with comprehensive guidance:
+
+```bash
+# Run Claude Code with the Hugin agent creator plugin
+claude --plugin-dir ./skills/hugin-agent-creator
+```
+
+Then use the skills:
+- `/hugin-agent-creator:hugin-guide` - Comprehensive guide for creating agents
+- `/hugin-agent-creator:hugin-scaffold my_agent` - Generate starter files for a new agent
+
+See the [plugin documentation](./skills/hugin-agent-creator/README.md) for more details.
 
 ## Why "Hugin"?
 

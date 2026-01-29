@@ -1,0 +1,8 @@
+{
+  "name": "hugin-agent-creator",
+  "version": "1.0.0",
+  "description": "Helps coding agents build Hugin AI agents with comprehensive guidance, templates, and examples",
+  "author": {
+    "name": "Gimle Labs"
+  }
+}

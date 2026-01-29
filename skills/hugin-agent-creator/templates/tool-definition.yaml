@@ -1,0 +1,19 @@
+# Hugin Tool Definition Template
+# Copy and customize for your tool
+# Pair with tool-implementation.py
+
+name: my_tool                     # Must match Python function name
+description: What this tool does  # Shown to the LLM
+parameters:
+  data:                           # Parameter name
+    type: string                  # string | integer | number | boolean | array | object
+    description: Data to process  # Helps LLM use tool correctly
+  # Add more parameters as needed:
+  # count:
+  #   type: integer
+  #   description: Number of items
+implementation_path: my_tool:my_tool  # module:function
+
+# Optional settings:
+# options:
+#   respond_with_text: true       # For human interaction tools
