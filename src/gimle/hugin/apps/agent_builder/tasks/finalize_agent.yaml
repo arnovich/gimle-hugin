@@ -1,6 +1,7 @@
 name: finalize_agent
 description: Fix issues from review and write agent files
 chain_config: agent_builder
+pass_result_as: finalize_result
 parameters:
   review_feedback:
     type: string

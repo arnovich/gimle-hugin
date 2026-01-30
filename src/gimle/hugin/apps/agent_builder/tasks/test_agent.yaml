@@ -1,0 +1,66 @@
+name: test_agent
+description: Test the newly created agent and fix issues if needed
+chain_config: agent_builder
+parameters:
+  agent_name:
+    type: string
+    description: Name of the agent being tested
+    required: true
+  output_path:
+    type: string
+    description: Path where the agent files were written
+    required: true
+  description:
+    type: string
+    description: Original description of what the agent should do
+    required: true
+  finalize_result:
+    type: string
+    description: Result from the finalize step
+    required: false
+prompt: |
+  The agent **{{ agent_name.value }}** has been created at {{ output_path.value }}.
+
+  Original description: {{ description.value }}
+
+  ## Your Task
+
+  1. **Generate a test prompt** based on the description above. The test prompt should be
+     a realistic scenario that exercises the agent's core functionality.
+
+  2. **Run the test** using `test_agent`:
+     ```
+     test_agent(
+       agent_path="{{ output_path.value }}",
+       test_prompt="<your realistic test prompt here>"
+     )
+     ```
+
+  3. **Analyze the results**:
+     - Did the agent complete successfully (finish_type="success")?
+     - Did it produce reasonable output?
+     - Were there any errors?
+
+  4. **If issues found**, diagnose and fix:
+     - **Import/dependency errors**: Regenerate the tool with proper imports or error handling
+     - **Syntax errors**: Fix the tool's implementation_code
+     - **Logic errors**: Improve the tool implementation or system template
+     - **Missing tools**: Add the missing tool using `generate_tool`
+     - **Config issues**: Fix using `generate_config`
+
+     After fixing, use `write_agent_files` to update the files, then re-test with `test_agent`.
+
+  5. **Maximum 3 fix iterations**. If still broken after 3 attempts, finish with a failure
+     report explaining what went wrong and what was tried.
+
+  6. **Once the agent works correctly**, call `finish` with:
+     - finish_type="success"
+     - result: Summary of what was tested and the outcome
+
+  ## Important Notes
+
+  - The test runs in an isolated environment, so don't worry about side effects
+  - Focus on getting the core functionality working
+  - If a dependency is missing (e.g., pandas, requests), either:
+    a) Add error handling to gracefully report the missing dependency
+    b) Or mock/simulate the functionality if appropriate

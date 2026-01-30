@@ -6,7 +6,7 @@ prompt: 'You need to calculate the sum of all numbers from 1 to {{ n.value | def
 
   Instead of calculating this yourself, delegate this work to a child agent.
 
-  Use list_agent_configs to see available agents, then use launch_agent to
+  Use list_agents to see available agents, then use launch_agent to
 
   spawn a "child" agent to do the calculation.
 

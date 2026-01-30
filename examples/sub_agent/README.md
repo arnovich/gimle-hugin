@@ -36,7 +36,7 @@ uv run hugin run --task delegate --task-path examples/sub_agent -c parent
 ## How It Works
 
 1. Parent agent receives a task that requires computation
-2. Parent uses `list_agent_configs` to see available child configs
+2. Parent uses `list_agents` to see available child configs
 3. Parent uses `launch_agent` to spawn a child with a specific task
 4. Child agent completes its work and returns results
 5. Parent receives the results and finishes
@@ -47,7 +47,7 @@ The parent agent config includes:
 ```yaml
 tools:
   - builtins.launch_agent:launch_agent
-  - builtins.list_agent_configs:list_agent_configs
+  - builtins.list_agents:list_agents
   - builtins.finish:finish
 ```
 

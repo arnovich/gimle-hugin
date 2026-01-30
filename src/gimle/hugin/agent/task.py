@@ -2,7 +2,7 @@
 
 import json
 from copy import deepcopy
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional
 
 from typing_extensions import NotRequired, TypedDict
@@ -39,8 +39,8 @@ class Task:
 
     name: str
     description: str
-    parameters: Dict[str, TaskParameter]
     prompt: str
+    parameters: Dict[str, TaskParameter] = field(default_factory=dict)
     tools: Optional[List[str]] = None
     system_template: Optional[str] = None
     llm_model: Optional[str] = None

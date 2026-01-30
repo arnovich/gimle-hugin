@@ -81,9 +81,13 @@ Reference with `builtins.<tool>:<alias>`:
 | Tool | Description |
 |------|-------------|
 | `builtins.finish:finish` | Complete task with success/failure |
+| `builtins.ask_user:ask_user` | Ask user a question (requires interactive: true) |
 | `builtins.save_insight:save_insight` | Save findings as artifacts |
 | `builtins.launch_agent:launch_agent` | Spawn sub-agents |
-| `builtins.list_agent_configs:list_configs` | List available configs |
+| `builtins.list_agents:list_agents` | List available agents |
+| `builtins.read_file:read_file` | Read file contents (safe, read-only) |
+| `builtins.list_files:list_files` | List directory contents with glob patterns |
+| `builtins.search_files:search_files` | Search files for patterns (grep-like) |
 
 ## Decision Tree: Which Pattern?
 

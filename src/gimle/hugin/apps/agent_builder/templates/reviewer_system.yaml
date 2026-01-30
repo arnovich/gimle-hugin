@@ -46,6 +46,13 @@ template: |
   ### 5. Valid Python Syntax
   Check that generated Python code is syntactically valid.
 
+  ### 6. Token Efficiency (Parameter Sizes)
+  Every tool input/output passes through the LLM - be size conscious:
+  - Parameters should be small: IDs, paths, short strings
+  - Results should be small: paths, summaries, status messages
+  - Large data (>100 chars) must go to files, not parameters
+  - Flag any tool that returns full file contents or accepts data blobs
+
   ## Your Task
 
   Review the generated files and provide:

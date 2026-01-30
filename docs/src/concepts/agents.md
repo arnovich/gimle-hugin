@@ -48,13 +48,16 @@ tools:
 
 ### Configuration Options
 
-| Field | Description |
-|-------|-------------|
-| `name` | Unique identifier |
-| `description` | Human-readable description |
-| `system_template` | Name of the template for system prompt |
-| `llm_model` | Model to use (e.g., `haiku-latest`, `gpt-4o`, `llama3.2`) |
-| `tools` | List of available tools (format: `module:tool_name`) |
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `name` | Yes | - | Unique identifier |
+| `description` | Yes | - | Human-readable description |
+| `system_template` | Yes | - | Name of the template for system prompt |
+| `llm_model` | Yes | - | Model to use (e.g., `haiku-latest`, `sonnet-latest`) |
+| `tools` | Yes | - | List of available tools (format: `module:tool_name`) |
+| `interactive` | No | `false` | Set `true` to enable `AskHuman` for human input |
+| `enable_builtin_agents` | No | `true` | Set `false` to hide builtin agents like `agent_builder` |
+| `state_namespaces` | No | `["common"]` | Namespaces this agent can access for shared state |
 
 ## Agent Lifecycle
 

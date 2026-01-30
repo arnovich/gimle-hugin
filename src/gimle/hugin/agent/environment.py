@@ -28,6 +28,12 @@ class Environment:
     # Track loaded extension paths to avoid duplicate imports
     _loaded_extensions: ClassVar[Set[str]] = set()
 
+    # Builtin agents registry (shared across all environments)
+    _builtin_configs: ClassVar[Dict[str, Config]] = {}
+    _builtin_tasks: ClassVar[Dict[str, Task]] = {}
+    _builtin_templates: ClassVar[Dict[str, "Template"]] = {}
+    _builtins_loaded: ClassVar[bool] = False
+
     def __init__(
         self,
         storage: Optional["Storage"] = None,
@@ -246,4 +252,244 @@ class Environment:
         # Load custom artifact types and UI components if present
         Environment._load_extensions(str(package_path_obj))
 
+        # Load builtin agents
+        Environment._load_builtin_agents()
+
         return env
+
+    @classmethod
+    def _load_builtin_agents(cls) -> None:
+        """Load builtin agents from the apps directory.
+
+        Builtin agents (like agent_builder) are always available.
+        They are loaded once and shared across all environments.
+        """
+        if cls._builtins_loaded:
+            return
+
+        try:
+            from gimle.hugin.apps import get_apps_path
+
+            apps_path = get_apps_path()
+
+            # Load agent_builder as a builtin agent
+            agent_builder_path = apps_path / "agent_builder"
+            if agent_builder_path.exists():
+                cls._load_builtin_agent_from_path(
+                    str(agent_builder_path), "builtins.agent_builder"
+                )
+
+            cls._builtins_loaded = True
+            logger.debug("Loaded builtin agents")
+
+        except Exception as e:
+            logger.warning(f"Failed to load builtin agents: {e}")
+
+    @classmethod
+    def _load_builtin_agent_from_path(
+        cls, package_path: str, prefix: str
+    ) -> None:
+        """Load a builtin agent from a path with a given prefix.
+
+        Args:
+            package_path: Path to the agent directory
+            prefix: Prefix for the agent name (e.g., "builtins.agent_builder")
+        """
+        package_path_obj = Path(package_path)
+
+        # Add to sys.path for tool imports
+        if str(package_path_obj) not in sys.path:
+            sys.path.insert(0, str(package_path_obj))
+        if str(package_path_obj.parent) not in sys.path:
+            sys.path.insert(0, str(package_path_obj.parent))
+
+        # Load configs
+        config_folder = package_path_obj / "configs"
+        if config_folder.exists():
+            for config_file in config_folder.iterdir():
+                if not config_file.suffix == ".yaml":
+                    continue
+                with open(config_file, "r") as f:
+                    config_yaml = yaml.safe_load(f)
+                config = Config.from_dict(config_yaml)
+                # Main config (matching the folder name) gets just the prefix
+                # Other configs get prefix.config_name
+                folder_name = package_path_obj.name
+                if config.name == folder_name:
+                    builtin_name = prefix
+                else:
+                    builtin_name = f"{prefix}.{config.name}"
+                cls._builtin_configs[builtin_name] = config
+                logger.debug(f"Loaded builtin config: {builtin_name}")
+
+        # Load tasks
+        task_folder = package_path_obj / "tasks"
+        if task_folder.exists():
+            for task_file in task_folder.iterdir():
+                if not task_file.suffix == ".yaml":
+                    continue
+                with open(task_file, "r") as f:
+                    task_yaml = yaml.safe_load(f)
+                task = Task.from_dict(task_yaml)
+                task_name = f"{prefix}.{task.name}"
+                cls._builtin_tasks[task_name] = task
+                logger.debug(f"Loaded builtin task: {task_name}")
+
+        # Load tools
+        tool_folder = package_path_obj / "tools"
+        if tool_folder.exists():
+            if str(tool_folder) not in sys.path:
+                sys.path.insert(0, str(tool_folder))
+            for tool_file in tool_folder.iterdir():
+                if not tool_file.suffix == ".yaml":
+                    continue
+                with open(tool_file, "r") as f:
+                    tool_yaml = yaml.safe_load(f)
+                tool = Tool.from_dict(tool_yaml)
+                Tool.register_instance(tool)
+
+        # Load templates
+        template_folder = package_path_obj / "templates"
+        if template_folder.exists():
+            for template_file in template_folder.iterdir():
+                if not template_file.suffix == ".yaml":
+                    continue
+                with open(template_file, "r") as f:
+                    template_yaml = yaml.safe_load(f)
+                template = Template.from_dict(template_yaml)
+                template_name = f"{prefix}.{template.name}"
+                cls._builtin_templates[template_name] = template
+                logger.debug(f"Loaded builtin template: {template_name}")
+
+    def get_builtin_config(self, name: str) -> Optional[Config]:
+        """Get a builtin agent config by name.
+
+        Args:
+            name: Config name (e.g., "builtins.agent_builder")
+
+        Returns:
+            The config if found, None otherwise.
+        """
+        Environment._load_builtin_agents()
+        return Environment._builtin_configs.get(name)
+
+    def get_builtin_task(self, name: str) -> Optional[Task]:
+        """Get a builtin task by name.
+
+        Args:
+            name: Task name (e.g., "builtins.agent_builder.build_agent")
+
+        Returns:
+            The task if found, None otherwise.
+        """
+        Environment._load_builtin_agents()
+        return Environment._builtin_tasks.get(name)
+
+    def get_builtin_template(self, name: str) -> Optional[Template]:
+        """Get a builtin template by name.
+
+        Args:
+            name: Template name
+
+        Returns:
+            The template if found, None otherwise.
+        """
+        Environment._load_builtin_agents()
+        return Environment._builtin_templates.get(name)
+
+    def get_all_configs(self) -> Dict[str, Config]:
+        """Get all configs including builtins.
+
+        Returns:
+            Dictionary of all configs (environment + builtins).
+        """
+        Environment._load_builtin_agents()
+        all_configs = dict(Environment._builtin_configs)
+        all_configs.update(self.config_registry._items)
+        return all_configs
+
+    def load_agent_from_path(self, agent_path: str) -> Optional[str]:
+        """Dynamically load an agent from a path into this environment.
+
+        This is used to register newly created agents so they become
+        available to list_agents and launch_agent.
+
+        Args:
+            agent_path: Path to the agent directory
+
+        Returns:
+            The name of the loaded agent config, or None if loading failed.
+        """
+        agent_path_obj = Path(agent_path)
+        if not agent_path_obj.is_absolute():
+            agent_path_obj = agent_path_obj.resolve()
+
+        if not agent_path_obj.exists():
+            logger.warning(f"Agent path does not exist: {agent_path}")
+            return None
+
+        # Add to sys.path for tool imports
+        if str(agent_path_obj) not in sys.path:
+            sys.path.insert(0, str(agent_path_obj))
+        if str(agent_path_obj.parent) not in sys.path:
+            sys.path.insert(0, str(agent_path_obj.parent))
+
+        loaded_config_name = None
+
+        try:
+            # Load configs
+            config_folder = agent_path_obj / "configs"
+            if config_folder.exists():
+                for config_file in config_folder.iterdir():
+                    if not config_file.suffix == ".yaml":
+                        continue
+                    with open(config_file, "r") as f:
+                        config_yaml = yaml.safe_load(f)
+                    config = Config.from_dict(config_yaml)
+                    self.config_registry.register(config)
+                    loaded_config_name = config.name
+                    logger.info(f"Loaded agent config: {config.name}")
+
+            # Load tasks
+            task_folder = agent_path_obj / "tasks"
+            if task_folder.exists():
+                for task_file in task_folder.iterdir():
+                    if not task_file.suffix == ".yaml":
+                        continue
+                    with open(task_file, "r") as f:
+                        task_yaml = yaml.safe_load(f)
+                    task = Task.from_dict(task_yaml)
+                    self.task_registry.register(task)
+                    logger.debug(f"Loaded task: {task.name}")
+
+            # Load tools
+            tool_folder = agent_path_obj / "tools"
+            if tool_folder.exists():
+                if str(tool_folder) not in sys.path:
+                    sys.path.insert(0, str(tool_folder))
+                for tool_file in tool_folder.iterdir():
+                    if not tool_file.suffix == ".yaml":
+                        continue
+                    with open(tool_file, "r") as f:
+                        tool_yaml = yaml.safe_load(f)
+                    tool = Tool.from_dict(tool_yaml)
+                    Tool.register_instance(tool)
+                    logger.debug(f"Loaded tool: {tool.name}")
+
+            # Load templates
+            template_folder = agent_path_obj / "templates"
+            if template_folder.exists():
+                for template_file in template_folder.iterdir():
+                    if not template_file.suffix == ".yaml":
+                        continue
+                    with open(template_file, "r") as f:
+                        template_yaml = yaml.safe_load(f)
+                    template = Template.from_dict(template_yaml)
+                    self.template_registry.register(template)
+                    logger.debug(f"Loaded template: {template.name}")
+
+            return loaded_config_name
+
+        except Exception as e:
+            logger.error(f"Failed to load agent from {agent_path}: {e}")
+            return None

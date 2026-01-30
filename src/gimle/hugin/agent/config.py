@@ -18,6 +18,8 @@ class Config:
         llm_model: LLM model identifier (default: "sonnet-latest").
         tools: List of tool names this agent can use.
         interactive: Whether this agent requires human interaction.
+        enable_builtin_agents: Whether this agent can see and launch builtin
+                              agents like agent_builder (default: True).
         options: Additional configuration options.
         state_namespaces: List of session state namespaces this agent can access.
                          All agents can access "common" namespace by default.
@@ -30,6 +32,7 @@ class Config:
     llm_model: str = "sonnet-latest"
     tools: Optional[List[str]] = field(default_factory=list)
     interactive: bool = False
+    enable_builtin_agents: bool = True
     options: Dict[str, Any] = field(default_factory=dict)
     state_namespaces: List[str] = field(default_factory=lambda: ["common"])
     # Config state machine for dynamic transitions

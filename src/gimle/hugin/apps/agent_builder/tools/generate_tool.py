@@ -19,6 +19,47 @@ def validate_python_syntax(code: str) -> Optional[str]:
         return f"Syntax error at line {e.lineno}: {e.msg}"
 
 
+# Helper code that gets included in generated tools for robust input parsing
+PARSE_INPUT_HELPER = '''
+def _parse_input(value: Any) -> Any:
+    """Parse input that might be JSON string, Python repr, or already parsed.
+
+    LLMs sometimes pass data as:
+    - JSON strings (double quotes): '{"key": "value"}'
+    - Python repr (single quotes): "{'key': 'value'}"
+    - Already parsed dicts/lists
+
+    This helper handles all these cases robustly.
+    """
+    if value is None:
+        return None
+    if isinstance(value, (dict, list, int, float, bool)):
+        return value
+    if not isinstance(value, str):
+        return value
+
+    value = value.strip()
+    if not value:
+        return value
+
+    # Try JSON first (most common for structured data)
+    if value.startswith(("{", "[")):
+        try:
+            import json
+            return json.loads(value)
+        except json.JSONDecodeError:
+            pass
+        # Try Python literal eval (handles single quotes, tuples, etc.)
+        try:
+            import ast
+            return ast.literal_eval(value)
+        except (ValueError, SyntaxError):
+            pass
+
+    return value
+'''
+
+
 def generate_tool(
     tool_name: str,
     description: str,
@@ -41,14 +82,19 @@ def generate_tool(
         ToolResponse with generated files info
     """
     # Build parameter signature for function definition
-    param_parts = []
+    # Separate required and optional parameters to maintain valid Python syntax
+    # (parameters with defaults must come after those without)
+    required_params = []
+    optional_params = []
     for param_name, param_info in parameters_schema.items():
         required = param_info.get("required", True)
         if required:
-            param_parts.append(f"{param_name}: str")
+            required_params.append(f"{param_name}: str")
         else:
-            param_parts.append(f"{param_name}: Optional[str] = None")
+            optional_params.append(f"{param_name}: Optional[str] = None")
 
+    # Combine: required first, then optional
+    param_parts = required_params + optional_params
     param_signature = ", ".join(param_parts)
     if param_signature:
         param_signature += ", "
@@ -69,22 +115,31 @@ def generate_tool(
         "        " + line if line.strip() else "" for line in impl_lines
     )
 
-    # Generate Python file content
+    # Build parameter parsing code (parse all user parameters)
+    param_parse_lines = []
+    for param_name in parameters_schema.keys():
+        param_parse_lines.append(
+            f"        {param_name} = _parse_input({param_name})"
+        )
+    param_parse_code = "\n".join(param_parse_lines) if param_parse_lines else ""
+
+    # Generate Python file content with helper function
     python_code = f'''"""Tool: {tool_name}
 
 {description}
 """
 
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from gimle.hugin.tools.tool import ToolResponse
 
 if TYPE_CHECKING:
     from gimle.hugin.interaction.stack import Stack
 
+{PARSE_INPUT_HELPER}
 
 def {tool_name}(
-    {param_signature}stack: "Stack",
+    {param_signature}stack: "Stack" = None,
     branch: Optional[str] = None,
 ) -> ToolResponse:
     """
@@ -99,6 +154,9 @@ def {tool_name}(
         ToolResponse with operation result
     """
     try:
+        # Parse inputs (handles JSON strings, Python repr, dicts, etc.)
+{param_parse_code}
+
 {indented_impl}
     except Exception as e:
         return ToolResponse(
@@ -124,7 +182,8 @@ def {tool_name}(
         "description": description,
         "parameters": parameters_schema,
         "is_interactive": False,
-        "implementation_path": f"{agent_name}.tools.{tool_name}:{tool_name}",
+        # Use simple path since tools/ folder is added to sys.path by Environment.load()
+        "implementation_path": f"{tool_name}:{tool_name}",
         "options": {},
     }
 

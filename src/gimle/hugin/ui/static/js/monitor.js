@@ -12,6 +12,8 @@ let autoScrollEnabled = true;
 let lastAgentsList = [];
 let sidebarQuery = '';
 let isInitialLoad = true;
+let sessionViewMode = 'stacks';  // 'cards' or 'stacks'
+let sessionAgentsData = {};  // Cache for loaded agent data in session view
 
 // Cache for lazy-loaded interaction details (keyed by interaction ID)
 let interactionDetailCache = {};
@@ -29,12 +31,21 @@ window.addEventListener('DOMContentLoaded', function() {
     initializeSearch();
     initializeSidebar();
     initializeAutoScroll();
+    initializeReverseOrder();
+    initializeSessionViewMode();
     refreshAgents();
     // SSE live updates disabled due to connection issues causing hangs
     // Use manual refresh button instead, or enable polling below
     // setupLiveUpdates();
     setupPollingRefresh();  // Simple polling as alternative to SSE
 });
+
+function initializeSessionViewMode() {
+    const saved = localStorage.getItem('monitor-session-view-mode');
+    if (saved === 'cards' || saved === 'stacks') {
+        sessionViewMode = saved;
+    }
+}
 
 // ==========================================================================
 // Theme Management
@@ -337,6 +348,41 @@ function initializeAutoScroll() {
 }
 
 // ==========================================================================
+// Reverse Order Toggle
+// ==========================================================================
+
+let reverseOrderEnabled = false;
+
+function initializeReverseOrder() {
+    const saved = localStorage.getItem('monitor-reverse-order');
+    reverseOrderEnabled = saved === 'true';
+    applyReverseOrder();
+
+    const checkbox = document.getElementById('reverse-order');
+    if (checkbox) {
+        checkbox.checked = reverseOrderEnabled;
+    }
+}
+
+function toggleReverseOrder() {
+    const checkbox = document.getElementById('reverse-order');
+    reverseOrderEnabled = checkbox ? checkbox.checked : !reverseOrderEnabled;
+    localStorage.setItem('monitor-reverse-order', reverseOrderEnabled ? 'true' : 'false');
+    applyReverseOrder();
+}
+
+function applyReverseOrder() {
+    const mainBody = document.getElementById('main-content-body');
+    if (mainBody) {
+        if (reverseOrderEnabled) {
+            mainBody.classList.add('reversed');
+        } else {
+            mainBody.classList.remove('reversed');
+        }
+    }
+}
+
+// ==========================================================================
 // Live Updates (Polling-based, more reliable than SSE)
 // ==========================================================================
 
@@ -371,13 +417,10 @@ function toggleAutoRefresh() {
 }
 
 function updateAutoRefreshIndicator(enabled) {
-    const indicator = document.getElementById('live-indicator');
-    if (indicator) {
-        indicator.classList.toggle('disconnected', !enabled);
-        const label = indicator.querySelector('span:last-child');
-        if (label) {
-            label.textContent = enabled ? 'Auto-refresh ON' : 'Auto-refresh OFF';
-        }
+    const btn = document.getElementById('auto-refresh-btn');
+    if (btn) {
+        btn.classList.toggle('active', enabled);
+        btn.title = enabled ? 'Auto-refresh ON (click to disable)' : 'Auto-refresh OFF (click to enable)';
     }
 }
 
@@ -846,8 +889,10 @@ async function loadAgent(agentId) {
             // Initialize handlers and set default view
             initializeInteractionHandlers();
             setView(currentView);
+            applyReverseOrder();
         } else {
             document.getElementById('main-content-body').innerHTML = html;
+            applyReverseOrder();
         }
     } catch (error) {
         console.error('Error loading agent:', error);
@@ -894,11 +939,6 @@ async function loadSession(sessionId, event) {
         const data = await response.json();
         renderSessionView(data);
 
-        // Hide status indicator for session view
-        const indicator = document.getElementById('live-indicator');
-        if (indicator) {
-            indicator.style.display = 'none';
-        }
     } catch (error) {
         console.error('Error loading session:', error);
         document.getElementById('main-content-body').innerHTML =
@@ -907,6 +947,23 @@ async function loadSession(sessionId, event) {
 }
 
 function renderSessionView(session) {
+    const sessionId = session.id || 'unknown';
+    const createdAt = session.created_at ? formatTimestamp(session.created_at) : '';
+    const updated = session.last_modified ? formatRelativeTimeFromEpochSeconds(session.last_modified) : '';
+    const updatedTitle = session.last_modified ? formatTimestamp(new Date(session.last_modified * 1000).toISOString()) : '';
+    const agents = Array.isArray(session.agents) ? session.agents : [];
+
+    // Store session data for refresh
+    window._currentSessionData = session;
+
+    if (sessionViewMode === 'stacks') {
+        renderSessionStacksView(session);
+    } else {
+        renderSessionCardsView(session);
+    }
+}
+
+function renderSessionCardsView(session) {
     const sessionId = session.id || 'unknown';
     const createdAt = session.created_at ? formatTimestamp(session.created_at) : '';
     const updated = session.last_modified ? formatRelativeTimeFromEpochSeconds(session.last_modified) : '';
@@ -948,12 +1005,244 @@ function renderSessionView(session) {
                         <span>${agents.length} agent(s)</span>
                     </div>
                 </div>
+                <div class="view-toggle">
+                    <button class="view-btn" data-view="cards" onclick="setSessionViewMode('cards')" title="Cards view">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="3" width="7" height="7" rx="1"></rect>
+                            <rect x="14" y="3" width="7" height="7" rx="1"></rect>
+                            <rect x="3" y="14" width="7" height="7" rx="1"></rect>
+                            <rect x="14" y="14" width="7" height="7" rx="1"></rect>
+                        </svg>
+                    </button>
+                    <button class="view-btn active" data-view="stacks" onclick="setSessionViewMode('stacks')" title="Stacks view">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="3" width="5" height="18" rx="1"></rect>
+                            <rect x="10" y="3" width="5" height="18" rx="1"></rect>
+                            <rect x="17" y="3" width="5" height="18" rx="1"></rect>
+                        </svg>
+                    </button>
+                </div>
             </div>
             <div class="session-agent-grid">
                 ${agentsHtml}
             </div>
         </div>
     `;
+    // Update toggle button states
+    updateSessionViewToggle();
+}
+
+async function renderSessionStacksView(session) {
+    const sessionId = session.id || 'unknown';
+    const createdAt = session.created_at ? formatTimestamp(session.created_at) : '';
+    const updated = session.last_modified ? formatRelativeTimeFromEpochSeconds(session.last_modified) : '';
+    const updatedTitle = session.last_modified ? formatTimestamp(new Date(session.last_modified * 1000).toISOString()) : '';
+    const agents = Array.isArray(session.agents) ? session.agents : [];
+
+    // Show loading state with header
+    document.getElementById('main-content-body').innerHTML = `
+        <div class="session-stacks-view">
+            <div class="session-stacks-header">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <span class="session-stacks-title">${agents.length} agents</span>
+                    <span class="session-stacks-subtitle">${updated ? `Updated ${escapeHtml(updated)}` : ''}</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <label class="auto-scroll-toggle" title="Show newest interactions at top">
+                        <input type="checkbox" id="session-reverse-order" ${reverseOrderEnabled ? 'checked' : ''} onchange="toggleSessionReverseOrder()">
+                        Newest first
+                    </label>
+                    <div class="view-toggle">
+                        <button class="view-btn" data-view="cards" onclick="setSessionViewMode('cards')" title="Cards view">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="3" y="3" width="7" height="7" rx="1"></rect>
+                                <rect x="14" y="3" width="7" height="7" rx="1"></rect>
+                                <rect x="3" y="14" width="7" height="7" rx="1"></rect>
+                                <rect x="14" y="14" width="7" height="7" rx="1"></rect>
+                            </svg>
+                        </button>
+                        <button class="view-btn active" data-view="stacks" onclick="setSessionViewMode('stacks')" title="Stacks view">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="3" y="3" width="5" height="18" rx="1"></rect>
+                                <rect x="10" y="3" width="5" height="18" rx="1"></rect>
+                                <rect x="17" y="3" width="5" height="18" rx="1"></rect>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="session-stacks-container" id="session-stacks-container">
+                <div class="session-stacks-canvas"><div class="loading"><span class="loading-spinner"></span>Loading agent stacks...</div></div>
+            </div>
+        </div>
+    `;
+
+    if (agents.length === 0) {
+        document.getElementById('session-stacks-container').innerHTML = '<div class="loading">No agents in this session</div>';
+        return;
+    }
+
+    // Load all agents' data in parallel
+    try {
+        const agentDataPromises = agents.map(agent =>
+            fetch(`/api/agent?id=${encodeURIComponent(agent.id)}`)
+                .then(res => res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`)))
+                .then(data => ({ id: agent.id, config_name: agent.config_name, data, error: null }))
+                .catch(err => ({ id: agent.id, config_name: agent.config_name, data: null, error: err.message }))
+        );
+
+        const agentResults = await Promise.all(agentDataPromises);
+
+        // Render all agent stacks side-by-side
+        const stacksHtml = agentResults.map(result => {
+            if (result.error || !result.data) {
+                return `
+                    <div class="session-agent-stack">
+                        <div class="session-agent-stack-header">
+                            <span class="session-agent-stack-name">${escapeHtml(result.config_name || 'Unknown')}</span>
+                        </div>
+                        <div class="session-agent-stack-content">
+                            <div class="loading">Error: ${escapeHtml(result.error || 'No data')}</div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            // The API returns JSON with an 'html' field containing the rendered HTML
+            const htmlContent = result.data.html || '';
+            const interactions = result.data.interactions || {};
+
+            // Determine agent state from last interaction
+            const interactionsList = Object.values(interactions);
+            let agentState = 'inactive'; // default: gray
+            if (interactionsList.length > 0) {
+                // Sort by created_at to find the last interaction
+                interactionsList.sort((a, b) => {
+                    const aTime = a.created_at || '';
+                    const bTime = b.created_at || '';
+                    return bTime.localeCompare(aTime);
+                });
+                const lastInteraction = interactionsList[0];
+                const lastType = lastInteraction?.type || '';
+
+                // Waiting states: Waiting, AskHuman, TaskResult (finished)
+                const waitingTypes = ['Waiting', 'AskHuman', 'TaskResult'];
+                if (waitingTypes.includes(lastType)) {
+                    agentState = 'inactive';
+                } else {
+                    agentState = 'active';
+                }
+            }
+
+            // Parse the HTML to extract the full flowchart with all branch columns
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(htmlContent, 'text/html');
+
+            // Find the full flowchart structure (includes branch columns)
+            const flowchart = doc.querySelector('.flowchart');
+            let flowchartContent = '';
+            let interactionCount = 0;
+
+            if (flowchart) {
+                // Use the full flowchart HTML including all columns
+                flowchartContent = flowchart.outerHTML;
+                // Count interactions
+                interactionCount = (flowchartContent.match(/flowchart-item/g) || []).length;
+            } else {
+                // Fallback to timeline if no flowchart
+                const timeline = doc.querySelector('.timeline-container');
+                if (timeline) {
+                    flowchartContent = timeline.outerHTML;
+                    interactionCount = (flowchartContent.match(/timeline-item/g) || []).length;
+                }
+            }
+
+            const stateClass = agentState === 'active' ? 'agent-active' : 'agent-inactive';
+
+            return `
+                <div class="session-agent-stack ${stateClass}" data-agent-id="${result.id}">
+                    <div class="session-agent-stack-header">
+                        <a class="session-agent-stack-name" onclick="loadAgent('${result.id}')" title="Open ${escapeHtml(result.config_name || 'Unknown')}">${escapeHtml(result.config_name || 'Unknown')}</a>
+                        <div class="session-agent-stack-meta">${interactionCount} interactions</div>
+                    </div>
+                    <div class="session-agent-stack-content${reverseOrderEnabled ? ' reversed' : ''}">
+                        ${flowchartContent || '<div class="loading">No interactions</div>'}
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        // Wrap in canvas for single scroll
+        document.getElementById('session-stacks-container').innerHTML =
+            `<div class="session-stacks-canvas">${stacksHtml}</div>`;
+
+        // Apply reversed styles if enabled
+        if (reverseOrderEnabled) {
+            document.querySelectorAll('.session-stacks-canvas .flowchart-column-content').forEach(el => {
+                el.style.flexDirection = 'column-reverse';
+            });
+            document.querySelectorAll('.session-stacks-canvas .flowchart-arrow').forEach(el => {
+                el.style.transform = 'rotate(180deg)';
+            });
+        }
+
+        // Initialize click handlers for interaction boxes
+        document.querySelectorAll('.session-agent-stack .flowchart-box').forEach(box => {
+            box.addEventListener('click', function() {
+                const item = this.closest('.flowchart-item');
+                const interactionId = item?.getAttribute('data-interaction-id');
+                if (interactionId) {
+                    showInteractionDetails(interactionId);
+                }
+            });
+        });
+
+    } catch (error) {
+        console.error('Error loading session stacks:', error);
+        document.getElementById('session-stacks-container').innerHTML =
+            `<div class="loading">Error loading stacks: ${escapeHtml(error.message)}</div>`;
+    }
+}
+
+function setSessionViewMode(mode) {
+    sessionViewMode = mode;
+    localStorage.setItem('monitor-session-view-mode', mode);
+
+    // Re-render with new mode
+    if (window._currentSessionData) {
+        renderSessionView(window._currentSessionData);
+    }
+}
+
+function updateSessionViewToggle() {
+    // Update toggle buttons in session views (cards view and stacks view)
+    document.querySelectorAll('.session-view .view-toggle .view-btn, .session-stacks-view .view-toggle .view-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.view === sessionViewMode);
+    });
+}
+
+function toggleSessionReverseOrder() {
+    const checkbox = document.getElementById('session-reverse-order');
+    reverseOrderEnabled = checkbox ? checkbox.checked : !reverseOrderEnabled;
+    localStorage.setItem('monitor-reverse-order', reverseOrderEnabled ? 'true' : 'false');
+
+    // Directly set flex-direction on all flowchart column contents
+    const direction = reverseOrderEnabled ? 'column-reverse' : 'column';
+    document.querySelectorAll('.session-stacks-canvas .flowchart-column-content').forEach(el => {
+        el.style.flexDirection = direction;
+    });
+
+    // Rotate arrows
+    const rotation = reverseOrderEnabled ? 'rotate(180deg)' : 'none';
+    document.querySelectorAll('.session-stacks-canvas .flowchart-arrow').forEach(el => {
+        el.style.transform = rotation;
+    });
+
+    // Also sync the main reverse order checkbox if visible
+    const mainCheckbox = document.getElementById('reverse-order');
+    if (mainCheckbox) {
+        mainCheckbox.checked = reverseOrderEnabled;
+    }
 }
 
 function displayAgentDetails(details) {

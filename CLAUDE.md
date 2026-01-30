@@ -8,6 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Create a new branch for any change (`git checkout -b descriptive_branch_name`)
 - Use snake_case for branch names
 - Commit to the branch, then merge via PR or as instructed
+- **Do NOT add Co-Authored-By lines** - commit messages should not include Claude as author
 
 ## Development Commands
 
