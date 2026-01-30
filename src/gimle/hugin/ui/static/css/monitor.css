@@ -347,15 +347,6 @@ body {
   color: var(--color-green-dark, #155724);
 }
 
-#auto-refresh-btn.active svg {
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
 [data-theme="dark"] #auto-refresh-btn.active {
   background: rgba(40, 167, 69, 0.2);
   border-color: var(--color-green, #28a745);
