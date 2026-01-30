@@ -21,7 +21,8 @@
     "build": "node build.mjs",
     "build:watch": "node build.mjs --watch",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "prepare": "npm run build"
   },
   "devDependencies": {
     "esbuild": "0.24.0",
@@ -38,8 +39,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/gimlelabs/gimle-hugin.git",
-    "directory": "packages/state-machine-animator"
+    "url": "https://github.com/gimlelabs/state-machine-animator.git"
   },
   "engines": {
     "node": ">=18.0.0"
