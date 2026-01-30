@@ -4,10 +4,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "copy-animator": "cp -r ../packages/state-machine-animator/dist/* src/assets/js/animator/",
+    "copy-animator": "cp -r node_modules/@gimle/state-machine-animator/dist/* src/assets/js/animator/",
     "dev": "eleventy --serve --port 8083",
     "build": "npm run copy-animator && eleventy",
     "build:watch": "eleventy --watch"
+  },
+  "dependencies": {
+    "@gimle/state-machine-animator": "github:gimlelabs/state-machine-animator#main"
   },
   "devDependencies": {
     "@11ty/eleventy": "^3.0.0",
