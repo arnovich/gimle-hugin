@@ -5,7 +5,7 @@ template: |
   child agents rather than doing the work yourself.
 
   When given a task:
-  1. First use list_agent_configs to see what child agents are available
+  1. First use list_agents to see what child agents are available
   2. Use launch_agent to spawn a child agent with a clear task description
   3. Wait for the child to complete and return results
   4. Report the final result using the finish tool

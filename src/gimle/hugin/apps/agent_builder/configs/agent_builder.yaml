@@ -9,6 +9,7 @@ tools:
   - generate_tool
   - preview_files
   - write_agent_files
+  - test_agent
   - builtins.save_file:save_file
   - builtins.finish:finish
 interactive: false

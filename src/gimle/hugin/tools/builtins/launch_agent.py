@@ -19,8 +19,8 @@ if TYPE_CHECKING:
     parameters={
         "config_name": {
             "type": "string",
-            "description": "Name of the agent configuration to launch "
-            "(use list_agent_configs to see available options)",
+            "description": "Name of the agent to launch "
+            "(use list_agents to see available options)",
             "required": True,
         },
         "task_name": {
@@ -68,17 +68,41 @@ def launch_agent(
     """
     try:
         environment = stack.agent.environment
+        agent_config = stack.agent.config
 
-        # Get the agent config
-        try:
-            config = environment.config_registry.get(config_name)
-        except (KeyError, ValueError):
-            available = list(environment.config_registry._items.keys())
+        # Check if builtin agents are allowed for this agent
+        enable_builtins = getattr(agent_config, "enable_builtin_agents", True)
+        if config_name.startswith("builtins.") and not enable_builtins:
             return ToolResponse(
                 is_error=True,
                 content={
-                    "error": f"Config '{config_name}' not found",
-                    "available_configs": available,
+                    "error": f"Builtin agent '{config_name}' is not available. "
+                    "This agent's config has enable_builtin_agents=False.",
+                },
+            )
+
+        # Get the agent config (check builtins first, then regular registry)
+        config = None
+        if config_name.startswith("builtins."):
+            config = environment.get_builtin_config(config_name)
+        if config is None:
+            try:
+                config = environment.config_registry.get(config_name)
+            except (KeyError, ValueError):
+                pass
+
+        if config is None:
+            # Get available configs for error message (respecting builtin setting)
+            if enable_builtins:
+                all_configs = environment.get_all_configs()
+            else:
+                all_configs = dict(environment.config_registry._items)
+            available = list(all_configs.keys())
+            return ToolResponse(
+                is_error=True,
+                content={
+                    "error": f"Agent '{config_name}' not found",
+                    "available_agents": available,
                 },
             )
 

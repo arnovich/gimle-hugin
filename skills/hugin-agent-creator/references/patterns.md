@@ -303,7 +303,7 @@ system_template: orchestrator_system
 llm_model: sonnet-latest
 tools:
   - builtins.launch_agent:launch
-  - builtins.list_agent_configs:list_configs
+  - builtins.list_agents:list_configs
   - builtins.finish:finish
 interactive: false
 options: {}

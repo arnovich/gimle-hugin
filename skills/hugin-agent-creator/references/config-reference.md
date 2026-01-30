@@ -9,13 +9,14 @@ Agent configuration files define an agent's identity, model, and capabilities.
 ## Schema
 
 ```yaml
-name: string              # Required. Unique identifier for this config
-description: string       # Required. What this agent does
-system_template: string   # Required. Name of template to use (from templates/)
-llm_model: string         # Required. Model to use
-tools: list               # Required. List of available tools
-interactive: boolean      # Optional. Default: false
-options: object           # Optional. Additional config options
+name: string                    # Required. Unique identifier for this config
+description: string             # Required. What this agent does
+system_template: string         # Required. Name of template to use (from templates/)
+llm_model: string               # Required. Model to use
+tools: list                     # Required. List of available tools
+interactive: boolean            # Optional. Default: false
+enable_builtin_agents: boolean  # Optional. Default: true
+state_namespaces: list          # Optional. Default: ["common"]
 ```
 
 ## Fields
@@ -67,9 +68,13 @@ tools:
 
 **Built-in tools** use `builtins.` prefix:
 - `builtins.finish:finish` - Complete task
+- `builtins.ask_user:ask_user` - Ask user a question (requires interactive: true)
 - `builtins.save_insight:save_insight` - Save artifacts
 - `builtins.launch_agent:launch_agent` - Spawn sub-agents
-- `builtins.list_agent_configs:list_configs` - List available configs
+- `builtins.list_agents:list_agents` - List available agents
+- `builtins.read_file:read_file` - Read file contents (safe, read-only)
+- `builtins.list_files:list_files` - List directory contents
+- `builtins.search_files:search_files` - Search for patterns in files
 
 **Custom tools** use their name directly:
 - `my_tool:my_tool` - Looks for `tools/my_tool.yaml` and `tools/my_tool.py`
@@ -82,12 +87,32 @@ interactive: false  # Default, fully autonomous
 interactive: true   # Allows AskHuman interactions
 ```
 
-### options
-Additional configuration options (currently unused in most cases).
+### enable_builtin_agents
+Whether this agent can see and launch builtin agents like `agent_builder`.
 
 ```yaml
-options: {}
+enable_builtin_agents: true   # Default, agent can use agent_builder
+enable_builtin_agents: false  # Agent cannot see or launch builtin agents
 ```
+
+When `false`:
+- `list_agents` won't show builtin agents
+- `launch_agent` will reject attempts to launch builtin agents
+
+Use this to restrict agents from creating new agents dynamically.
+
+### state_namespaces
+List of session state namespaces this agent can access. Used for multi-agent
+state sharing with access control.
+
+```yaml
+state_namespaces:
+  - common      # Default, always included
+  - my_namespace
+```
+
+All agents can access the "common" namespace by default. See the shared_state
+example for usage patterns.
 
 ## Examples
 
@@ -100,8 +125,6 @@ system_template: simple_system
 llm_model: haiku-latest
 tools:
   - builtins.finish:finish
-interactive: false
-options: {}
 ```
 
 ### Agent with Custom Tools
@@ -116,11 +139,9 @@ tools:
   - validate_data:validate
   - builtins.save_insight:save
   - builtins.finish:finish
-interactive: false
-options: {}
 ```
 
-### Interactive Agent
+### Interactive Agent (Human-in-the-Loop)
 
 ```yaml
 name: approval_agent
@@ -130,8 +151,7 @@ llm_model: haiku-latest
 tools:
   - request_approval:request_approval
   - builtins.finish:finish
-interactive: true
-options: {}
+interactive: true  # Required for AskHuman
 ```
 
 ### Agent with Sub-Agent Capabilities
@@ -143,10 +163,21 @@ system_template: orchestrator_system
 llm_model: sonnet-latest
 tools:
   - builtins.launch_agent:launch
-  - builtins.list_agent_configs:list_configs
+  - builtins.list_agents:list_agents
   - builtins.finish:finish
-interactive: false
-options: {}
+```
+
+### Restricted Agent (No Builtin Agents)
+
+```yaml
+name: restricted_worker
+description: Worker agent that cannot create new agents
+system_template: worker_system
+llm_model: haiku-latest
+tools:
+  - builtins.finish:finish
+  - builtins.save_insight:save
+enable_builtin_agents: false
 ```
 
 ## Tool Reference Format

@@ -340,6 +340,28 @@ body {
   height: 16px;
 }
 
+/* Auto-refresh button active state */
+#auto-refresh-btn.active {
+  background: var(--color-green-light, #d4edda);
+  border-color: var(--color-green, #28a745);
+  color: var(--color-green-dark, #155724);
+}
+
+#auto-refresh-btn.active svg {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+[data-theme="dark"] #auto-refresh-btn.active {
+  background: rgba(40, 167, 69, 0.2);
+  border-color: var(--color-green, #28a745);
+  color: #7ddf90;
+}
+
 .btn-danger {
   color: var(--accent-error);
 }
@@ -989,6 +1011,227 @@ body {
   flex: 1;
   overflow-y: auto;
   padding: var(--space-4);
+}
+
+/* ==========================================================================
+   Combined Session Stacks View
+   ========================================================================== */
+
+.session-stacks-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.session-stacks-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border-light);
+  flex-shrink: 0;
+}
+
+.session-stacks-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.session-stacks-subtitle {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+/* Single scrollable canvas for all agents */
+.session-stacks-container {
+  flex: 1;
+  overflow: auto;
+  background: var(--bg-secondary);
+}
+
+/* Inner wrapper for horizontal layout */
+.session-stacks-canvas {
+  display: flex;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  min-height: 100%;
+  align-items: stretch;
+}
+
+/* Each agent column */
+.session-agent-stack {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+}
+
+/* Sticky agent header at top of each column */
+.session-agent-stack-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  padding: var(--space-1) var(--space-2);
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-light);
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  text-align: center;
+}
+
+.session-agent-stack-name {
+  font-weight: 600;
+  font-size: 0.75rem;
+  color: var(--accent);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.session-agent-stack-name:hover {
+  text-decoration: underline;
+}
+
+.session-agent-stack-meta {
+  font-size: 0.625rem;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+/* Agent state indicators */
+.session-agent-stack.agent-active .session-agent-stack-header {
+  background: var(--color-green-light, #d4edda);
+  border-bottom-color: var(--color-green, #28a745);
+}
+
+.session-agent-stack.agent-active .session-agent-stack-name {
+  color: var(--color-green-dark, #155724);
+}
+
+.session-agent-stack.agent-inactive .session-agent-stack-header {
+  background: var(--bg-tertiary);
+}
+
+/* Dark theme adjustments */
+[data-theme="dark"] .session-agent-stack.agent-active .session-agent-stack-header {
+  background: rgba(40, 167, 69, 0.2);
+  border-bottom-color: var(--color-green, #28a745);
+}
+
+[data-theme="dark"] .session-agent-stack.agent-active .session-agent-stack-name {
+  color: #7ddf90;
+}
+
+/* Flowchart content - no individual scroll */
+.session-agent-stack-content {
+  flex: 1;
+  padding: 0;
+}
+
+/* Compact embedded flowchart */
+.session-agent-stack-content .flowchart {
+  border: none;
+  border-radius: 0;
+  padding: var(--space-1);
+  margin: 0;
+  background: transparent;
+}
+
+.session-agent-stack-content .flowchart-columns {
+  gap: var(--space-1);
+}
+
+.session-agent-stack-content .flowchart-column {
+  min-width: 160px;
+  max-width: 220px;
+}
+
+.session-agent-stack-content .flowchart-column-header {
+  font-size: 0.625rem;
+  padding: 2px var(--space-1);
+}
+
+.session-agent-stack-content .flowchart-column-content {
+  padding: var(--space-1);
+  gap: var(--space-1);
+}
+
+.session-agent-stack-content .flowchart-item {
+  max-width: 100%;
+}
+
+.session-agent-stack-content .flowchart-box {
+  font-size: 0.6875rem;
+  padding: 4px 6px;
+}
+
+.session-agent-stack-content .flowchart-box-header {
+  gap: 4px;
+}
+
+.session-agent-stack-content .flowchart-box-type {
+  font-size: 0.6875rem;
+}
+
+.session-agent-stack-content .flowchart-box-details {
+  font-size: 0.625rem;
+  padding: 2px 4px;
+  margin-top: 2px;
+}
+
+.session-agent-stack-content .flowchart-box-timestamp,
+.session-agent-stack-content .flowchart-box-branch {
+  font-size: 0.5625rem;
+  padding: 1px 3px;
+}
+
+.session-agent-stack-content .flowchart-arrow {
+  height: 12px;
+  font-size: 0.625rem;
+}
+
+/* Reversed mode for session stacks - applies to embedded flowcharts */
+.session-agent-stack-content.reversed .flowchart-column-content,
+.session-stacks-canvas.reversed .flowchart-column-content {
+  flex-direction: column-reverse !important;
+}
+
+/* Flip arrows when reversed */
+.session-agent-stack-content.reversed .flowchart-arrow,
+.session-stacks-canvas.reversed .flowchart-arrow {
+  transform: rotate(180deg);
+}
+
+/* ==========================================================================
+   Reverse Order Mode
+   ========================================================================== */
+
+.reversed .flowchart-column-content {
+  flex-direction: column-reverse;
+}
+
+.reversed .flowchart-main {
+  flex-direction: column-reverse;
+}
+
+.reversed .timeline {
+  flex-direction: column-reverse;
+}
+
+/* Flip arrows when reversed */
+.reversed .flowchart-arrow {
+  transform: rotate(180deg);
+}
+
+.reversed .timeline-container {
+  flex-direction: column-reverse;
+}
+
+.reversed .interaction-list {
+  flex-direction: column-reverse;
 }
 
 /* ==========================================================================

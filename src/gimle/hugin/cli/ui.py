@@ -7,7 +7,41 @@ be safely imported by all CLI entrypoints without pulling heavy dependencies.
 from __future__ import annotations
 
 import os
+import threading
+import time
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+
+
+# ANSI color codes for terminal output
+class Colors:
+    """ANSI color codes for terminal styling."""
+
+    RESET = "\033[0m"
+    BOLD = "\033[1m"
+    DIM = "\033[2m"
+
+    # Foreground colors
+    CYAN = "\033[36m"
+    GREEN = "\033[32m"
+    YELLOW = "\033[33m"
+    BLUE = "\033[34m"
+    MAGENTA = "\033[35m"
+    WHITE = "\033[37m"
+    GRAY = "\033[90m"
+
+    # Bright foreground
+    BRIGHT_CYAN = "\033[96m"
+    BRIGHT_GREEN = "\033[92m"
+    BRIGHT_WHITE = "\033[97m"
+
+    @classmethod
+    def enabled(cls) -> bool:
+        """Check if terminal colors should be used.
+
+        Colors are enabled by default. Set NO_COLOR=1 to disable.
+        """
+        return not os.environ.get("NO_COLOR")
+
 
 HUGIN_LOGO = r"""
     HH   HH  UU   UU  GGGGGG   IIIII  NN   NN
@@ -116,66 +150,195 @@ def select_from_list(
     return items[0]
 
 
+class AnimatedSpinner:
+    """A spinner that animates in a background thread."""
+
+    FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+
+    def __init__(
+        self,
+        prefix: str = "",
+        status: str = "Thinking...",
+        clear_width: int = 60,
+    ):
+        """Initialize the animated spinner.
+
+        Args:
+            prefix: Prefix string to show before the spinner
+            status: Initial status message
+            clear_width: Width to use when clearing the line
+        """
+        self.prefix = prefix
+        self.status = status
+        self.clear_width = clear_width
+        self.step_count = 0
+        self.start_time = time.time()
+        self._running = False
+        self._thread: Optional[threading.Thread] = None
+        self._lock = threading.Lock()
+        self._frame_index = 0
+
+    def _format_elapsed(self) -> str:
+        """Format elapsed time as seconds."""
+        elapsed = int(time.time() - self.start_time)
+        return f"{elapsed}s"
+
+    def _render(self) -> None:
+        """Render the current spinner state."""
+        with self._lock:
+            frame = self.FRAMES[self._frame_index % len(self.FRAMES)]
+            elapsed = self._format_elapsed()
+            line = f"\r{self.prefix}{frame} {self.status} ({elapsed})"
+            # Pad to clear width and move cursor back
+            line = line.ljust(self.clear_width)
+            print(line, end="", flush=True)
+
+    def _spin_loop(self) -> None:
+        """Background thread loop for animation."""
+        while self._running:
+            self._render()
+            self._frame_index += 1
+            time.sleep(0.1)
+
+    def start(self) -> None:
+        """Start the spinner animation."""
+        self._running = True
+        self.start_time = time.time()
+        self._thread = threading.Thread(target=self._spin_loop, daemon=True)
+        self._thread.start()
+
+    def stop(self, show_completed: bool = False) -> None:
+        """Stop the spinner.
+
+        Args:
+            show_completed: If True, show "Completed (Xs)" instead of clearing
+        """
+        self._running = False
+        if self._thread:
+            self._thread.join(timeout=0.5)
+
+        if show_completed:
+            elapsed = self._format_elapsed()
+            use_color = Colors.enabled()
+            dim = Colors.DIM if use_color else ""
+            reset = Colors.RESET if use_color else ""
+            # Show completed message and move to new line
+            line = f"\r{dim}{self.prefix}Completed ({elapsed}){reset}"
+            print(line.ljust(self.clear_width))
+        else:
+            # Just clear the line
+            print("\r" + " " * self.clear_width + "\r", end="", flush=True)
+
+    def update_status(self, status: str) -> None:
+        """Update the status message."""
+        with self._lock:
+            self.status = status
+
+    def increment_step(self) -> None:
+        """Increment the step counter."""
+        with self._lock:
+            self.step_count += 1
+
+
 def run_steps_with_spinner(
     *,
     step_fn: Callable[[], bool],
     save_fn: Callable[[], None],
     max_steps: Optional[int],
     prefix: str = "",
-    clear_width: int = 40,
+    user_prefix: str = "👤 ",
+    status_message: str = "Thinking...",
+    clear_width: int = 60,
     spinner: Optional[Sequence[str]] = None,
     session: Optional[Any] = None,
     interactive: bool = True,
 ) -> Tuple[int, Optional[Exception]]:
-    """Run a step loop with a simple terminal spinner.
+    """Run a step loop with a smoothly animated spinner.
 
     Args:
         step_fn: Function to call for each step, returns True to continue
         save_fn: Function to save state after each step
         max_steps: Maximum number of steps to run (None for unlimited)
-        prefix: Prefix string for output
+        prefix: Prefix string for agent output (e.g., "🐣 ")
+        user_prefix: Prefix string for user input (e.g., "👤 ")
+        status_message: Base status message to show
         clear_width: Width to clear when done
-        spinner: Optional custom spinner characters
+        spinner: Deprecated, uses AnimatedSpinner frames
         session: Optional Session object for detecting AskHuman interactions
         interactive: Whether to prompt for human input (default True)
 
     Returns:
         (step_count, last_error)
     """
-    if spinner is None:
-        spinner = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+    animated = AnimatedSpinner(
+        prefix=prefix,
+        status=status_message,
+        clear_width=clear_width,
+    )
+    animated.start()
 
     step_count = 0
     last_error: Optional[Exception] = None
 
-    while max_steps is None or step_count < max_steps:
-        try:
-            if not step_fn():
-                # Check if we stopped due to AskHuman
-                if session and interactive:
-                    ask_human = _find_pending_ask_human(session)
-                    if ask_human:
-                        # Clear spinner line before prompting
-                        print("\r" + " " * clear_width + "\r", end="")
-                        _handle_ask_human(ask_human, prefix)
-                        save_fn()
-                        continue  # Continue stepping after human response
-                break
-            step_count += 1
-            spin_char = spinner[step_count % len(spinner)]
-            print(
-                f"\r{prefix}{spin_char} Step {step_count}...",
-                end="",
-                flush=True,
-            )
-            save_fn()
-        except Exception as e:
-            last_error = e
-            break
+    try:
+        while max_steps is None or step_count < max_steps:
+            try:
+                # Update status based on session state
+                if session:
+                    status = _get_session_status(session, status_message)
+                    animated.update_status(status)
 
-    # Clear the spinner line
-    print("\r" + " " * clear_width + "\r", end="")
+                if not step_fn():
+                    # Check if we stopped due to AskHuman
+                    if session and interactive:
+                        ask_human = _find_pending_ask_human(session)
+                        if ask_human:
+                            # Stop spinner with completion message
+                            animated.stop(show_completed=True)
+                            _handle_ask_human(ask_human, prefix, user_prefix)
+                            save_fn()
+                            # Restart spinner for next round
+                            animated = AnimatedSpinner(
+                                prefix=prefix,
+                                status=status_message,
+                                clear_width=clear_width,
+                            )
+                            animated.start()
+                            continue  # Continue stepping after human response
+                    break
+                step_count += 1
+                animated.increment_step()
+                save_fn()
+            except Exception as e:
+                last_error = e
+                break
+    finally:
+        animated.stop(show_completed=True)
+
     return step_count, last_error
+
+
+def _get_session_status(session: Any, default: str) -> str:
+    """Get a status message based on what the session is doing."""
+    # Import here to avoid circular imports
+    from gimle.hugin.interaction.agent_call import AgentCall
+    from gimle.hugin.interaction.waiting import Waiting
+
+    for agent in session.agents:
+        interactions = agent.stack.interactions
+        if not interactions:
+            continue
+        last = interactions[-1]
+        # Check if waiting for a sub-agent
+        if isinstance(last, Waiting) and len(interactions) >= 2:
+            prev = interactions[-2]
+            if isinstance(prev, AgentCall) and prev.config:
+                config_name = prev.config.name
+                # Clean up builtin prefix for display
+                if config_name.startswith("builtins."):
+                    config_name = config_name.replace("builtins.", "")
+                return f"Running {config_name}..."
+    return default
 
 
 def _find_pending_ask_human(session: Any) -> Optional[Any]:
@@ -194,34 +357,39 @@ def _find_pending_ask_human(session: Any) -> Optional[Any]:
     return None
 
 
-def _handle_ask_human(ask_human_tuple: tuple, prefix: str = "") -> None:
+def _handle_ask_human(
+    ask_human_tuple: tuple,
+    prefix: str = "",
+    user_prefix: str = "👤 ",
+) -> None:
     """Handle an AskHuman interaction by prompting the user.
 
     Args:
         ask_human_tuple: Tuple of (agent, AskHuman interaction)
-        prefix: Prefix for output formatting
+        prefix: Prefix for agent output (e.g., "🐣 " for BabyHugin)
+        user_prefix: Prefix for user input (default: "👤 ")
     """
     # Import here to avoid circular imports
     from gimle.hugin.interaction.human_response import HumanResponse
 
     agent, ask_human = ask_human_tuple
 
-    # Display the question
-    print()
-    print(f"{prefix}┌─────────────────────────────────────────┐")
-    print(f"{prefix}│  Agent is asking for human input        │")
-    print(f"{prefix}└─────────────────────────────────────────┘")
-    print()
+    # Color setup - high contrast between agent (bold green) and user (dim gray)
+    use_color = Colors.enabled()
+    agent_style = f"{Colors.BOLD}{Colors.BRIGHT_GREEN}" if use_color else ""
+    user_style = f"{Colors.DIM}{Colors.WHITE}" if use_color else ""
+    reset = Colors.RESET if use_color else ""
 
+    # Display the question (agent output in bold green with agent prefix)
+    print()
     if ask_human.question:
-        # Word wrap long questions
-        question = ask_human.question
-        print(f"{prefix}Question: {question}")
+        print(f"{agent_style}{prefix}{ask_human.question}{reset}")
     else:
-        print(f"{prefix}The agent is waiting for input.")
+        print(f"{agent_style}{prefix}Waiting for input...{reset}")
 
     print()
-    response = prompt_user(f"{prefix}Your response")
+    # User input prompt in dim style with user prefix
+    response = input(f"{user_style}{user_prefix}{reset}").strip()
 
     # Add HumanResponse to the agent's stack
     human_response = HumanResponse(
@@ -229,6 +397,4 @@ def _handle_ask_human(ask_human_tuple: tuple, prefix: str = "") -> None:
     )
     agent.stack.add_interaction(human_response)
 
-    print()
-    print(f"{prefix}Response recorded. Continuing...")
     print()

@@ -4,5 +4,5 @@ system_template: writer_system
 llm_model: haiku-latest
 tools:
   - builtins.launch_agent:launch_agent
-  - builtins.list_agent_configs:list_agent_configs
+  - builtins.list_agents:list_agents
   - builtins.finish:finish

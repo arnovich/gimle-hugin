@@ -21,6 +21,33 @@ template: |
   **Tools** (tools/name.py + name.yaml):
   Function signature: `func(params..., stack, branch=None) -> ToolResponse`
 
+  ## CRITICAL: Token Efficiency
+
+  Every tool input and output passes through the LLM. Each token costs money and adds latency.
+  **Be extremely conscious of parameter sizes.**
+
+  **Rule: Keep inputs and outputs SMALL**
+  - Tool parameters should be IDs, paths, names, short strings - not data blobs
+  - Tool results should be summaries, status, paths - not full content
+  - If data is large (>100 chars), write it to a file and pass the path
+
+  **Bad - passing data directly (expensive, slow):**
+  ```python
+  # Input: data="{...thousands of lines of JSON...}"
+  # Output: {"html": "<html>...entire 500-line document...</html>"}
+  ```
+
+  **Good - passing references (cheap, fast):**
+  ```python
+  # Input: input_file="/tmp/data.json"
+  # Output: {"output_file": "/tmp/report.html", "summary": "Generated 15 charts"}
+  ```
+
+  **Design pattern for tools:**
+  1. Accept: file paths, IDs, short config strings
+  2. Return: file paths + brief summary/status (not full content)
+  3. Let the agent read files separately if it needs to inspect content
+
   ## CRITICAL: generate_tool implementation_code
 
   Must be **ACTUAL PYTHON CODE**, not instructions.

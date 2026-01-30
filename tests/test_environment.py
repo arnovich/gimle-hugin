@@ -348,10 +348,27 @@ class TestEnvironment:
         env = Environment.load(str(tmp_path))
 
         # Verify tool was loaded and registered
-        # 9 builtins (finish, get_artifact_content, launch_agent,
-        # list_agent_configs, query_artifacts, save_code, save_file,
-        # save_insight, save_text) + 1 env_tool = 10 total
-        assert len(env.tool_registry.registered()) == 10
+        # Check that the expected core tools are present rather than exact count,
+        # since builtin agents (like agent_builder) add their own tools
+        registered_tools = env.tool_registry.registered()
+        expected_core_tools = [
+            "builtins.ask_user",
+            "builtins.finish",
+            "builtins.get_artifact_content",
+            "builtins.launch_agent",
+            "builtins.list_agents",
+            "builtins.list_files",
+            "builtins.query_artifacts",
+            "builtins.read_file",
+            "builtins.save_code",
+            "builtins.save_file",
+            "builtins.save_insight",
+            "builtins.save_text",
+            "builtins.search_files",
+            "env_tool",
+        ]
+        for tool_name in expected_core_tools:
+            assert tool_name in registered_tools, f"Missing tool: {tool_name}"
         assert "env_tool" in env.tool_registry.registered()
         tool = env.tool_registry.get("env_tool")
         assert tool.name == "env_tool"

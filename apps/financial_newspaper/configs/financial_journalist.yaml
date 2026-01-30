@@ -11,7 +11,7 @@ tools:
   - "builtins.query_artifacts:query_artifacts"
   - "builtins.get_artifact_content:get_artifact_content"
   - "builtins.save_insight:save_insight"
-  - "builtins.list_agent_configs:list_agent_configs"
+  - "builtins.list_agents:list_agents"
   - "builtins.launch_agent:launch_agent"
   - "builtins.list_running_agents:list_running_agents"
   - "builtins.finish:finish"

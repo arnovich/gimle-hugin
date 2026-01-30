@@ -1,6 +1,6 @@
 name: build_agent
 description: Create a new Hugin agent based on user requirements
-task_sequence: [review_agent, finalize_agent]
+task_sequence: [review_agent, finalize_agent, test_agent]
 pass_result_as: generated_preview
 parameters:
   agent_name:

@@ -1,0 +1,21 @@
+name: baby_hugin
+description: An autonomous assistant that interacts with users and delegates complex tasks to specialized agents
+system_template: baby_hugin_system
+llm_model: sonnet-latest
+tools:
+  # Core tools
+  - builtins.finish:finish
+  - builtins.ask_user:ask_user
+  # Agent management
+  - builtins.list_agents:list_agents
+  - builtins.launch_agent:launch_agent
+  # File system (read-only)
+  - builtins.read_file:read_file
+  - builtins.list_files:list_files
+  - builtins.search_files:search_files
+  - builtins.open_file:open_file
+  # Artifacts
+  - builtins.save_insight:save_insight
+  - builtins.query_artifacts:query_artifacts
+interactive: true
+enable_builtin_agents: true  # Allows access to builtins.agent_builder

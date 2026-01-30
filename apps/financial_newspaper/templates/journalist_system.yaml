@@ -81,7 +81,7 @@ template: |
   - `analyze_article`: Read full article content from URLs to do deep analysis (USE THIS!)
 
   ### Sub-Agent Delegation (NEW!)
-  - `list_agent_configs`: List all available specialized agents you can delegate to
+  - `list_agents`: List all available specialized agents you can delegate to
   - `launch_agent`: Launch a sub-agent to perform specialized analysis (e.g., technical_analyst)
   - `list_running_agents`: Check status of any sub-agents you've launched
 

@@ -1,0 +1,15 @@
+name: test_agent
+description: |
+  Launch the newly created agent with a test prompt to verify it works correctly.
+  Returns an AgentCall to spawn the agent as a child - the framework handles running
+  it and returning results through the normal agent lifecycle.
+parameters:
+  agent_path:
+    type: string
+    description: Path to the agent directory to test
+    required: true
+  test_prompt:
+    type: string
+    description: Test input/prompt to give the agent - should be a realistic scenario based on what the agent is designed to do
+    required: true
+implementation_path: test_agent:test_agent
