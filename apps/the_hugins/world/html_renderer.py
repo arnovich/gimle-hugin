@@ -318,6 +318,27 @@ def generate_world_html(
             font-weight: 400;
         }}
 
+        .shortcuts-bar {{
+            background: #f8f9fa;
+            padding: 6px 24px;
+            display: flex;
+            justify-content: center;
+            gap: 24px;
+            font-size: 0.75em;
+            color: #666;
+            border-bottom: 1px solid #eee;
+        }}
+
+        .shortcuts-bar kbd {{
+            background: #fff;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 0.95em;
+            border: 1px solid #ddd;
+            font-family: inherit;
+            box-shadow: 0 1px 1px rgba(0,0,0,0.05);
+        }}
+
         .leave-btn {{
             padding: 6px 14px;
             background: transparent;
@@ -828,6 +849,14 @@ def generate_world_html(
                 <span>Creatures: {len(world.creatures)}</span>
             </div>
             <button class="leave-btn" onclick="leaveWorld()">Leave World</button>
+        </div>
+
+        <div class="shortcuts-bar">
+            <span><kbd>+</kbd> <kbd>-</kbd> Zoom</span>
+            <span><kbd>&#8592;</kbd><kbd>&#8593;</kbd><kbd>&#8595;</kbd><kbd>&#8594;</kbd> Pan</span>
+            <span>Click creature to talk</span>
+            <span>Drag creature to move</span>
+            <span><kbd>?</kbd> All shortcuts</span>
         </div>
 
         <div class="main-content">
