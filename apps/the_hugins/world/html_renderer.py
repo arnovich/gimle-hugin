@@ -236,6 +236,9 @@ def generate_world_html(
                                     creature_state.name
                                 ),
                                 "last_action": creature_last_action,
+                                "energy": creature_state.energy,
+                                "max_energy": 100,
+                                "money": creature_state.money,
                             }
                         )
 
@@ -456,6 +459,58 @@ def generate_world_html(
         .creature-detail strong {{
             color: #333;
             font-weight: 500;
+        }}
+
+        .creature-stats {{
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 8px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #f0f0f0;
+        }}
+
+        .stat-bar {{
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex: 1;
+        }}
+
+        .stat-label {{
+            font-size: 0.7em;
+            color: #888;
+            font-weight: 500;
+            min-width: 40px;
+        }}
+
+        .stat-bar-bg {{
+            flex: 1;
+            height: 8px;
+            background: #e0e0e0;
+            border-radius: 4px;
+            overflow: hidden;
+        }}
+
+        .stat-bar-fill {{
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        }}
+
+        .stat-value {{
+            font-size: 0.75em;
+            color: #666;
+            font-weight: 600;
+            min-width: 24px;
+            text-align: right;
+        }}
+
+        .stat-money {{
+            font-size: 0.8em;
+            font-weight: 600;
+            color: #666;
+            white-space: nowrap;
         }}
 
         .inventory {{
@@ -1250,7 +1305,10 @@ def generate_world_html(
                     creature.name,
                     creature.color,
                     creature.last_action,
-                    creature.agent_id
+                    creature.agent_id,
+                    creature.energy,
+                    creature.max_energy,
+                    creature.money
                 );
 
                 // Trigger action effects for recent actions
@@ -2054,7 +2112,7 @@ def generate_world_html(
             return creatureIdlePhases[agentId];
         }}
 
-        function drawCreature(x, y, name, color, lastAction, agentId) {{
+        function drawCreature(x, y, name, color, lastAction, agentId, energy, maxEnergy, money) {{
             // Check if this creature is animating and add jump effect
             let jumpOffset = 0;
             const anim = creatureAnimations[agentId];
@@ -2122,6 +2180,46 @@ def generate_world_html(
             ctx.lineWidth = 4;
             ctx.strokeText(name, x, creatureY + creatureSize / 2 + 16);
             ctx.fillText(name, x, creatureY + creatureSize / 2 + 16);
+
+            // Draw energy bar above creature
+            if (energy !== undefined && maxEnergy !== undefined) {{
+                const barWidth = 40;
+                const barHeight = 5;
+                const barX = x - barWidth / 2;
+                const barY = creatureY - creatureSize / 2 - 12;
+                const energyPercent = Math.max(0, Math.min(1, energy / maxEnergy));
+
+                // Background (dark)
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+                ctx.fillRect(barX - 1, barY - 1, barWidth + 2, barHeight + 2);
+
+                // Empty bar (dark red)
+                ctx.fillStyle = '#4a1c1c';
+                ctx.fillRect(barX, barY, barWidth, barHeight);
+
+                // Filled bar (green to yellow to red based on energy)
+                let barColor;
+                if (energyPercent > 0.5) {{
+                    barColor = '#4caf50';  // Green
+                }} else if (energyPercent > 0.25) {{
+                    barColor = '#ff9800';  // Orange
+                }} else {{
+                    barColor = '#f44336';  // Red
+                }}
+                ctx.fillStyle = barColor;
+                ctx.fillRect(barX, barY, barWidth * energyPercent, barHeight);
+
+                // Money indicator (small coin icon with amount)
+                if (money !== undefined) {{
+                    ctx.font = 'bold 9px sans-serif';
+                    ctx.fillStyle = '#ffd700';
+                    ctx.strokeStyle = '#000';
+                    ctx.lineWidth = 2;
+                    const moneyText = `${{money}}`;
+                    ctx.strokeText(moneyText, x + barWidth / 2 + 5, barY + barHeight - 1);
+                    ctx.fillText(moneyText, x + barWidth / 2 + 5, barY + barHeight - 1);
+                }}
+            }}
         }}
 
         function drawSpeechBubble(x, y, text, actionType) {{
@@ -2310,7 +2408,10 @@ def generate_world_html(
                 creature.name,
                 creature.color,
                 null,
-                creature.agent_id
+                creature.agent_id,
+                creature.energy,
+                creature.max_energy,
+                creature.money
             );
 
             ctx.restore();
@@ -3181,13 +3282,41 @@ def generate_creatures_html(world: World) -> str:
             )
             last_action_html = f'<div class="creature-detail" style="margin-top:6px;"><strong>Last Action:</strong> {la.description}</div>{reason_html}'
 
+        # Energy bar color based on percentage
+        energy_percent = creature.energy / 100
+        if energy_percent > 0.5:
+            energy_color = "#4caf50"  # Green
+        elif energy_percent > 0.25:
+            energy_color = "#ff9800"  # Orange
+        else:
+            energy_color = "#f44336"  # Red
+
+        # Pending trades info
+        trades_count = len(creature.pending_trades)
+        trades_html = ""
+        if trades_count > 0:
+            trades_html = f'<div class="creature-detail" style="color: #2196f3;"><strong>Pending Trades:</strong> {trades_count}</div>'
+
         html_parts.append(
             f"""
             <div class="creature-info" onclick="toggleCreature(this, '{creature.agent_id}')">
                 <h3>{creature.name} <span class="expand-indicator">&#9654;</span></h3>
+                <div class="creature-stats">
+                    <div class="stat-bar">
+                        <span class="stat-label">Energy</span>
+                        <div class="stat-bar-bg">
+                            <div class="stat-bar-fill" style="width: {creature.energy}%; background: {energy_color};"></div>
+                        </div>
+                        <span class="stat-value">{creature.energy}</span>
+                    </div>
+                    <div class="stat-money">
+                        <span style="color: #ffd700;">$</span> {creature.money}
+                    </div>
+                </div>
                 <div class="creature-detail"><strong>Position:</strong> ({x}, {y})</div>
                 <div class="creature-details-full">
                     {last_action_html}
+                    {trades_html}
                     <div class="creature-detail"><strong>Description:</strong> {creature.description}</div>
                     <div class="creature-detail"><strong>Personality:</strong> {creature.personality}</div>
                     {f'<div class="creature-detail" style="margin-top:6px;"><strong>Goals:</strong></div>{goals_html}' if goals_html else ''}
