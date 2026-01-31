@@ -429,8 +429,20 @@ def generate_world_html(
             width: 300px;
             background: #fafafa;
             padding: 20px;
-            overflow-y: auto;
             border-left: 1px solid #e5e5e5;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }}
+
+        .sidebar > h2 {{
+            flex-shrink: 0;
+        }}
+
+        #creaturesList {{
+            max-height: 40%;
+            overflow-y: auto;
+            flex-shrink: 0;
         }}
 
         .sidebar h2 {{
@@ -648,8 +660,20 @@ def generate_world_html(
             margin-top: 20px;
             padding-top: 16px;
             border-top: 1px solid #e5e5e5;
-            max-height: 300px;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }}
+
+        .actions-log h2 {{
+            flex-shrink: 0;
+        }}
+
+        #actionsList {{
+            flex: 1;
             overflow-y: auto;
+            min-height: 200px;
         }}
 
         .action-item {{
@@ -923,17 +947,17 @@ def generate_world_html(
 
         /* Scrollbar styling */
         .sidebar::-webkit-scrollbar,
-        .actions-log::-webkit-scrollbar {{
+        #actionsList::-webkit-scrollbar {{
             width: 4px;
         }}
 
         .sidebar::-webkit-scrollbar-track,
-        .actions-log::-webkit-scrollbar-track {{
+        #actionsList::-webkit-scrollbar-track {{
             background: transparent;
         }}
 
         .sidebar::-webkit-scrollbar-thumb,
-        .actions-log::-webkit-scrollbar-thumb {{
+        #actionsList::-webkit-scrollbar-thumb {{
             background: #ccc;
             border-radius: 2px;
         }}
