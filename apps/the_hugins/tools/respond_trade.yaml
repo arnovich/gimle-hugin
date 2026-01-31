@@ -1,0 +1,22 @@
+name: respond_trade
+description: "Accept or reject a pending trade offer. Use check_trades first to see available offers."
+parameters:
+  world_id:
+    type: string
+    description: The ID of the world you are in
+    required: true
+  trade_id:
+    type: string
+    description: The ID of the trade offer to respond to
+    required: true
+  accept:
+    type: boolean
+    description: True to accept the trade, False to reject it
+    required: true
+  reason:
+    type: string
+    description: Why you are performing this action
+    required: false
+is_interactive: false
+implementation_path: the_hugins.tools.respond_trade:respond_trade_tool
+options: {}

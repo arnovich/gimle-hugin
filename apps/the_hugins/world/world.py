@@ -9,6 +9,14 @@ from typing import Any, Dict, List, Optional, Tuple
 from world.action_log import ActionLog
 from world.cell import Cell, TerrainType
 from world.creature_state import CreatureState
+from world.economy import (
+    SPAWN_COUNT,
+    SPAWN_INTERVAL_TICKS,
+    SPAWN_WEIGHTS,
+    STARTING_ENERGY,
+    STARTING_MONEY,
+    TradeOffer,
+)
 from world.goals import Goal, GoalType, Memory, Relationship
 from world.object import Object, ObjectType
 
@@ -250,6 +258,10 @@ class World:
             ):
                 self._grow_plant(cell)
 
+        # Spawn resources periodically
+        if self.tick % SPAWN_INTERVAL_TICKS == 0:
+            self._spawn_resources(num_items=SPAWN_COUNT)
+
         # Update goal progress, decay memories, etc.
         for creature in self.creatures.values():
             # Update goal progress based on actions
@@ -284,6 +296,32 @@ class World:
         cell.planted_seed = None
         cell.plant_growth_tick = 0
         cell.terrain = TerrainType.GRASS  # Return to grass after harvest
+
+    def _spawn_resources(self, num_items: int = 3) -> None:
+        """Spawn random resources in the world."""
+        item_names = list(SPAWN_WEIGHTS.keys())
+        weights = list(SPAWN_WEIGHTS.values())
+
+        for _ in range(num_items):
+            x = random.randint(0, self.width - 1)
+            y = random.randint(0, self.height - 1)
+
+            # Skip cells with water terrain
+            cell = self.get_cell(x, y)
+            if cell and cell.terrain == TerrainType.WATER:
+                continue
+
+            # Weighted random selection
+            item_name = random.choices(item_names, weights=weights, k=1)[0]
+            item_id = f"spawn_{x}_{y}_{self.tick}_{random.randint(1000, 9999)}"
+
+            item = Object(
+                name=item_name,
+                type=ObjectType.ITEM,
+                description=f"A {item_name}",
+                id=item_id,
+            )
+            self.add_object(x, y, item)
 
     def add_goal_to_creature(
         self,
@@ -446,6 +484,11 @@ class World:
                     sentiment=rel_data.get("sentiment", 5),
                 )
 
+            # Deserialize pending trades
+            pending_trades = []
+            for trade_data in creature_data.get("pending_trades", []):
+                pending_trades.append(TradeOffer.from_dict(trade_data))
+
             creature_state = CreatureState(
                 agent_id=agent_id,
                 position=tuple(creature_data["position"]),
@@ -456,6 +499,9 @@ class World:
                 goals=goals,
                 memories=memories,
                 relationships=relationships,
+                energy=creature_data.get("energy", STARTING_ENERGY),
+                money=creature_data.get("money", STARTING_MONEY),
+                pending_trades=pending_trades,
             )
             world.creatures[agent_id] = creature_state
 

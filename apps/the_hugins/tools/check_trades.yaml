@@ -1,0 +1,10 @@
+name: check_trades
+description: "View pending trade offers from other creatures. Shows what trades have been proposed to you that you can accept or reject."
+parameters:
+  world_id:
+    type: string
+    description: The ID of the world you are in
+    required: true
+is_interactive: false
+implementation_path: the_hugins.tools.check_trades:check_trades_tool
+options: {}
