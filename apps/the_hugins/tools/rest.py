@@ -2,8 +2,9 @@
 
 from typing import TYPE_CHECKING, Any, Dict, Optional, cast
 
-from gimle.hugin.tools.tool import ToolResponse
 from world.economy import ENERGY_RECOVERY_REST, MAX_ENERGY
+
+from gimle.hugin.tools.tool import ToolResponse
 
 if TYPE_CHECKING:
     from world import World

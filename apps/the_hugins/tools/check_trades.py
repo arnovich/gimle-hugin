@@ -75,15 +75,17 @@ def check_trades_tool(
                 f"coins and receive the item."
             )
 
-        trades.append({
-            "trade_id": offer.id,
-            "from_creature": offer.from_creature,
-            "their_action": offer.action,
-            "item": offer.item_name,
-            "price": offer.price,
-            "created_tick": offer.created_tick,
-            "explanation": explanation,
-        })
+        trades.append(
+            {
+                "trade_id": offer.id,
+                "from_creature": offer.from_creature,
+                "their_action": offer.action,
+                "item": offer.item_name,
+                "price": offer.price,
+                "created_tick": offer.created_tick,
+                "explanation": explanation,
+            }
+        )
 
     if not trades:
         message = "You have no pending trade offers."

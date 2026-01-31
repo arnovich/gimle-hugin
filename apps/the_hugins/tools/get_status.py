@@ -2,8 +2,9 @@
 
 from typing import TYPE_CHECKING, Any, Dict, Optional, cast
 
-from gimle.hugin.tools.tool import ToolResponse
 from world.economy import FOOD_ENERGY, MAX_ENERGY
+
+from gimle.hugin.tools.tool import ToolResponse
 
 if TYPE_CHECKING:
     from world import World
@@ -61,10 +62,12 @@ def get_status_tool(
     food_items = []
     for item in creature.inventory:
         if item.name in FOOD_ENERGY:
-            food_items.append({
-                "name": item.name,
-                "energy_value": FOOD_ENERGY[item.name],
-            })
+            food_items.append(
+                {
+                    "name": item.name,
+                    "energy_value": FOOD_ENERGY[item.name],
+                }
+            )
 
     # Calculate total food energy available
     total_food_energy = sum(f["energy_value"] for f in food_items)
