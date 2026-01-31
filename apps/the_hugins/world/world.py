@@ -302,6 +302,7 @@ class World:
         item_names = list(SPAWN_WEIGHTS.keys())
         weights = list(SPAWN_WEIGHTS.values())
 
+        spawned_items = []
         for _ in range(num_items):
             x = random.randint(0, self.width - 1)
             y = random.randint(0, self.height - 1)
@@ -322,6 +323,22 @@ class World:
                 id=item_id,
             )
             self.add_object(x, y, item)
+            spawned_items.append((item_name, x, y))
+
+        # Log spawn event
+        if spawned_items:
+            items_summary = ", ".join(
+                f"{name} at ({x},{y})" for name, x, y in spawned_items
+            )
+            self.action_log.add_action(
+                creature_name="World",
+                agent_id="world",
+                action_type="spawn",
+                description=f"Resources spawned: {items_summary}",
+                timestamp=self.tick,
+                location=None,
+                details={"items": spawned_items},
+            )
 
     def add_goal_to_creature(
         self,

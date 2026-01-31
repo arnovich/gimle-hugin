@@ -342,6 +342,51 @@ def generate_world_html(
             box-shadow: 0 1px 1px rgba(0,0,0,0.05);
         }}
 
+        .shortcuts-bar .speed-control {{
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }}
+
+        .shortcuts-bar .speed-control input {{
+            width: 80px;
+            accent-color: #1a1a1a;
+        }}
+
+        .shortcuts-bar .legend-toggle {{
+            cursor: pointer;
+            color: #555;
+        }}
+
+        .shortcuts-bar .legend-toggle:hover {{
+            color: #000;
+        }}
+
+        .legend-bar {{
+            background: #f8f9fa;
+            padding: 8px 24px;
+            display: flex;
+            justify-content: center;
+            gap: 16px;
+            font-size: 0.75em;
+            color: #666;
+            border-bottom: 1px solid #eee;
+            flex-wrap: wrap;
+        }}
+
+        .legend-bar .legend-item {{
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }}
+
+        .legend-bar .legend-color {{
+            width: 14px;
+            height: 14px;
+            border-radius: 3px;
+            border: 1px solid rgba(0,0,0,0.1);
+        }}
+
         .leave-btn {{
             padding: 6px 14px;
             background: transparent;
@@ -912,6 +957,14 @@ def generate_world_html(
             <span>Click creature to talk</span>
             <span>Drag creature to move</span>
             <span><kbd>?</kbd> All shortcuts</span>
+            <span class="speed-control">
+                Speed: <input type="range" id="speedSlider" min="0.1" max="5" value="1" step="0.1" oninput="updateSpeed(this.value)">
+                <span id="speedValue">1.0s</span>
+            </span>
+            <span class="legend-toggle" onclick="toggleLegend()">Legend ▼</span>
+        </div>
+        <div class="legend-bar" id="legendBar" style="display: none;">
+            {generate_legend_html(terrain_colors)}
         </div>
 
         <div class="main-content">
@@ -932,29 +985,10 @@ def generate_world_html(
                 <div class="actions-log">
                     <h2>Recent Actions</h2>
                     <div id="actionsList">
-                        {generate_actions_html(world)}
+                        {generate_actions_html(world, count=30)}
                     </div>
                 </div>
 
-                <div class="controls">
-                    <h2>Controls</h2>
-                    <button class="control-button" onclick="resetView()">Reset View</button>
-                    <div style="margin-top: 10px; font-size: 0.8em; color: #999; text-align: center;">
-                        <div>Drag creatures to move them</div>
-                        <div>Arrow keys / WASD to pan</div>
-                        <div>+/- to zoom</div>
-                        <div style="margin-top: 5px; color: #555; cursor: pointer;" onclick="toggleHelp()">Press <kbd style="background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-size: 11px; border: 1px solid #ddd;">?</kbd> for all controls</div>
-                    </div>
-                    <label style="display: block; margin-top: 14px; color: #666; font-size: 0.82em;">
-                        Update Speed: <input type="range" id="speedSlider" min="0.1" max="5" value="1" step="0.1" oninput="updateSpeed(this.value)" style="width: 100%; accent-color: #1a1a1a;">
-                        <span id="speedValue">1.0s</span>
-                    </label>
-                </div>
-
-                <div class="legend">
-                    <h2>Legend</h2>
-                    {generate_legend_html(terrain_colors)}
-                </div>
             </div>
         </div>
     </div>
@@ -2833,7 +2867,7 @@ def generate_world_html(
         }}
 
         function updateActionsList() {{
-            fetch('/api/actions?count=15')
+            fetch('/api/actions?count=30')
                 .then(response => {{
                     if (!response.ok) {{
                         throw new Error('Network response was not ok');
@@ -3194,6 +3228,15 @@ def generate_world_html(
             const helpOverlay = document.getElementById('helpOverlay');
             helpVisible = !helpVisible;
             helpOverlay.style.display = helpVisible ? 'flex' : 'none';
+        }}
+
+        let legendVisible = false;
+        function toggleLegend() {{
+            const legendBar = document.getElementById('legendBar');
+            const legendToggle = document.querySelector('.legend-toggle');
+            legendVisible = !legendVisible;
+            legendBar.style.display = legendVisible ? 'flex' : 'none';
+            legendToggle.textContent = legendVisible ? 'Legend ▲' : 'Legend ▼';
         }}
 
         // Resize canvas to fill container
