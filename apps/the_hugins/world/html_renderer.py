@@ -2707,7 +2707,10 @@ def generate_world_html(
                                 action_type: lastAction.action_type,
                                 timestamp: lastAction.timestamp,
                                 reason: lastAction.reason || null
-                            }} : null
+                            }} : null,
+                            energy: c.energy !== undefined ? c.energy : 100,
+                            max_energy: 100,
+                            money: c.money !== undefined ? c.money : 50
                         }});
                     }}
                     creatures = newCreatures;
@@ -2776,13 +2779,45 @@ def generate_world_html(
                     ? `<div class="creature-detail" style="margin-top:6px;"><strong>Last Action:</strong> ${{c.last_action.description}}</div>${{lastActionReason}}`
                     : '';
 
+                // Energy and money
+                const energy = c.energy !== undefined ? c.energy : 100;
+                const money = c.money !== undefined ? c.money : 50;
+                const energyPercent = energy / 100;
+                let energyColor;
+                if (energyPercent > 0.5) {{
+                    energyColor = '#4caf50';  // Green
+                }} else if (energyPercent > 0.25) {{
+                    energyColor = '#ff9800';  // Orange
+                }} else {{
+                    energyColor = '#f44336';  // Red
+                }}
+
+                // Pending trades
+                const tradesCount = (c.pending_trades || []).length;
+                const tradesHtml = tradesCount > 0
+                    ? `<div class="creature-detail" style="color: #2196f3;"><strong>Pending Trades:</strong> ${{tradesCount}}</div>`
+                    : '';
+
                 const isExpanded = expandedCreatures.has(agentId) ? ' expanded' : '';
                 html += `
                     <div class="creature-info${{isExpanded}}" onclick="toggleCreature(this, '${{agentId}}')">
                         <h3>${{c.name}} <span class="expand-indicator">&#9654;</span></h3>
+                        <div class="creature-stats">
+                            <div class="stat-bar">
+                                <span class="stat-label">Energy</span>
+                                <div class="stat-bar-bg">
+                                    <div class="stat-bar-fill" style="width: ${{energy}}%; background: ${{energyColor}};"></div>
+                                </div>
+                                <span class="stat-value">${{energy}}</span>
+                            </div>
+                            <div class="stat-money">
+                                <span style="color: #ffd700;">$</span> ${{money}}
+                            </div>
+                        </div>
                         <div class="creature-detail"><strong>Position:</strong> (${{c.position[0]}}, ${{c.position[1]}})</div>
                         <div class="creature-details-full">
                             ${{lastAction}}
+                            ${{tradesHtml}}
                             <div class="creature-detail"><strong>Description:</strong> ${{c.description || ''}}</div>
                             <div class="creature-detail"><strong>Personality:</strong> ${{c.personality}}</div>
                             ${{goalsHtml ? `<div class="creature-detail" style="margin-top:6px;"><strong>Goals:</strong></div>${{goalsHtml}}` : ''}}
