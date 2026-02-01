@@ -10,6 +10,166 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Commit to the branch, then merge via PR or as instructed
 - **Do NOT add Co-Authored-By lines** - commit messages should not include Claude as author
 
+## Pull Request Workflow
+
+### Before Committing
+
+1. **Run pre-commit checks** - Always run before committing:
+   ```bash
+   uv run pre-commit run --all-files
+   ```
+   If files are modified by hooks, run again to verify all pass.
+
+2. **Run tests** - Ensure nothing is broken:
+   ```bash
+   uv run pytest -x -q
+   ```
+
+3. **Test manually** - For UI/app changes, run the app and verify:
+   ```bash
+   uv run hugin app the_hugins  # For Hugins changes
+   ```
+
+### Commit Messages
+
+Write clear, descriptive commit messages:
+```
+Short summary line (imperative mood, <50 chars)
+
+Longer description if needed:
+- What changed and why
+- Any important details
+- Related issues or context
+```
+
+### Creating a PR
+
+```bash
+# Push branch
+git push -u origin branch_name
+
+# Create PR with structured description
+gh pr create --title "Short descriptive title" --body "$(cat <<'EOF'
+## Summary
+Brief description of what this PR does.
+
+## Changes
+- Change 1
+- Change 2
+
+## Testing
+How the changes were tested.
+EOF
+)"
+```
+
+### PR Description Best Practices
+
+- **Summary**: 1-2 sentences on what and why
+- **Changes**: Bullet list of specific changes
+- **Testing**: How you verified it works
+- For bug fixes: Include steps to reproduce
+- For features: Include usage examples
+
+## GitHub CLI Patterns
+
+### Working with Issues
+
+```bash
+# List all issues
+gh issue list --repo gimlelabs/gimle-hugin --state all
+
+# Get issue details as JSON
+gh issue list --state open --json number,title,body,labels
+
+# Close an issue with comment
+gh issue close 123 --comment "Fixed in PR #456"
+
+# Create a new issue
+gh issue create --title "Bug: description" --body "Details..."
+```
+
+### Syncing Issues to Local Tasks
+
+```bash
+# Fetch all issues and create local task files
+gh issue list --state all --limit 100 --json number,title,state,body,labels,createdAt |
+  jq -r '.[] | "tasks/\(if .state == "OPEN" then "open" else "closed" end)/\(.number)-\(.title | gsub(" "; "-") | ascii_downcase).md"'
+```
+
+### Working with PRs
+
+```bash
+# Create PR from current branch
+gh pr create --title "Title" --body "Description"
+
+# List open PRs
+gh pr list
+
+# View PR details
+gh pr view 123
+
+# Merge PR
+gh pr merge 123 --merge
+```
+
+## Multi-Agent Parallel Work
+
+Use git worktrees to enable multiple Claude agents working simultaneously on different tasks.
+
+### Setup for Parallel Agents
+
+```bash
+# Main repo structure
+/Users/you/gimle/
+├── gimle-hugin/              # Main worktree (main branch)
+├── gimle-hugin-task-001/     # Agent 1 working on task 001
+├── gimle-hugin-task-006/     # Agent 2 working on task 006
+└── gimle-hugin-experiment/   # Agent 3 experimenting
+```
+
+### Creating Worktrees for Agents
+
+```bash
+# From main repo
+cd gimle-hugin
+
+# Create worktree for each agent/task
+git worktree add ../gimle-hugin-task-001 -b task/001-artifact-feedback
+git worktree add ../gimle-hugin-task-006 -b task/006-parallel-tools
+git worktree add ../gimle-hugin-ui-fixes -b fix/ui-improvements
+```
+
+### Running Multiple Claude Sessions
+
+1. Open separate terminal/Claude sessions
+2. Point each session to a different worktree directory
+3. Each agent works independently on their branch
+4. No conflicts since each has isolated working directory
+
+### Coordinating Parallel Work
+
+- **Avoid overlapping files** - Assign different areas to each agent
+- **Rebase regularly** - Keep branches up to date with main
+- **Small, focused PRs** - Easier to merge without conflicts
+- **Communicate via tasks** - Update task files with progress/blockers
+
+### Cleanup After Merging
+
+```bash
+# List all worktrees
+git worktree list
+
+# Remove completed worktree
+git worktree remove ../gimle-hugin-task-001
+
+# Prune stale references
+git worktree prune
+
+# Delete merged branch
+git branch -d task/001-artifact-feedback
+```
+
 ## Development Commands
 
 ### Running Agents
@@ -324,35 +484,59 @@ world = stack.agent.environment.env_vars["worlds"]["world_1"]
 - **Artifacts**: Long-term memory stored via `save_insight` tool
 - Artifacts are stored in `artifacts/` directory with UUID names
 
-## Task Tracking
+## Task Management
 
-Use `docs/tasks/` for tracking feature requests, bugs, and enhancements. Each task is a markdown file with YAML frontmatter.
+Tasks are tracked in the `tasks/` folder at the repository root, organized by status:
 
-### Creating a New Task
+```
+tasks/
+├── open/           # Active tasks to be worked on
+│   ├── 001-artifact-feedback.md
+│   └── 006-parallel-tool-calls/
+│       ├── description.md
+│       ├── plan.md
+│       └── spec.md
+└── closed/         # Completed or abandoned tasks
+    └── 015-live-monitor-updates.md
+```
 
-Create a file in `docs/tasks/` with format `{ID}-{short-name}.md`:
+### Task Structure
+
+**Simple tasks** - A single markdown file:
+```
+tasks/open/001-artifact-feedback.md
+```
+
+**Complex tasks** - A folder with multiple documents:
+```
+tasks/open/006-parallel-tool-calls/
+├── description.md    # What and why
+├── plan.md          # Implementation steps
+├── spec.md          # Technical specification
+└── notes.md         # Research, decisions, etc.
+```
+
+### Task File Format
+
+Each task file should have YAML frontmatter:
 
 ```markdown
 ---
-title: Short descriptive title
-id: ABC
-type: bug | enhancement | feature
-priority: low | medium | high
-status: open | in-progress | done
+github_issue: 6           # Optional: linked GitHub issue
+title: Support parallel tool calls
+state: OPEN
+labels: [enhancement]
+priority: high
 ---
 
-## Description
+# Title
 
-What needs to be done and why.
+Description of what needs to be done and why.
 
 ## Tasks
 
 - [ ] Subtask 1
 - [ ] Subtask 2
-
-## Affected Files
-
-- `path/to/file.py` - What changes needed
 
 ## Success Criteria
 
@@ -360,18 +544,72 @@ What needs to be done and why.
 - [ ] Criterion 2
 ```
 
-### Task ID Convention
+### Git Worktree Workflow
 
-Use 2-4 letter uppercase IDs that hint at the task:
-- `PTC` - Parallel Tool Calls
-- `HGX` - Hugins Graphics
-- `RMW` - RapMachine Web
+**Always use git worktrees when working on tasks.** This enables parallel work on multiple tasks.
+
+#### Starting a New Task
+
+```bash
+# From main repo, create a worktree for the task
+git worktree add ../gimle-hugin-task-006 -b task/006-parallel-tool-calls
+
+# Work in the new worktree
+cd ../gimle-hugin-task-006
+
+# Create/update task planning documents
+mkdir -p tasks/open/006-parallel-tool-calls
+# Add description.md, plan.md, spec.md as needed
+
+# Implement the task...
+
+# Commit your work
+git add .
+git commit -m "Implement parallel tool calls support"
+
+# Push and create PR
+git push -u origin task/006-parallel-tool-calls
+gh pr create --title "Implement parallel tool calls" --body "Closes #6"
+```
+
+#### Completing a Task
+
+```bash
+# After PR is merged, move task to closed
+git mv tasks/open/006-parallel-tool-calls tasks/closed/
+
+# Or for simple tasks
+git mv tasks/open/006-parallel-tool-calls.md tasks/closed/
+
+# Clean up worktree
+cd /path/to/main/repo
+git worktree remove ../gimle-hugin-task-006
+```
+
+#### Managing Worktrees
+
+```bash
+# List all worktrees
+git worktree list
+
+# Remove a worktree (after merging)
+git worktree remove ../gimle-hugin-task-006
+
+# Prune stale worktree references
+git worktree prune
+```
+
+### Branch Naming Convention
+
+Use `task/` prefix with task ID:
+- `task/001-artifact-feedback`
+- `task/006-parallel-tool-calls`
+- `task/fix-memory-leak` (for tasks without numeric IDs)
 
 ### When to Create Tasks
 
+- Feature requests and enhancements
 - Bugs discovered during development
-- Feature ideas that are out of scope for current work
-- Enhancements identified while working on other tasks
-- Technical debt that should be addressed later
-
-This keeps the codebase organized and provides context for future development sessions.
+- Ideas that are out of scope for current work
+- Technical debt to address later
+- Any work that benefits from planning before implementation
