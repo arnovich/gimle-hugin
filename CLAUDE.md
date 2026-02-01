@@ -324,35 +324,59 @@ world = stack.agent.environment.env_vars["worlds"]["world_1"]
 - **Artifacts**: Long-term memory stored via `save_insight` tool
 - Artifacts are stored in `artifacts/` directory with UUID names
 
-## Task Tracking
+## Task Management
 
-Use `docs/tasks/` for tracking feature requests, bugs, and enhancements. Each task is a markdown file with YAML frontmatter.
+Tasks are tracked in the `tasks/` folder at the repository root, organized by status:
 
-### Creating a New Task
+```
+tasks/
+├── open/           # Active tasks to be worked on
+│   ├── 001-artifact-feedback.md
+│   └── 006-parallel-tool-calls/
+│       ├── description.md
+│       ├── plan.md
+│       └── spec.md
+└── closed/         # Completed or abandoned tasks
+    └── 015-live-monitor-updates.md
+```
 
-Create a file in `docs/tasks/` with format `{ID}-{short-name}.md`:
+### Task Structure
+
+**Simple tasks** - A single markdown file:
+```
+tasks/open/001-artifact-feedback.md
+```
+
+**Complex tasks** - A folder with multiple documents:
+```
+tasks/open/006-parallel-tool-calls/
+├── description.md    # What and why
+├── plan.md          # Implementation steps
+├── spec.md          # Technical specification
+└── notes.md         # Research, decisions, etc.
+```
+
+### Task File Format
+
+Each task file should have YAML frontmatter:
 
 ```markdown
 ---
-title: Short descriptive title
-id: ABC
-type: bug | enhancement | feature
-priority: low | medium | high
-status: open | in-progress | done
+github_issue: 6           # Optional: linked GitHub issue
+title: Support parallel tool calls
+state: OPEN
+labels: [enhancement]
+priority: high
 ---
 
-## Description
+# Title
 
-What needs to be done and why.
+Description of what needs to be done and why.
 
 ## Tasks
 
 - [ ] Subtask 1
 - [ ] Subtask 2
-
-## Affected Files
-
-- `path/to/file.py` - What changes needed
 
 ## Success Criteria
 
@@ -360,18 +384,72 @@ What needs to be done and why.
 - [ ] Criterion 2
 ```
 
-### Task ID Convention
+### Git Worktree Workflow
 
-Use 2-4 letter uppercase IDs that hint at the task:
-- `PTC` - Parallel Tool Calls
-- `HGX` - Hugins Graphics
-- `RMW` - RapMachine Web
+**Always use git worktrees when working on tasks.** This enables parallel work on multiple tasks.
+
+#### Starting a New Task
+
+```bash
+# From main repo, create a worktree for the task
+git worktree add ../gimle-hugin-task-006 -b task/006-parallel-tool-calls
+
+# Work in the new worktree
+cd ../gimle-hugin-task-006
+
+# Create/update task planning documents
+mkdir -p tasks/open/006-parallel-tool-calls
+# Add description.md, plan.md, spec.md as needed
+
+# Implement the task...
+
+# Commit your work
+git add .
+git commit -m "Implement parallel tool calls support"
+
+# Push and create PR
+git push -u origin task/006-parallel-tool-calls
+gh pr create --title "Implement parallel tool calls" --body "Closes #6"
+```
+
+#### Completing a Task
+
+```bash
+# After PR is merged, move task to closed
+git mv tasks/open/006-parallel-tool-calls tasks/closed/
+
+# Or for simple tasks
+git mv tasks/open/006-parallel-tool-calls.md tasks/closed/
+
+# Clean up worktree
+cd /path/to/main/repo
+git worktree remove ../gimle-hugin-task-006
+```
+
+#### Managing Worktrees
+
+```bash
+# List all worktrees
+git worktree list
+
+# Remove a worktree (after merging)
+git worktree remove ../gimle-hugin-task-006
+
+# Prune stale worktree references
+git worktree prune
+```
+
+### Branch Naming Convention
+
+Use `task/` prefix with task ID:
+- `task/001-artifact-feedback`
+- `task/006-parallel-tool-calls`
+- `task/fix-memory-leak` (for tasks without numeric IDs)
 
 ### When to Create Tasks
 
+- Feature requests and enhancements
 - Bugs discovered during development
-- Feature ideas that are out of scope for current work
-- Enhancements identified while working on other tasks
-- Technical debt that should be addressed later
-
-This keeps the codebase organized and provides context for future development sessions.
+- Ideas that are out of scope for current work
+- Technical debt to address later
+- Any work that benefits from planning before implementation
