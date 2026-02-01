@@ -283,20 +283,34 @@ class WorldManager:
             ]
 
         # Auto-assign or clamp positions to world bounds
-        num_creatures = len(creatures_config)
-        for i, creature_cfg in enumerate(creatures_config):
+        # Track used positions to avoid placing creatures on top of each other
+        used_positions: set[tuple[int, int]] = set()
+
+        for creature_cfg in creatures_config:
             if creature_cfg.get("x") is None or creature_cfg.get("y") is None:
-                # Spread evenly across the map, always within bounds
-                creature_cfg["x"] = int(
-                    (i + 1) * world.width / (num_creatures + 1)
-                )
-                creature_cfg["y"] = int(
-                    (i + 1) * world.height / (num_creatures + 1)
-                )
+                # Find a random valid position (not water, not occupied)
+                max_attempts = 50
+                for _ in range(max_attempts):
+                    x = random.randint(0, world.width - 1)
+                    y = random.randint(0, world.height - 1)
+                    cell = world.get_cell(x, y)
+                    if (
+                        cell
+                        and cell.terrain.value != "water"
+                        and (x, y) not in used_positions
+                    ):
+                        creature_cfg["x"] = x
+                        creature_cfg["y"] = y
+                        break
+                else:
+                    # Fallback: just use a random position
+                    creature_cfg["x"] = random.randint(0, world.width - 1)
+                    creature_cfg["y"] = random.randint(0, world.height - 1)
 
             # Clamp to valid world coordinates
             creature_cfg["x"] = max(0, min(creature_cfg["x"], world.width - 1))
             creature_cfg["y"] = max(0, min(creature_cfg["y"], world.height - 1))
+            used_positions.add((creature_cfg["x"], creature_cfg["y"]))
 
         # Goal description defaults per type
         goal_descriptions: dict[str, str] = {

@@ -236,6 +236,9 @@ def generate_world_html(
                                     creature_state.name
                                 ),
                                 "last_action": creature_last_action,
+                                "energy": creature_state.energy,
+                                "max_energy": 100,
+                                "money": creature_state.money,
                             }
                         )
 
@@ -318,6 +321,72 @@ def generate_world_html(
             font-weight: 400;
         }}
 
+        .shortcuts-bar {{
+            background: #f8f9fa;
+            padding: 6px 24px;
+            display: flex;
+            justify-content: center;
+            gap: 24px;
+            font-size: 0.75em;
+            color: #666;
+            border-bottom: 1px solid #eee;
+        }}
+
+        .shortcuts-bar kbd {{
+            background: #fff;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 0.95em;
+            border: 1px solid #ddd;
+            font-family: inherit;
+            box-shadow: 0 1px 1px rgba(0,0,0,0.05);
+        }}
+
+        .shortcuts-bar .speed-control {{
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }}
+
+        .shortcuts-bar .speed-control input {{
+            width: 80px;
+            accent-color: #1a1a1a;
+        }}
+
+        .shortcuts-bar .legend-toggle {{
+            cursor: pointer;
+            color: #555;
+        }}
+
+        .shortcuts-bar .legend-toggle:hover {{
+            color: #000;
+        }}
+
+        .legend-bar {{
+            background: #f8f9fa;
+            padding: 8px 24px;
+            display: flex;
+            justify-content: center;
+            gap: 16px;
+            font-size: 0.75em;
+            color: #666;
+            border-bottom: 1px solid #eee;
+            flex-wrap: wrap;
+        }}
+
+        .legend-bar .legend-item {{
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }}
+
+        .legend-bar .legend-color {{
+            width: 14px;
+            height: 14px;
+            border-radius: 3px;
+            border: 1px solid rgba(0,0,0,0.1);
+        }}
+
         .leave-btn {{
             padding: 6px 14px;
             background: transparent;
@@ -360,8 +429,20 @@ def generate_world_html(
             width: 300px;
             background: #fafafa;
             padding: 20px;
-            overflow-y: auto;
             border-left: 1px solid #e5e5e5;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }}
+
+        .sidebar > h2 {{
+            flex-shrink: 0;
+        }}
+
+        #creaturesList {{
+            max-height: 40%;
+            overflow-y: auto;
+            flex-shrink: 0;
         }}
 
         .sidebar h2 {{
@@ -435,6 +516,58 @@ def generate_world_html(
         .creature-detail strong {{
             color: #333;
             font-weight: 500;
+        }}
+
+        .creature-stats {{
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 8px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #f0f0f0;
+        }}
+
+        .stat-bar {{
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex: 1;
+        }}
+
+        .stat-label {{
+            font-size: 0.7em;
+            color: #888;
+            font-weight: 500;
+            min-width: 40px;
+        }}
+
+        .stat-bar-bg {{
+            flex: 1;
+            height: 8px;
+            background: #e0e0e0;
+            border-radius: 4px;
+            overflow: hidden;
+        }}
+
+        .stat-bar-fill {{
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        }}
+
+        .stat-value {{
+            font-size: 0.75em;
+            color: #666;
+            font-weight: 600;
+            min-width: 24px;
+            text-align: right;
+        }}
+
+        .stat-money {{
+            font-size: 0.8em;
+            font-weight: 600;
+            color: #666;
+            white-space: nowrap;
         }}
 
         .inventory {{
@@ -527,8 +660,20 @@ def generate_world_html(
             margin-top: 20px;
             padding-top: 16px;
             border-top: 1px solid #e5e5e5;
-            max-height: 300px;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }}
+
+        .actions-log h2 {{
+            flex-shrink: 0;
+        }}
+
+        #actionsList {{
+            flex: 1;
             overflow-y: auto;
+            min-height: 200px;
         }}
 
         .action-item {{
@@ -802,17 +947,17 @@ def generate_world_html(
 
         /* Scrollbar styling */
         .sidebar::-webkit-scrollbar,
-        .actions-log::-webkit-scrollbar {{
+        #actionsList::-webkit-scrollbar {{
             width: 4px;
         }}
 
         .sidebar::-webkit-scrollbar-track,
-        .actions-log::-webkit-scrollbar-track {{
+        #actionsList::-webkit-scrollbar-track {{
             background: transparent;
         }}
 
         .sidebar::-webkit-scrollbar-thumb,
-        .actions-log::-webkit-scrollbar-thumb {{
+        #actionsList::-webkit-scrollbar-thumb {{
             background: #ccc;
             border-radius: 2px;
         }}
@@ -828,6 +973,22 @@ def generate_world_html(
                 <span>Creatures: {len(world.creatures)}</span>
             </div>
             <button class="leave-btn" onclick="leaveWorld()">Leave World</button>
+        </div>
+
+        <div class="shortcuts-bar">
+            <span><kbd>+</kbd> <kbd>-</kbd> Zoom</span>
+            <span><kbd>&#8592;</kbd><kbd>&#8593;</kbd><kbd>&#8595;</kbd><kbd>&#8594;</kbd> Pan</span>
+            <span>Click creature to talk</span>
+            <span>Drag creature to move</span>
+            <span><kbd>?</kbd> All shortcuts</span>
+            <span class="speed-control">
+                Speed: <input type="range" id="speedSlider" min="0.1" max="5" value="1" step="0.1" oninput="updateSpeed(this.value)">
+                <span id="speedValue">1.0s</span>
+            </span>
+            <span class="legend-toggle" onclick="toggleLegend()">Legend ▼</span>
+        </div>
+        <div class="legend-bar" id="legendBar" style="display: none;">
+            {generate_legend_html(terrain_colors)}
         </div>
 
         <div class="main-content">
@@ -848,29 +1009,10 @@ def generate_world_html(
                 <div class="actions-log">
                     <h2>Recent Actions</h2>
                     <div id="actionsList">
-                        {generate_actions_html(world)}
+                        {generate_actions_html(world, count=30)}
                     </div>
                 </div>
 
-                <div class="controls">
-                    <h2>Controls</h2>
-                    <button class="control-button" onclick="resetView()">Reset View</button>
-                    <div style="margin-top: 10px; font-size: 0.8em; color: #999; text-align: center;">
-                        <div>Drag creatures to move them</div>
-                        <div>Arrow keys / WASD to pan</div>
-                        <div>+/- to zoom</div>
-                        <div style="margin-top: 5px; color: #555; cursor: pointer;" onclick="toggleHelp()">Press <kbd style="background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-size: 11px; border: 1px solid #ddd;">?</kbd> for all controls</div>
-                    </div>
-                    <label style="display: block; margin-top: 14px; color: #666; font-size: 0.82em;">
-                        Update Speed: <input type="range" id="speedSlider" min="0.1" max="5" value="1" step="0.1" oninput="updateSpeed(this.value)" style="width: 100%; accent-color: #1a1a1a;">
-                        <span id="speedValue">1.0s</span>
-                    </label>
-                </div>
-
-                <div class="legend">
-                    <h2>Legend</h2>
-                    {generate_legend_html(terrain_colors)}
-                </div>
             </div>
         </div>
     </div>
@@ -1221,7 +1363,10 @@ def generate_world_html(
                     creature.name,
                     creature.color,
                     creature.last_action,
-                    creature.agent_id
+                    creature.agent_id,
+                    creature.energy,
+                    creature.max_energy,
+                    creature.money
                 );
 
                 // Trigger action effects for recent actions
@@ -2025,7 +2170,7 @@ def generate_world_html(
             return creatureIdlePhases[agentId];
         }}
 
-        function drawCreature(x, y, name, color, lastAction, agentId) {{
+        function drawCreature(x, y, name, color, lastAction, agentId, energy, maxEnergy, money) {{
             // Check if this creature is animating and add jump effect
             let jumpOffset = 0;
             const anim = creatureAnimations[agentId];
@@ -2093,6 +2238,46 @@ def generate_world_html(
             ctx.lineWidth = 4;
             ctx.strokeText(name, x, creatureY + creatureSize / 2 + 16);
             ctx.fillText(name, x, creatureY + creatureSize / 2 + 16);
+
+            // Draw energy bar above creature
+            if (energy !== undefined && maxEnergy !== undefined) {{
+                const barWidth = 40;
+                const barHeight = 5;
+                const barX = x - barWidth / 2;
+                const barY = creatureY - creatureSize / 2 - 12;
+                const energyPercent = Math.max(0, Math.min(1, energy / maxEnergy));
+
+                // Background (dark)
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+                ctx.fillRect(barX - 1, barY - 1, barWidth + 2, barHeight + 2);
+
+                // Empty bar (dark red)
+                ctx.fillStyle = '#4a1c1c';
+                ctx.fillRect(barX, barY, barWidth, barHeight);
+
+                // Filled bar (green to yellow to red based on energy)
+                let barColor;
+                if (energyPercent > 0.5) {{
+                    barColor = '#4caf50';  // Green
+                }} else if (energyPercent > 0.25) {{
+                    barColor = '#ff9800';  // Orange
+                }} else {{
+                    barColor = '#f44336';  // Red
+                }}
+                ctx.fillStyle = barColor;
+                ctx.fillRect(barX, barY, barWidth * energyPercent, barHeight);
+
+                // Money indicator (small coin icon with amount)
+                if (money !== undefined) {{
+                    ctx.font = 'bold 9px sans-serif';
+                    ctx.fillStyle = '#ffd700';
+                    ctx.strokeStyle = '#000';
+                    ctx.lineWidth = 2;
+                    const moneyText = `${{money}}`;
+                    ctx.strokeText(moneyText, x + barWidth / 2 + 5, barY + barHeight - 1);
+                    ctx.fillText(moneyText, x + barWidth / 2 + 5, barY + barHeight - 1);
+                }}
+            }}
         }}
 
         function drawSpeechBubble(x, y, text, actionType) {{
@@ -2281,7 +2466,10 @@ def generate_world_html(
                 creature.name,
                 creature.color,
                 null,
-                creature.agent_id
+                creature.agent_id,
+                creature.energy,
+                creature.max_energy,
+                creature.money
             );
 
             ctx.restore();
@@ -2577,7 +2765,10 @@ def generate_world_html(
                                 action_type: lastAction.action_type,
                                 timestamp: lastAction.timestamp,
                                 reason: lastAction.reason || null
-                            }} : null
+                            }} : null,
+                            energy: c.energy !== undefined ? c.energy : 100,
+                            max_energy: 100,
+                            money: c.money !== undefined ? c.money : 50
                         }});
                     }}
                     creatures = newCreatures;
@@ -2646,13 +2837,45 @@ def generate_world_html(
                     ? `<div class="creature-detail" style="margin-top:6px;"><strong>Last Action:</strong> ${{c.last_action.description}}</div>${{lastActionReason}}`
                     : '';
 
+                // Energy and money
+                const energy = c.energy !== undefined ? c.energy : 100;
+                const money = c.money !== undefined ? c.money : 50;
+                const energyPercent = energy / 100;
+                let energyColor;
+                if (energyPercent > 0.5) {{
+                    energyColor = '#4caf50';  // Green
+                }} else if (energyPercent > 0.25) {{
+                    energyColor = '#ff9800';  // Orange
+                }} else {{
+                    energyColor = '#f44336';  // Red
+                }}
+
+                // Pending trades
+                const tradesCount = (c.pending_trades || []).length;
+                const tradesHtml = tradesCount > 0
+                    ? `<div class="creature-detail" style="color: #2196f3;"><strong>Pending Trades:</strong> ${{tradesCount}}</div>`
+                    : '';
+
                 const isExpanded = expandedCreatures.has(agentId) ? ' expanded' : '';
                 html += `
                     <div class="creature-info${{isExpanded}}" onclick="toggleCreature(this, '${{agentId}}')">
                         <h3>${{c.name}} <span class="expand-indicator">&#9654;</span></h3>
+                        <div class="creature-stats">
+                            <div class="stat-bar">
+                                <span class="stat-label">Energy</span>
+                                <div class="stat-bar-bg">
+                                    <div class="stat-bar-fill" style="width: ${{energy}}%; background: ${{energyColor}};"></div>
+                                </div>
+                                <span class="stat-value">${{energy}}</span>
+                            </div>
+                            <div class="stat-money">
+                                <span style="color: #ffd700;">$</span> ${{money}}
+                            </div>
+                        </div>
                         <div class="creature-detail"><strong>Position:</strong> (${{c.position[0]}}, ${{c.position[1]}})</div>
                         <div class="creature-details-full">
                             ${{lastAction}}
+                            ${{tradesHtml}}
                             <div class="creature-detail"><strong>Description:</strong> ${{c.description || ''}}</div>
                             <div class="creature-detail"><strong>Personality:</strong> ${{c.personality}}</div>
                             ${{goalsHtml ? `<div class="creature-detail" style="margin-top:6px;"><strong>Goals:</strong></div>${{goalsHtml}}` : ''}}
@@ -2668,7 +2891,7 @@ def generate_world_html(
         }}
 
         function updateActionsList() {{
-            fetch('/api/actions?count=15')
+            fetch('/api/actions?count=30')
                 .then(response => {{
                     if (!response.ok) {{
                         throw new Error('Network response was not ok');
@@ -3031,6 +3254,15 @@ def generate_world_html(
             helpOverlay.style.display = helpVisible ? 'flex' : 'none';
         }}
 
+        let legendVisible = false;
+        function toggleLegend() {{
+            const legendBar = document.getElementById('legendBar');
+            const legendToggle = document.querySelector('.legend-toggle');
+            legendVisible = !legendVisible;
+            legendBar.style.display = legendVisible ? 'flex' : 'none';
+            legendToggle.textContent = legendVisible ? 'Legend ▲' : 'Legend ▼';
+        }}
+
         // Resize canvas to fill container
         function resizeCanvas() {{
             const container = canvas.parentElement;
@@ -3152,13 +3384,41 @@ def generate_creatures_html(world: World) -> str:
             )
             last_action_html = f'<div class="creature-detail" style="margin-top:6px;"><strong>Last Action:</strong> {la.description}</div>{reason_html}'
 
+        # Energy bar color based on percentage
+        energy_percent = creature.energy / 100
+        if energy_percent > 0.5:
+            energy_color = "#4caf50"  # Green
+        elif energy_percent > 0.25:
+            energy_color = "#ff9800"  # Orange
+        else:
+            energy_color = "#f44336"  # Red
+
+        # Pending trades info
+        trades_count = len(creature.pending_trades)
+        trades_html = ""
+        if trades_count > 0:
+            trades_html = f'<div class="creature-detail" style="color: #2196f3;"><strong>Pending Trades:</strong> {trades_count}</div>'
+
         html_parts.append(
             f"""
             <div class="creature-info" onclick="toggleCreature(this, '{creature.agent_id}')">
                 <h3>{creature.name} <span class="expand-indicator">&#9654;</span></h3>
+                <div class="creature-stats">
+                    <div class="stat-bar">
+                        <span class="stat-label">Energy</span>
+                        <div class="stat-bar-bg">
+                            <div class="stat-bar-fill" style="width: {creature.energy}%; background: {energy_color};"></div>
+                        </div>
+                        <span class="stat-value">{creature.energy}</span>
+                    </div>
+                    <div class="stat-money">
+                        <span style="color: #ffd700;">$</span> {creature.money}
+                    </div>
+                </div>
                 <div class="creature-detail"><strong>Position:</strong> ({x}, {y})</div>
                 <div class="creature-details-full">
                     {last_action_html}
+                    {trades_html}
                     <div class="creature-detail"><strong>Description:</strong> {creature.description}</div>
                     <div class="creature-detail"><strong>Personality:</strong> {creature.personality}</div>
                     {f'<div class="creature-detail" style="margin-top:6px;"><strong>Goals:</strong></div>{goals_html}' if goals_html else ''}

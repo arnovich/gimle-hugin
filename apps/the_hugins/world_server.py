@@ -203,6 +203,11 @@ class WorldHTTPRequestHandler(BaseHTTPRequestHandler):
                     for g in creature.goals
                 ],
                 "last_action": last_action,
+                "energy": creature.energy,
+                "money": creature.money,
+                "pending_trades": [
+                    t.to_dict() for t in creature.pending_trades
+                ],
             }
 
         self.send_response(200)

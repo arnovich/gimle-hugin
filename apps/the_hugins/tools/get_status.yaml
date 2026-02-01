@@ -1,0 +1,10 @@
+name: get_status
+description: "Check your current energy level, money, food items in inventory, and pending trade offers."
+parameters:
+  world_id:
+    type: string
+    description: The ID of the world you are in
+    required: true
+is_interactive: false
+implementation_path: the_hugins.tools.get_status:get_status_tool
+options: {}

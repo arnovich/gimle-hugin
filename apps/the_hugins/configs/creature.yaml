@@ -10,7 +10,15 @@ tools:
   # Items
   - take
   - drop
+  - give
   - get_inventory
+  # Survival & Economy
+  - eat
+  - rest
+  - get_status
+  - propose_trade
+  - check_trades
+  - respond_trade
   # Communication
   - say
   - talk_to

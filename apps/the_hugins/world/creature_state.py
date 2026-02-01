@@ -3,6 +3,12 @@
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
+from world.economy import (
+    MAX_ENERGY,
+    STARTING_ENERGY,
+    STARTING_MONEY,
+    TradeOffer,
+)
 from world.goals import Goal, Memory, Plan, PlanStatus, Relationship
 from world.object import Object
 
@@ -27,6 +33,11 @@ class CreatureState:
         default_factory=dict
     )  # Relationships with other creatures
     plans: List[Plan] = field(default_factory=list)  # Multi-step plans
+    energy: int = STARTING_ENERGY  # Current energy level
+    money: int = STARTING_MONEY  # Current money
+    pending_trades: List[TradeOffer] = field(
+        default_factory=list
+    )  # Incoming trade offers
 
     def add_to_inventory(self, obj: Object) -> None:
         """Add an object to the creature's inventory."""
@@ -113,6 +124,48 @@ class CreatureState:
                 return True
         return False
 
+    def add_energy(self, amount: int) -> int:
+        """Add energy, capped at MAX_ENERGY. Returns actual amount added."""
+        old_energy = self.energy
+        self.energy = min(MAX_ENERGY, self.energy + amount)
+        return self.energy - old_energy
+
+    def remove_energy(self, amount: int) -> bool:
+        """Remove energy if sufficient. Returns True if successful."""
+        if self.energy >= amount:
+            self.energy -= amount
+            return True
+        return False
+
+    def add_money(self, amount: int) -> None:
+        """Add money to creature."""
+        self.money += amount
+
+    def remove_money(self, amount: int) -> bool:
+        """Remove money if sufficient. Returns True if successful."""
+        if self.money >= amount:
+            self.money -= amount
+            return True
+        return False
+
+    def add_trade_offer(self, offer: TradeOffer) -> None:
+        """Add a pending trade offer."""
+        self.pending_trades.append(offer)
+
+    def remove_trade_offer(self, trade_id: str) -> Optional[TradeOffer]:
+        """Remove a trade offer by ID."""
+        for i, offer in enumerate(self.pending_trades):
+            if offer.id == trade_id:
+                return self.pending_trades.pop(i)
+        return None
+
+    def get_trade_offer(self, trade_id: str) -> Optional[TradeOffer]:
+        """Get a trade offer by ID without removing it."""
+        for offer in self.pending_trades:
+            if offer.id == trade_id:
+                return offer
+        return None
+
     def to_dict(self) -> Dict[str, Any]:
         """Serialize creature state to dictionary."""
         return {
@@ -130,4 +183,7 @@ class CreatureState:
                 name: rel.to_dict() for name, rel in self.relationships.items()
             },
             "plans": [plan.to_dict() for plan in self.plans],
+            "energy": self.energy,
+            "money": self.money,
+            "pending_trades": [t.to_dict() for t in self.pending_trades],
         }

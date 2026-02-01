@@ -2,6 +2,8 @@
 
 from typing import TYPE_CHECKING, Any, Dict, Optional, cast
 
+from world.economy import ENERGY_COST_MOVE
+
 from gimle.hugin.tools.tool import ToolResponse
 
 if TYPE_CHECKING:
@@ -59,6 +61,18 @@ def move_tool(
             content={"error": f"Creature {agent_id} not found in world"},
         )
 
+    # Check energy before moving
+    creature = world.get_creature(agent_id)
+    if creature and creature.energy < ENERGY_COST_MOVE:
+        return ToolResponse(
+            is_error=True,
+            content={
+                "error": "Too tired to move. Eat food or rest to recover energy.",
+                "energy": creature.energy,
+                "required": ENERGY_COST_MOVE,
+            },
+        )
+
     x, y = current_pos
 
     # Calculate new position based on direction
@@ -110,6 +124,11 @@ def move_tool(
             is_error=True, content={"error": "Failed to move creature"}
         )
 
+    # Deduct energy cost
+    creature = world.get_creature(agent_id)
+    if creature:
+        creature.remove_energy(ENERGY_COST_MOVE)
+
     # Get view of new position
     view_cells = world.get_view(new_x, new_y, radius=1)
     view_data = []
@@ -157,6 +176,9 @@ def move_tool(
             reason=reason,
         )
 
+    # Get current energy for response
+    current_energy = creature.energy if creature else 0
+
     return ToolResponse(
         is_error=False,
         content={
@@ -165,6 +187,7 @@ def move_tool(
             "new_position": {"x": new_x, "y": new_y},
             "direction": direction,
             "view": view_data,
+            "energy": current_energy,
             "message": f"You moved {direction} to ({new_x}, {new_y})",
         },
     )
