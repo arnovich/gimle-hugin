@@ -10,6 +10,166 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Commit to the branch, then merge via PR or as instructed
 - **Do NOT add Co-Authored-By lines** - commit messages should not include Claude as author
 
+## Pull Request Workflow
+
+### Before Committing
+
+1. **Run pre-commit checks** - Always run before committing:
+   ```bash
+   uv run pre-commit run --all-files
+   ```
+   If files are modified by hooks, run again to verify all pass.
+
+2. **Run tests** - Ensure nothing is broken:
+   ```bash
+   uv run pytest -x -q
+   ```
+
+3. **Test manually** - For UI/app changes, run the app and verify:
+   ```bash
+   uv run hugin app the_hugins  # For Hugins changes
+   ```
+
+### Commit Messages
+
+Write clear, descriptive commit messages:
+```
+Short summary line (imperative mood, <50 chars)
+
+Longer description if needed:
+- What changed and why
+- Any important details
+- Related issues or context
+```
+
+### Creating a PR
+
+```bash
+# Push branch
+git push -u origin branch_name
+
+# Create PR with structured description
+gh pr create --title "Short descriptive title" --body "$(cat <<'EOF'
+## Summary
+Brief description of what this PR does.
+
+## Changes
+- Change 1
+- Change 2
+
+## Testing
+How the changes were tested.
+EOF
+)"
+```
+
+### PR Description Best Practices
+
+- **Summary**: 1-2 sentences on what and why
+- **Changes**: Bullet list of specific changes
+- **Testing**: How you verified it works
+- For bug fixes: Include steps to reproduce
+- For features: Include usage examples
+
+## GitHub CLI Patterns
+
+### Working with Issues
+
+```bash
+# List all issues
+gh issue list --repo gimlelabs/gimle-hugin --state all
+
+# Get issue details as JSON
+gh issue list --state open --json number,title,body,labels
+
+# Close an issue with comment
+gh issue close 123 --comment "Fixed in PR #456"
+
+# Create a new issue
+gh issue create --title "Bug: description" --body "Details..."
+```
+
+### Syncing Issues to Local Tasks
+
+```bash
+# Fetch all issues and create local task files
+gh issue list --state all --limit 100 --json number,title,state,body,labels,createdAt |
+  jq -r '.[] | "tasks/\(if .state == "OPEN" then "open" else "closed" end)/\(.number)-\(.title | gsub(" "; "-") | ascii_downcase).md"'
+```
+
+### Working with PRs
+
+```bash
+# Create PR from current branch
+gh pr create --title "Title" --body "Description"
+
+# List open PRs
+gh pr list
+
+# View PR details
+gh pr view 123
+
+# Merge PR
+gh pr merge 123 --merge
+```
+
+## Multi-Agent Parallel Work
+
+Use git worktrees to enable multiple Claude agents working simultaneously on different tasks.
+
+### Setup for Parallel Agents
+
+```bash
+# Main repo structure
+/Users/you/gimle/
+├── gimle-hugin/              # Main worktree (main branch)
+├── gimle-hugin-task-001/     # Agent 1 working on task 001
+├── gimle-hugin-task-006/     # Agent 2 working on task 006
+└── gimle-hugin-experiment/   # Agent 3 experimenting
+```
+
+### Creating Worktrees for Agents
+
+```bash
+# From main repo
+cd gimle-hugin
+
+# Create worktree for each agent/task
+git worktree add ../gimle-hugin-task-001 -b task/001-artifact-feedback
+git worktree add ../gimle-hugin-task-006 -b task/006-parallel-tools
+git worktree add ../gimle-hugin-ui-fixes -b fix/ui-improvements
+```
+
+### Running Multiple Claude Sessions
+
+1. Open separate terminal/Claude sessions
+2. Point each session to a different worktree directory
+3. Each agent works independently on their branch
+4. No conflicts since each has isolated working directory
+
+### Coordinating Parallel Work
+
+- **Avoid overlapping files** - Assign different areas to each agent
+- **Rebase regularly** - Keep branches up to date with main
+- **Small, focused PRs** - Easier to merge without conflicts
+- **Communicate via tasks** - Update task files with progress/blockers
+
+### Cleanup After Merging
+
+```bash
+# List all worktrees
+git worktree list
+
+# Remove completed worktree
+git worktree remove ../gimle-hugin-task-001
+
+# Prune stale references
+git worktree prune
+
+# Delete merged branch
+git branch -d task/001-artifact-feedback
+```
+
 ## Development Commands
 
 ### Running Agents
