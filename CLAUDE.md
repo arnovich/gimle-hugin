@@ -370,6 +370,64 @@ parameters:
 - Type hints required (mypy with strict settings)
 - Python 3.12+ required
 
+## Staff Engineer Review Pattern
+
+After completing any major piece of work (new feature, significant refactor, complex bug fix), follow this self-review and iteration cycle:
+
+### 1. Trigger a Staff Engineer Review
+
+Spawn a subagent to review your completed work with these instructions:
+
+```
+Review this implementation as a senior/staff engineer would. Be tough and thorough:
+
+- Architecture: Is the design sound? Are there better approaches?
+- Code quality: SOLID principles, DRY, separation of concerns
+- Edge cases: What could break? What's missing?
+- Performance: Any obvious bottlenecks or inefficiencies?
+- Testability: Is it properly tested? What tests are missing?
+- Maintainability: Will this be easy to understand in 6 months?
+- Security: Any vulnerabilities or unsafe patterns?
+
+Don't hold back. Point out everything that could be improved, even if it's uncomfortable. The goal is to catch issues before they ship.
+```
+
+### 2. Reflect and Plan Improvements
+
+With the review feedback in hand, combined with your knowledge from the initial implementation:
+
+- Identify which criticisms are valid and actionable
+- Prioritize: What would have the highest impact?
+- Consider alternatives you dismissed earlier—were they actually better?
+- Plan concrete improvements
+
+### 3. Reimplement in a Fresh Worktree
+
+Do the improved implementation from scratch in a new worktree:
+
+```bash
+# Create fresh worktree for v2
+git worktree add ../gimle-hugin-feature-v2 -b feature/my-feature-v2
+
+# Start fresh with the lessons learned
+cd ../gimle-hugin-feature-v2
+```
+
+**Why from scratch?**
+- Forces you to internalize the improvements, not just patch
+- Often results in cleaner, more cohesive code
+- Avoids accumulating hacks on top of the initial attempt
+- The second implementation is almost always better
+
+### When to Apply This Pattern
+
+- New features with significant complexity
+- Architectural changes affecting multiple modules
+- Code that will be heavily used or is security-sensitive
+- Any work where "good enough" isn't good enough
+
+Skip this for trivial changes, bug fixes with obvious solutions, or time-critical hotfixes.
+
 ## Apps
 
 Production-like application showcases are in the `apps/` directory. Available apps: `data_analyst`, `financial_newspaper`, `rap_machine`, `the_hugins`.
