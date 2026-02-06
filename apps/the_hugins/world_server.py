@@ -87,6 +87,8 @@ class WorldHTTPRequestHandler(BaseHTTPRequestHandler):
             self.serve_actions_json()
         elif path.startswith("/sprites/"):
             self.serve_sprite(path)
+        elif path.startswith("/static/"):
+            self.serve_static(path)
         else:
             self.send_error(404, "Not Found")
 
@@ -581,6 +583,55 @@ class WorldHTTPRequestHandler(BaseHTTPRequestHandler):
         except Exception as e:
             logger.error(f"Error serving sprite {sprite_path}: {e}")
             self.send_error(500, "Error serving sprite")
+
+    def serve_static(self, static_path: str) -> None:
+        """Serve static files (CSS, JS, SVG)."""
+        # Extract relative path from /static/...
+        relative_path = static_path.replace("/static/", "", 1)
+
+        # Get static directory (relative to world_server.py location)
+        static_dir = Path(__file__).parent / "static"
+        static_file = static_dir / relative_path
+
+        # Security: ensure the resolved path is within static_dir
+        try:
+            static_file = static_file.resolve()
+            static_dir_resolved = static_dir.resolve()
+            if not str(static_file).startswith(str(static_dir_resolved)):
+                self.send_error(403, "Forbidden")
+                return
+        except (OSError, ValueError):
+            self.send_error(400, "Bad request")
+            return
+
+        if not static_file.exists() or not static_file.is_file():
+            self.send_error(404, "Static file not found")
+            return
+
+        # Determine content type
+        content_types = {
+            ".css": "text/css; charset=utf-8",
+            ".js": "application/javascript; charset=utf-8",
+            ".svg": "image/svg+xml; charset=utf-8",
+            ".png": "image/png",
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+        }
+        suffix = static_file.suffix.lower()
+        content_type = content_types.get(suffix, "application/octet-stream")
+
+        try:
+            with open(static_file, "rb") as f:
+                file_data = f.read()
+
+            self.send_response(200)
+            self.send_header("Content-type", content_type)
+            self.send_header("Cache-Control", "public, max-age=3600")
+            self.end_headers()
+            self.wfile.write(file_data)
+        except Exception as e:
+            logger.error(f"Error serving static file {static_path}: {e}")
+            self.send_error(500, "Error serving static file")
 
     def handle_human_interaction(self) -> None:
         """Handle POST request for human interaction with a creature."""

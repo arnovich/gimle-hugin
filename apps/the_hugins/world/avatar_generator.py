@@ -1,7 +1,8 @@
 """Generate unique SVG avatars for creatures based on their characteristics."""
 
 import hashlib
-from typing import Tuple
+from pathlib import Path
+from typing import Dict, Optional, Tuple
 
 
 class AvatarGenerator:
@@ -349,6 +350,47 @@ class AvatarGenerator:
         ]
         return accessories[hash_val % len(accessories)]
 
+    # Creature type keywords mapped to SVG template file names
+    CREATURE_TYPES: Dict[str, str] = {
+        "bunny": "bunny",
+        "rabbit": "bunny",
+        "hedgehog": "hedgehog",
+        "flower sprite": "flower_sprite",
+        "flower": "flower_sprite",
+        "beetle": "beetle",
+        "firefly": "firefly",
+        "caterpillar": "caterpillar",
+    }
+
+    # Cached SVG templates (loaded once from disk)
+    _svg_templates: Dict[str, str] = {}
+    _templates_dir = Path(__file__).parent / "svg_templates"
+
+    @classmethod
+    def _load_svg_template(cls, template_name: str) -> str:
+        """Load an SVG template from disk, caching the result."""
+        if template_name not in cls._svg_templates:
+            path = cls._templates_dir / f"{template_name}.svg"
+            cls._svg_templates[template_name] = path.read_text()
+        return cls._svg_templates[template_name]
+
+    @classmethod
+    def _detect_creature_type(cls, description: str) -> Optional[str]:
+        """Detect creature type from description keywords."""
+        desc_lower = description.lower()
+        for keyword in cls.CREATURE_TYPES:
+            if keyword in desc_lower:
+                return keyword
+        return None
+
+    @classmethod
+    def _render_creature_svg(
+        cls, template_name: str, color: str, accent: str
+    ) -> str:
+        """Render a creature SVG body from a template file."""
+        template = cls._load_svg_template(template_name)
+        return template.replace("{color}", color).replace("{accent}", accent)
+
     @classmethod
     def generate_avatar(
         cls,
@@ -356,7 +398,11 @@ class AvatarGenerator:
         description: str = "",
         personality: str = "",
     ) -> str:
-        """Generate a unique stick-figure avatar for a creature.
+        """Generate a unique avatar for a creature.
+
+        Detects creature type from description keywords and generates
+        a type-specific silhouette. Falls back to generic stickman
+        for unrecognized types.
 
         Args:
             creature_name: Name of the creature
@@ -370,13 +416,7 @@ class AvatarGenerator:
         seed = f"{creature_name}:{description}:{personality}"
         hash_val = cls._hash_string(seed)
 
-        # Derive different aspects from hash
-        head_hash = hash_val >> 8
-        pose_hash = hash_val >> 16
         color_hash = hash_val >> 24
-        eyes_hash = hash_val >> 32
-        mouth_hash = hash_val >> 40
-        accessory_hash = hash_val >> 48
 
         # Determine palette based on personality keywords
         palette = "pastel"  # default
@@ -403,9 +443,52 @@ class AvatarGenerator:
             ):
                 palette = "earth"
 
-        # Get components
         base_color = cls._get_color_from_hash(color_hash, palette)
-        secondary_color = cls._get_color_from_hash(color_hash + 1, palette)
+        accent_color = cls._get_color_from_hash(color_hash + 1, palette)
+
+        # Detect creature type and generate type-specific SVG
+        creature_type = cls._detect_creature_type(description)
+        if creature_type:
+            template_name = cls.CREATURE_TYPES[creature_type]
+            body_svg = cls._render_creature_svg(
+                template_name, base_color, accent_color
+            )
+            svg = (
+                '<svg xmlns="http://www.w3.org/2000/svg"'
+                ' viewBox="0 0 100 100" width="100" height="100">'
+                f"\n{body_svg}</svg>"
+            )
+            return svg
+
+        # Fallback: generic stickman avatar
+        return cls._generate_stickman(
+            creature_name,
+            description,
+            personality,
+            hash_val,
+            base_color,
+            accent_color,
+            palette,
+        )
+
+    @classmethod
+    def _generate_stickman(
+        cls,
+        creature_name: str,
+        description: str,
+        personality: str,
+        hash_val: int,
+        base_color: str,
+        secondary_color: str,
+        palette: str,
+    ) -> str:
+        """Generate the original stickman avatar as fallback."""
+        head_hash = hash_val >> 8
+        pose_hash = hash_val >> 16
+        eyes_hash = hash_val >> 32
+        mouth_hash = hash_val >> 40
+        accessory_hash = hash_val >> 48
+
         head_type, head_svg = cls._get_head_from_hash(head_hash)
         pose_type, pose_svg = cls._get_pose_from_hash(pose_hash)
         eyes_svg = cls._get_eyes_from_hash(eyes_hash)
@@ -414,7 +497,6 @@ class AvatarGenerator:
             accessory_hash, secondary_color
         )
 
-        # Build SVG with transparent background
         svg = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
     <!-- Stick figure body and limbs -->
     <g>
