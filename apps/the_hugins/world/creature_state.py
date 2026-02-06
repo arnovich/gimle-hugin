@@ -35,9 +35,33 @@ class CreatureState:
     plans: List[Plan] = field(default_factory=list)  # Multi-step plans
     energy: int = STARTING_ENERGY  # Current energy level
     money: int = STARTING_MONEY  # Current money
+    warmth: int = 20  # Warmth level (0-20)
     pending_trades: List[TradeOffer] = field(
         default_factory=list
     )  # Incoming trade offers
+
+    @property
+    def mood(self) -> str:
+        """Derive mood from energy and warmth."""
+        if self.energy >= 70 and self.warmth >= 15:
+            return "happy"
+        elif self.energy >= 40 and self.warmth >= 10:
+            return "content"
+        elif self.energy >= 20 and self.warmth >= 5:
+            return "neutral"
+        elif self.energy >= 10 or self.warmth >= 3:
+            return "uncomfortable"
+        return "miserable"
+
+    def add_warmth(self, amount: int) -> int:
+        """Add warmth, capped at 20. Returns actual amount added."""
+        old = self.warmth
+        self.warmth = min(20, self.warmth + amount)
+        return self.warmth - old
+
+    def remove_warmth(self, amount: int) -> None:
+        """Remove warmth, floored at 0."""
+        self.warmth = max(0, self.warmth - amount)
 
     def add_to_inventory(self, obj: Object) -> None:
         """Add an object to the creature's inventory."""
@@ -185,5 +209,7 @@ class CreatureState:
             "plans": [plan.to_dict() for plan in self.plans],
             "energy": self.energy,
             "money": self.money,
+            "warmth": self.warmth,
+            "mood": self.mood,
             "pending_trades": [t.to_dict() for t in self.pending_trades],
         }

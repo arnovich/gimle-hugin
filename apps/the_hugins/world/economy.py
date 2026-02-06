@@ -30,6 +30,10 @@ TERRAIN_ENERGY_COST: Dict[str, int] = {
 # Cost to cross a bridge (regardless of underlying terrain)
 BRIDGE_ENERGY_COST = 1
 
+# Night energy drain (exposed creatures lose energy at night)
+NIGHT_ENERGY_DRAIN = 1
+NIGHT_DRAIN_INTERVAL = 5  # ticks between drain events
+
 # Food energy values - what creatures can eat to restore energy
 FOOD_ENERGY: Dict[str, int] = {
     "apple": 20,

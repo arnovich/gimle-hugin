@@ -449,7 +449,8 @@ function drawWorld() {
             creature.agent_id,
             creature.energy,
             creature.max_energy,
-            creature.money
+            creature.money,
+            creature.mood
         );
 
         // Trigger action effects for recent actions
@@ -1665,7 +1666,7 @@ function getCreatureIdlePhase(agentId) {
     return creatureIdlePhases[agentId];
 }
 
-function drawCreature(x, y, name, color, lastAction, agentId, energy, maxEnergy, money) {
+function drawCreature(x, y, name, color, lastAction, agentId, energy, maxEnergy, money, mood) {
     // Check if this creature is animating
     let jumpOffset = 0;
     const anim = creatureAnimations[agentId];
@@ -1791,7 +1792,71 @@ function drawCreature(x, y, name, color, lastAction, agentId, energy, maxEnergy,
             ctx.fillText(moneyText, x + barWidth / 2 + 5, barY + barHeight - 1);
         }
     }
+
+    // Draw mood indicator above energy bar
+    if (mood) {
+        const moodY = creatureY - creatureSize / 2 - 22;
+        drawMoodIcon(x, moodY, mood);
+    }
 }
+
+function drawMoodIcon(x, y, mood) {
+    ctx.save();
+    ctx.translate(x, y);
+    const s = 5;
+    switch (mood) {
+        case 'happy':
+            // Small heart
+            ctx.fillStyle = '#e91e63';
+            ctx.beginPath();
+            ctx.moveTo(0, s * 0.4);
+            ctx.bezierCurveTo(-s, -s * 0.3, -s, -s, 0, -s * 0.2);
+            ctx.bezierCurveTo(s, -s, s, -s * 0.3, 0, s * 0.4);
+            ctx.fill();
+            break;
+        case 'content':
+            // Small star
+            ctx.fillStyle = '#ffc107';
+            ctx.beginPath();
+            for (let i = 0; i < 5; i++) {
+                const angle = -Math.PI / 2 + i * Math.PI * 2 / 5;
+                const inner = -Math.PI / 2 + (i + 0.5) * Math.PI * 2 / 5;
+                ctx.lineTo(Math.cos(angle) * s, Math.sin(angle) * s);
+                ctx.lineTo(Math.cos(inner) * s * 0.4, Math.sin(inner) * s * 0.4);
+            }
+            ctx.closePath();
+            ctx.fill();
+            break;
+        case 'neutral':
+            // Small dash
+            ctx.fillStyle = '#9e9e9e';
+            ctx.fillRect(-s * 0.6, -1, s * 1.2, 2);
+            break;
+        case 'uncomfortable':
+            // Sweat drop
+            ctx.fillStyle = '#42a5f5';
+            ctx.beginPath();
+            ctx.moveTo(0, -s);
+            ctx.quadraticCurveTo(s * 0.7, 0, 0, s);
+            ctx.quadraticCurveTo(-s * 0.7, 0, 0, -s);
+            ctx.fill();
+            break;
+        case 'miserable':
+            // Small tear
+            ctx.fillStyle = '#1565c0';
+            ctx.beginPath();
+            ctx.moveTo(0, -s);
+            ctx.quadraticCurveTo(s, s * 0.5, 0, s);
+            ctx.quadraticCurveTo(-s, s * 0.5, 0, -s);
+            ctx.fill();
+            // Red tint circle behind
+            ctx.fillStyle = 'rgba(244, 67, 54, 0.15)';
+            ctx.beginPath();
+            ctx.arc(0, 0, s * 1.5, 0, Math.PI * 2);
+            ctx.fill();
+            break;
+    }
+    ctx.restore();
 
 // ============================================================
 // 12. Speech Bubbles
@@ -2191,11 +2256,19 @@ function updateWorld() {
             ]);
         })
         .then(([worldData, creaturesData, actionsData]) => {
-            // Update world tick
+            // Update world tick and HUD
             worldTick = worldData.tick;
             const tickElement = document.getElementById('tick');
             if (tickElement) {
                 tickElement.textContent = worldData.tick;
+            }
+            const dayPhaseEl = document.getElementById('dayPhaseDisplay');
+            if (dayPhaseEl && worldData.day_phase) {
+                dayPhaseEl.textContent = worldData.day_phase.charAt(0).toUpperCase() + worldData.day_phase.slice(1);
+            }
+            const tempEl = document.getElementById('temperatureDisplay');
+            if (tempEl && worldData.temperature !== undefined) {
+                tempEl.textContent = worldData.temperature + '\u00B0C';
             }
             console.log('Creatures data received:', creaturesData);
             console.log('Actions data received:', actionsData);
@@ -2311,7 +2384,9 @@ function updateWorld() {
                     } : null,
                     energy: c.energy !== undefined ? c.energy : 100,
                     max_energy: 100,
-                    money: c.money !== undefined ? c.money : 50
+                    money: c.money !== undefined ? c.money : 50,
+                    warmth: c.warmth !== undefined ? c.warmth : 20,
+                    mood: c.mood || 'neutral'
                 });
             }
             creatures = newCreatures;
@@ -2416,6 +2491,16 @@ function updateCreaturesList(creaturesData) {
                     </div>
                     <div class="stat-money">
                         <span style="color: #ffd700;">$</span> ${money}
+                    </div>
+                    <div class="stat-bar">
+                        <span class="stat-label">Warmth</span>
+                        <div class="stat-bar-bg">
+                            <div class="stat-bar-fill" style="width: ${(c.warmth || 20) * 5}%; background: #ff9800;"></div>
+                        </div>
+                        <span class="stat-value">${c.warmth !== undefined ? c.warmth : 20}</span>
+                    </div>
+                    <div class="stat-mood">
+                        Mood: ${escapeHtml((c.mood || 'neutral').charAt(0).toUpperCase() + (c.mood || 'neutral').slice(1))}
                     </div>
                 </div>
                 <div class="creature-detail"><strong>Position:</strong> (${c.position[0]}, ${c.position[1]})</div>

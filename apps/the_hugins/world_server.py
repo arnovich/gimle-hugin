@@ -150,6 +150,8 @@ class WorldHTTPRequestHandler(BaseHTTPRequestHandler):
             "width": self.world.width,
             "height": self.world.height,
             "tick": self.world.tick,
+            "day_phase": self.world.get_day_phase(),
+            "temperature": self.world.get_temperature(),
             "creatures": {
                 agent_id: {
                     "name": creature.name,
@@ -207,6 +209,8 @@ class WorldHTTPRequestHandler(BaseHTTPRequestHandler):
                 "last_action": last_action,
                 "energy": creature.energy,
                 "money": creature.money,
+                "warmth": creature.warmth,
+                "mood": creature.mood,
                 "pending_trades": [
                     t.to_dict() for t in creature.pending_trades
                 ],
