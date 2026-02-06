@@ -43,32 +43,84 @@ class World:
             self.initialize()
 
     def initialize(self, seed: Optional[int] = None) -> None:
-        """Initialize the world with mixed terrain."""
-        if seed is not None:
-            random.seed(seed)
+        """Initialize the world with noise-based biome terrain."""
+        if seed is None:
+            seed = random.randint(0, 2**31)
+        random.seed(seed)
 
-        # Terrain distribution weights
-        terrain_weights = {
-            TerrainType.GRASS: 0.5,
-            TerrainType.WATER: 0.1,
-            TerrainType.STONE: 0.1,
-            TerrainType.SAND: 0.1,
-            TerrainType.DIRT: 0.1,
-            TerrainType.FOREST: 0.1,
-        }
+        from world.noise import fractal_noise, make_noise_context
 
-        # Create cells with mixed terrain
+        # Create noise contexts for different layers
+        grads_elev, perm_elev = make_noise_context(seed)
+        grads_moist, perm_moist = make_noise_context(seed + 100)
+
+        # Scale factor: lower = larger biome regions
+        scale = 0.12
+
         for y in range(self.height):
             for x in range(self.width):
-                # Use weighted random selection
-                terrain = random.choices(
-                    list(terrain_weights.keys()),
-                    weights=list(terrain_weights.values()),
-                    k=1,
-                )[0]
+                # Elevation noise (base biome)
+                elev = fractal_noise(
+                    x * scale,
+                    y * scale,
+                    octaves=3,
+                    gradients=grads_elev,
+                    perm=perm_elev,
+                )
+                # Moisture noise (sub-biome variation)
+                moist = fractal_noise(
+                    x * scale * 1.5,
+                    y * scale * 1.5,
+                    octaves=2,
+                    gradients=grads_moist,
+                    perm=perm_moist,
+                )
 
+                terrain = self._terrain_from_noise(elev, moist)
                 cell = Cell(terrain=terrain, x=x, y=y)
                 self.cells[(x, y)] = cell
+
+        # Post-process: add sand beaches around water
+        self._add_beaches()
+
+    @staticmethod
+    def _terrain_from_noise(elevation: float, moisture: float) -> "TerrainType":
+        """Map noise values to terrain type.
+
+        Thresholds chosen so that:
+        - Low elevation = water
+        - Mid-low with moisture = dirt/grass
+        - Mid = grass (most common)
+        - Mid-high with moisture = forest
+        - High = stone
+        """
+        if elevation < -0.25:
+            return TerrainType.WATER
+        elif elevation < -0.1:
+            return TerrainType.DIRT if moisture < 0 else TerrainType.SAND
+        elif elevation < 0.25:
+            if moisture > 0.2:
+                return TerrainType.FOREST
+            return TerrainType.GRASS
+        elif elevation < 0.45:
+            return TerrainType.FOREST if moisture > 0 else TerrainType.DIRT
+        else:
+            return TerrainType.STONE
+
+    def _add_beaches(self) -> None:
+        """Convert land cells adjacent to water into sand."""
+        sand_candidates = []
+        for (x, y), cell in self.cells.items():
+            if cell.terrain == TerrainType.WATER:
+                continue
+            # Check 4-neighbors for water
+            for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                neighbor = self.cells.get((x + dx, y + dy))
+                if neighbor and neighbor.terrain == TerrainType.WATER:
+                    sand_candidates.append((x, y))
+                    break
+        for x, y in sand_candidates:
+            self.cells[(x, y)].terrain = TerrainType.SAND
 
     def get_cell(self, x: int, y: int) -> Optional[Cell]:
         """Get a cell at the given coordinates."""
