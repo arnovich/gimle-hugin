@@ -1533,16 +1533,12 @@ function getCreatureIdlePhase(agentId) {
 }
 
 function drawCreature(x, y, name, color, lastAction, agentId, energy, maxEnergy, money) {
-    // Check if this creature is animating and add jump effect
+    // Check if this creature is animating
     let jumpOffset = 0;
     const anim = creatureAnimations[agentId];
     if (anim && anim.progress < 1) {
-        // Calculate jump height using a parabolic curve (ease-out)
-        // Jump is highest at the middle of the animation
-        const jumpHeight = 20; // Maximum jump height in pixels
-        const progress = anim.progress;
-        // Parabolic curve: 4 * progress * (1 - progress) gives a nice arc
-        jumpOffset = -jumpHeight * 4 * progress * (1 - progress);
+        // No vertical offset during walking — smooth ground-level slide
+        jumpOffset = 0;
     } else {
         // Idle animation: gentle bobbing when not moving
         const time = performance.now() / 1000;
@@ -1553,8 +1549,8 @@ function drawCreature(x, y, name, color, lastAction, agentId, energy, maxEnergy,
     const creatureY = y - 25 + jumpOffset; // Apply jump/idle offset
     const creatureSize = TILE_SIZE * 0.9; // Scale with tile size (increased from 0.4 to 0.65 for bigger sprites)
 
-    // Draw ground shadow (stays at ground level, doesn't move with jump)
-    const shadowScale = 1 - Math.abs(jumpOffset) / 40; // Shrinks slightly when higher
+    // Draw ground shadow (subtle pulse in sync with walking bob)
+    const shadowScale = 1 - Math.abs(jumpOffset) / 80;
     ctx.fillStyle = 'rgba(0, 0, 0, 0.18)';
     ctx.beginPath();
     ctx.ellipse(x, y - 8, creatureSize * 0.25 * shadowScale, creatureSize * 0.1 * shadowScale, 0, 0, Math.PI * 2);
@@ -1564,6 +1560,19 @@ function drawCreature(x, y, name, color, lastAction, agentId, energy, maxEnergy,
     if (lastAction && (worldTick - lastAction.timestamp) <= 5) {
         drawSpeechBubble(x, creatureY - 30, lastAction.description, lastAction.action_type);
     }
+
+    // Apply directional lean when walking
+    let leanAngle = 0;
+    if (anim && anim.progress < 1) {
+        const dx = anim.targetX - anim.startX;
+        if (dx !== 0) {
+            leanAngle = dx > 0 ? 0.087 : -0.087; // ~5 degrees
+        }
+    }
+
+    ctx.save();
+    ctx.translate(x, creatureY);
+    ctx.rotate(leanAngle);
 
     // Try to use sprite first
     const spriteKey = `creature_${name.toLowerCase()}`;
@@ -1576,8 +1585,8 @@ function drawCreature(x, y, name, color, lastAction, agentId, energy, maxEnergy,
 
             ctx.drawImage(
                 spriteImg,
-                x - spriteWidth / 2,
-                creatureY - spriteHeight / 2,
+                -spriteWidth / 2,
+                -spriteHeight / 2,
                 spriteWidth,
                 spriteHeight
             );
@@ -1592,12 +1601,14 @@ function drawCreature(x, y, name, color, lastAction, agentId, energy, maxEnergy,
         const dotRadius = creatureSize * 0.15;
         ctx.fillStyle = color;
         ctx.beginPath();
-        ctx.arc(x, creatureY, dotRadius, 0, Math.PI * 2);
+        ctx.arc(0, 0, dotRadius, 0, Math.PI * 2);
         ctx.fill();
         ctx.strokeStyle = darkenColor(color, 40);
         ctx.lineWidth = 1.5;
         ctx.stroke();
     }
+
+    ctx.restore();
 
     // Draw name label below with better styling
     ctx.fillStyle = '#fff';
@@ -2117,7 +2128,7 @@ function updateWorld() {
                         targetX: targetScreenX,
                         targetY: targetScreenY,
                         progress: 0,
-                        duration: 400 // 400ms animation
+                        duration: 600 // 600ms walking animation
                     };
 
                     currentScreenX = startX;
@@ -2435,9 +2446,9 @@ function startAnimationLoop() {
                 // Update creature position in creatures array
                 const creature = creatures.find(c => c.agent_id === agentId);
                 if (creature) {
-                    // Ease-out cubic easing function
+                    // Ease-in-out quadratic easing function
                     const t = anim.progress;
-                    const eased = 1 - Math.pow(1 - t, 3);
+                    const eased = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
 
                     creature.x = anim.startX + (anim.targetX - anim.startX) * eased;
                     creature.y = anim.startY + (anim.targetY - anim.startY) * eased;
