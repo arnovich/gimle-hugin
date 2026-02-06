@@ -117,6 +117,11 @@ let isSimulationPaused = false;
 const creatureAnimations = {}; // agent_id -> {startX, startY, targetX, targetY, progress, duration}
 let animationFrameId = null;
 
+// Creature footprint trails (last 5 screen positions per creature)
+const creatureFootprints = {}; // agent_id -> [{x, y, time}]
+const MAX_FOOTPRINTS = 5;
+const FOOTPRINT_FADE_MS = 8000; // Footprints fade over 8 seconds
+
 // Ambient particle system (floating dust motes / fireflies)
 const particles = [];
 const MAX_PARTICLES = 25;
@@ -420,6 +425,9 @@ function drawWorld() {
             item.name
         );
     });
+
+    // Draw creature footprint trails (below creatures)
+    drawFootprintTrails();
 
     // Draw creatures (sorted by y for proper layering)
     const sortedCreatures = [...creatures].sort((a, b) => a.y - b.y);
@@ -747,9 +755,30 @@ function drawIsometricTile(x, y, color, terrain) {
                 ctx.stroke();
             }
         } else if (terrain === 'water') {
-            // Draw animated water ripples with opacity
+            // Animated water with sine-wave shimmer overlay
             const time = Date.now() / 1000;
             const phase = (time + seed / 100) % 3;
+
+            // Sine-wave shimmer bands across the tile
+            ctx.save();
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+            ctx.lineTo(x + halfTile, y - halfTile / 2);
+            ctx.lineTo(x, y - halfTile);
+            ctx.lineTo(x - halfTile, y - halfTile / 2);
+            ctx.closePath();
+            ctx.clip();
+
+            for (let band = 0; band < 5; band++) {
+                const bandY = y - halfTile + band * (halfTile / 4);
+                const wave = Math.sin(time * 2 + band * 1.2 + seed * 0.01) * 2;
+                const alpha = 0.08 + Math.sin(time * 1.5 + band) * 0.04;
+                ctx.fillStyle = `rgba(200, 230, 255, ${alpha})`;
+                ctx.fillRect(x - halfTile, bandY + wave, halfTile * 2, halfTile / 6);
+            }
+            ctx.restore();
+
+            // Ripple rings
             ctx.lineWidth = 1;
             for (let i = 0; i < 3; i++) {
                 const ripplePhase = (phase + i) % 3;
@@ -760,39 +789,42 @@ function drawIsometricTile(x, y, color, terrain) {
                 ctx.ellipse(x, y - halfTile/2, radius, radius * 0.5, 0, 0, Math.PI * 2);
                 ctx.stroke();
             }
-            // Add shimmer highlight
+            // Shimmer highlight
             ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
             ctx.beginPath();
             ctx.ellipse(x - halfTile * 0.15, y - halfTile * 0.6, 3, 2, -0.3, 0, Math.PI * 2);
             ctx.fill();
         } else if (terrain === 'forest') {
-            // Draw layered trees with depth
-            // Background trees (smaller, darker)
+            // Draw layered trees with swaying canopy
+            const time = Date.now() / 1000;
+            const sway = Math.sin(time * 0.8 + seed * 0.05) * 1.5;
+
+            // Background trees (smaller, darker) — slight sway
             ctx.fillStyle = darkenColor(color, 25);
             ctx.beginPath();
-            ctx.arc(x - 8, y - halfTile * 0.4, 6, 0, Math.PI * 2);
+            ctx.arc(x - 8 + sway * 0.5, y - halfTile * 0.4, 6, 0, Math.PI * 2);
             ctx.fill();
             ctx.fillStyle = darkenColor(color, 20);
             ctx.beginPath();
-            ctx.arc(x + 7, y - halfTile * 0.35, 5, 0, Math.PI * 2);
+            ctx.arc(x + 7 + sway * 0.3, y - halfTile * 0.35, 5, 0, Math.PI * 2);
             ctx.fill();
 
-            // Main tree trunk
+            // Main tree trunk (static)
             ctx.fillStyle = '#5D4037';
             ctx.fillRect(x - 3, y - halfTile * 0.25, 6, 12);
 
-            // Main tree canopy layers
+            // Main tree canopy layers (sway increases with height)
             ctx.fillStyle = darkenColor(color, 10);
             ctx.beginPath();
-            ctx.arc(x, y - halfTile * 0.45, 10, 0, Math.PI * 2);
+            ctx.arc(x + sway * 0.4, y - halfTile * 0.45, 10, 0, Math.PI * 2);
             ctx.fill();
             ctx.fillStyle = color;
             ctx.beginPath();
-            ctx.arc(x - 2, y - halfTile * 0.55, 8, 0, Math.PI * 2);
+            ctx.arc(x - 2 + sway * 0.7, y - halfTile * 0.55, 8, 0, Math.PI * 2);
             ctx.fill();
             ctx.fillStyle = lightenColor(color, 15);
             ctx.beginPath();
-            ctx.arc(x - 3, y - halfTile * 0.65, 5, 0, Math.PI * 2);
+            ctx.arc(x - 3 + sway, y - halfTile * 0.65, 5, 0, Math.PI * 2);
             ctx.fill();
         } else if (terrain === 'stone') {
             // Draw scattered rounded rocks
@@ -1532,6 +1564,33 @@ function drawItem(x, y, name) {
     ctx.fillText(name, x, y + s + 10);
 }
 
+// Draw footprint trails for all creatures
+function drawFootprintTrails() {
+    const now = performance.now();
+    for (const agentId in creatureFootprints) {
+        const prints = creatureFootprints[agentId];
+        // Remove expired footprints
+        while (prints.length > 0 && (now - prints[0].time) > FOOTPRINT_FADE_MS) {
+            prints.shift();
+        }
+        // Draw remaining footprints as fading ellipses
+        prints.forEach((fp, i) => {
+            const age = now - fp.time;
+            const fade = 1 - age / FOOTPRINT_FADE_MS;
+            const alpha = Math.max(0, 0.25 * fade);
+            const size = 3 + fade * 2;
+            ctx.fillStyle = `rgba(80, 60, 40, ${alpha})`;
+            ctx.beginPath();
+            ctx.ellipse(
+                fp.x + viewOffsetX,
+                fp.y + viewOffsetY - 6,
+                size, size * 0.4, 0, 0, Math.PI * 2
+            );
+            ctx.fill();
+        });
+    }
+}
+
 // Store idle animation phase per creature (deterministic based on agentId)
 // ============================================================
 // 11. Creature Rendering
@@ -2135,6 +2194,20 @@ function updateWorld() {
                 let currentScreenY = targetScreenY;
 
                 if (hasMoved && existingCreature) {
+                    // Record footprint at old position
+                    if (!creatureFootprints[agentId]) {
+                        creatureFootprints[agentId] = [];
+                    }
+                    creatureFootprints[agentId].push({
+                        x: existingCreature.x,
+                        y: existingCreature.y,
+                        time: performance.now(),
+                        color: existingCreature.color
+                    });
+                    if (creatureFootprints[agentId].length > MAX_FOOTPRINTS) {
+                        creatureFootprints[agentId].shift();
+                    }
+
                     // Start new animation from current animated position (or previous position)
                     const anim = creatureAnimations[agentId];
                     const startX = anim && anim.progress < 1 ?

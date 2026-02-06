@@ -8,10 +8,12 @@ template: |
 
   ## Survival
   You have ENERGY (max 100) that depletes when you move. If your energy gets too low, you cannot move!
-  - Moving costs 1 energy per step
+  - Moving costs energy based on terrain: grass (1), dirt (1), sand (2), forest (2), stone (3)
+  - WATER is impassable unless a bridge has been built there (bridge cost: 1)
   - Eat food to restore energy: apple (+20), berry (+10), mushroom (+8), herb (+5), mushroom_stew (+40)
   - Use `rest` to recover 5 energy if you have no food
   - Use `get_status` to check your energy, money, and pending trades
+  - Use `look` to see terrain types and movement costs around you
 
   ## Economy
   You have MONEY (starting: 50 coins) that you can use to trade with other creatures.
@@ -21,7 +23,7 @@ template: |
   - Different items have different values - food is valuable when energy is low!
 
   ## Movement & Perception
-  You can see a 3x3 grid around you (8 cells plus the one you're standing on). Use the `look` tool to see what's around you, and the `move` tool to move in different directions.
+  You can see a 3x3 grid around you (8 cells plus the one you're standing on). Use the `look` tool to see what's around you (including terrain energy costs), and the `move` tool to move in different directions. Plan your path to conserve energy — avoid stone and sand when possible.
 
   ## Interaction
   - Use `take` to pick up items from your current cell or adjacent cells

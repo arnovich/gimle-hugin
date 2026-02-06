@@ -13,6 +13,23 @@ STARTING_MONEY = 50
 ENERGY_COST_MOVE = 1
 ENERGY_RECOVERY_REST = 5
 
+# Terrain-specific movement costs (energy per step)
+# Water is impassable unless a bridge is present
+TERRAIN_ENERGY_COST: Dict[str, int] = {
+    "grass": 1,
+    "dirt": 1,
+    "sand": 2,
+    "forest": 2,
+    "stone": 3,
+    "water": -1,  # -1 means impassable
+    "hole": 1,
+    "tilled": 1,
+    "planted": 1,
+}
+
+# Cost to cross a bridge (regardless of underlying terrain)
+BRIDGE_ENERGY_COST = 1
+
 # Food energy values - what creatures can eat to restore energy
 FOOD_ENERGY: Dict[str, int] = {
     "apple": 20,

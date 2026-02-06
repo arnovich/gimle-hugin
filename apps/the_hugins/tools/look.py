@@ -2,6 +2,8 @@
 
 from typing import TYPE_CHECKING, Any, Dict, Optional, cast
 
+from world.economy import BRIDGE_ENERGY_COST, TERRAIN_ENERGY_COST
+
 from gimle.hugin.tools.tool import ToolResponse
 
 if TYPE_CHECKING:
@@ -65,21 +67,45 @@ def look_tool(
     # Organize cells into a grid for easier visualization
     view_data = []
     for cell in view_cells:
+        terrain_name = cell.terrain.value
+        has_bridge = cell.structure == "bridge"
+        base_cost = TERRAIN_ENERGY_COST.get(terrain_name, 1)
+        if base_cost < 0:
+            move_cost = BRIDGE_ENERGY_COST if has_bridge else "impassable"
+        else:
+            move_cost = BRIDGE_ENERGY_COST if has_bridge else base_cost
+
         cell_data = {
             "x": cell.x,
             "y": cell.y,
-            "terrain": cell.terrain.value,
+            "terrain": terrain_name,
+            "energy_cost": move_cost,
             "objects": [obj.to_dict() for obj in cell.objects],
             "is_you": cell.x == x and cell.y == y,
         }
+        if cell.structure:
+            cell_data["structure"] = cell.structure
         view_data.append(cell_data)
 
     # Create a text description
     description_parts = []
     for cell in view_cells:
+        terrain_name = cell.terrain.value
+        has_bridge = cell.structure == "bridge"
+        base_cost = TERRAIN_ENERGY_COST.get(terrain_name, 1)
+        if base_cost < 0:
+            cost_str = (
+                f" (bridge, cost:{BRIDGE_ENERGY_COST})"
+                if has_bridge
+                else " (impassable)"
+            )
+        else:
+            cost = BRIDGE_ENERGY_COST if has_bridge else base_cost
+            cost_str = f" (cost:{cost})" if cost > 1 else ""
+
         if cell.x == x and cell.y == y:
             location = "You are here"
-            description_parts.append(f"{location}: {cell.terrain.value}")
+            description_parts.append(f"{location}: {terrain_name}")
         else:
             dx = cell.x - x
             dy = cell.y - y
@@ -102,8 +128,10 @@ def look_tool(
             else:
                 location = f"({cell.x}, {cell.y})"
 
-            description_parts.append(f"{location}: {cell.terrain.value}")
+            description_parts.append(f"{location}: {terrain_name}{cost_str}")
 
+        if cell.structure:
+            description_parts.append(f"  Structure: {cell.structure}")
         if cell.objects:
             obj_names = [obj.name for obj in cell.objects]
             description_parts.append(f"  Objects: {', '.join(obj_names)}")

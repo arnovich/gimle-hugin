@@ -2,7 +2,11 @@
 
 from typing import TYPE_CHECKING, Any, Dict, Optional, cast
 
-from world.economy import ENERGY_COST_MOVE
+from world.economy import (
+    BRIDGE_ENERGY_COST,
+    ENERGY_COST_MOVE,
+    TERRAIN_ENERGY_COST,
+)
 
 from gimle.hugin.tools.tool import ToolResponse
 
@@ -61,18 +65,6 @@ def move_tool(
             content={"error": f"Creature {agent_id} not found in world"},
         )
 
-    # Check energy before moving
-    creature = world.get_creature(agent_id)
-    if creature and creature.energy < ENERGY_COST_MOVE:
-        return ToolResponse(
-            is_error=True,
-            content={
-                "error": "Too tired to move. Eat food or rest to recover energy.",
-                "energy": creature.energy,
-                "required": ENERGY_COST_MOVE,
-            },
-        )
-
     x, y = current_pos
 
     # Calculate new position based on direction
@@ -100,7 +92,11 @@ def move_tool(
         return ToolResponse(
             is_error=True,
             content={
-                "error": f"Invalid direction '{direction}'. Valid directions: north, south, east, west, northeast, northwest, southeast, southwest"
+                "error": (
+                    f"Invalid direction '{direction}'. "
+                    "Valid directions: north, south, east, west, "
+                    "northeast, northwest, southeast, southwest"
+                )
             },
         )
 
@@ -117,6 +113,51 @@ def move_tool(
             },
         )
 
+    # Determine terrain energy cost for target cell
+    target_cell = world.get_cell(new_x, new_y)
+    if not target_cell:
+        return ToolResponse(
+            is_error=True,
+            content={"error": "Target cell not found"},
+        )
+
+    terrain_name = target_cell.terrain.value
+    has_bridge = target_cell.structure == "bridge"
+    base_cost = TERRAIN_ENERGY_COST.get(terrain_name, ENERGY_COST_MOVE)
+
+    # Water is impassable unless there is a bridge
+    if base_cost < 0:
+        if has_bridge:
+            energy_cost = BRIDGE_ENERGY_COST
+        else:
+            return ToolResponse(
+                is_error=True,
+                content={
+                    "error": (
+                        "Cannot move into water! "
+                        "Build a bridge to cross water."
+                    ),
+                    "terrain": terrain_name,
+                },
+            )
+    else:
+        energy_cost = BRIDGE_ENERGY_COST if has_bridge else base_cost
+
+    # Check energy before moving
+    creature = world.get_creature(agent_id)
+    if creature and creature.energy < energy_cost:
+        return ToolResponse(
+            is_error=True,
+            content={
+                "error": (
+                    "Too tired to move. " "Eat food or rest to recover energy."
+                ),
+                "energy": creature.energy,
+                "required": energy_cost,
+                "terrain": terrain_name,
+            },
+        )
+
     # Move the creature
     success = world.move_creature(agent_id, new_x, new_y)
     if not success:
@@ -124,10 +165,10 @@ def move_tool(
             is_error=True, content={"error": "Failed to move creature"}
         )
 
-    # Deduct energy cost
+    # Deduct terrain-specific energy cost
     creature = world.get_creature(agent_id)
     if creature:
-        creature.remove_energy(ENERGY_COST_MOVE)
+        creature.remove_energy(energy_cost)
 
     # Get view of new position
     view_cells = world.get_view(new_x, new_y, radius=1)
@@ -186,8 +227,13 @@ def move_tool(
             "old_position": {"x": x, "y": y},
             "new_position": {"x": new_x, "y": new_y},
             "direction": direction,
+            "terrain": terrain_name,
+            "energy_cost": energy_cost,
             "view": view_data,
             "energy": current_energy,
-            "message": f"You moved {direction} to ({new_x}, {new_y})",
+            "message": (
+                f"You moved {direction} to ({new_x}, {new_y}) "
+                f"[{terrain_name}, cost: {energy_cost} energy]"
+            ),
         },
     )
