@@ -1,7 +1,7 @@
 """Generate unique SVG avatars for creatures based on their characteristics."""
 
 import hashlib
-from typing import Tuple
+from typing import Optional, Tuple
 
 
 class AvatarGenerator:
@@ -349,6 +349,263 @@ class AvatarGenerator:
         ]
         return accessories[hash_val % len(accessories)]
 
+    # Creature type keywords mapped to generator methods
+    CREATURE_TYPES = {
+        "bunny": "_generate_bunny",
+        "rabbit": "_generate_bunny",
+        "hedgehog": "_generate_hedgehog",
+        "flower sprite": "_generate_flower_sprite",
+        "flower": "_generate_flower_sprite",
+        "beetle": "_generate_beetle",
+        "firefly": "_generate_firefly",
+        "caterpillar": "_generate_caterpillar",
+    }
+
+    @classmethod
+    def _detect_creature_type(cls, description: str) -> Optional[str]:
+        """Detect creature type from description keywords."""
+        desc_lower = description.lower()
+        for keyword in cls.CREATURE_TYPES:
+            if keyword in desc_lower:
+                return keyword
+        return None
+
+    @classmethod
+    def _generate_bunny(cls, color: str, accent: str) -> str:
+        """Generate a bunny silhouette SVG body."""
+        return f"""
+    <!-- Bunny body -->
+    <ellipse cx="50" cy="58" rx="16" ry="14" fill="{color}"/>
+    <!-- Head -->
+    <circle cx="50" cy="38" r="14" fill="{color}"/>
+    <!-- Left ear -->
+    <ellipse cx="42" cy="16" rx="5" ry="16" fill="{color}"
+        transform="rotate(-8 42 16)"/>
+    <ellipse cx="42" cy="16" rx="3" ry="12" fill="{accent}"
+        transform="rotate(-8 42 16)"/>
+    <!-- Right ear -->
+    <ellipse cx="58" cy="16" rx="5" ry="16" fill="{color}"
+        transform="rotate(8 58 16)"/>
+    <ellipse cx="58" cy="16" rx="3" ry="12" fill="{accent}"
+        transform="rotate(8 58 16)"/>
+    <!-- Eyes -->
+    <circle cx="44" cy="36" r="3" fill="#FFF"/>
+    <circle cx="44" cy="36" r="1.5" fill="#000"/>
+    <circle cx="56" cy="36" r="3" fill="#FFF"/>
+    <circle cx="56" cy="36" r="1.5" fill="#000"/>
+    <!-- Nose -->
+    <ellipse cx="50" cy="41" rx="2.5" ry="2" fill="{accent}"/>
+    <!-- Mouth -->
+    <path d="M 48 43 Q 50 45 52 43" stroke="#000" stroke-width="1"
+        fill="none"/>
+    <!-- Whiskers -->
+    <line x1="38" y1="40" x2="30" y2="38" stroke="#888"
+        stroke-width="0.8"/>
+    <line x1="38" y1="42" x2="30" y2="43" stroke="#888"
+        stroke-width="0.8"/>
+    <line x1="62" y1="40" x2="70" y2="38" stroke="#888"
+        stroke-width="0.8"/>
+    <line x1="62" y1="42" x2="70" y2="43" stroke="#888"
+        stroke-width="0.8"/>
+    <!-- Cotton tail -->
+    <circle cx="50" cy="72" r="5" fill="#FFF"/>
+    <!-- Feet -->
+    <ellipse cx="40" cy="72" rx="8" ry="4" fill="{color}"/>
+    <ellipse cx="60" cy="72" rx="8" ry="4" fill="{color}"/>"""
+
+    @classmethod
+    def _generate_hedgehog(cls, color: str, accent: str) -> str:
+        """Generate a hedgehog silhouette SVG body."""
+        return f"""
+    <!-- Spikes (back) -->
+    <polygon points="28,45 32,28 36,45" fill="{accent}"/>
+    <polygon points="34,42 38,24 42,42" fill="{accent}"/>
+    <polygon points="40,40 44,22 48,40" fill="{accent}"/>
+    <polygon points="46,40 50,22 54,40" fill="{accent}"/>
+    <polygon points="52,40 56,24 60,42" fill="{accent}"/>
+    <polygon points="58,42 62,28 66,45" fill="{accent}"/>
+    <polygon points="64,47 68,33 72,47" fill="{accent}"/>
+    <!-- Body (half-circle) -->
+    <ellipse cx="50" cy="58" rx="24" ry="18" fill="{color}"/>
+    <!-- Head/snout -->
+    <ellipse cx="50" cy="50" rx="16" ry="14" fill="{color}"/>
+    <ellipse cx="50" cy="55" rx="22" ry="16" fill="{color}"/>
+    <!-- Pointed nose -->
+    <path d="M 50 44 Q 44 48 46 52 Q 48 50 50 48 Q 52 50 54 52
+        Q 56 48 50 44 Z" fill="{color}"/>
+    <circle cx="50" cy="46" r="2.5" fill="#333"/>
+    <!-- Eyes -->
+    <circle cx="42" cy="48" r="3" fill="#FFF"/>
+    <circle cx="42" cy="48" r="1.5" fill="#000"/>
+    <circle cx="58" cy="48" r="3" fill="#FFF"/>
+    <circle cx="58" cy="48" r="1.5" fill="#000"/>
+    <!-- Smile -->
+    <path d="M 46 53 Q 50 56 54 53" stroke="#000" stroke-width="1"
+        fill="none"/>
+    <!-- Feet -->
+    <ellipse cx="38" cy="74" rx="6" ry="3" fill="{color}"/>
+    <ellipse cx="62" cy="74" rx="6" ry="3" fill="{color}"/>"""
+
+    @classmethod
+    def _generate_flower_sprite(cls, color: str, accent: str) -> str:
+        """Generate a flower sprite silhouette SVG body."""
+        return f"""
+    <!-- Stem body -->
+    <rect x="47" y="50" width="6" height="28" rx="3" fill="#5D8C3E"/>
+    <!-- Leaves on stem -->
+    <ellipse cx="40" cy="62" rx="8" ry="4" fill="#6DAE4B"
+        transform="rotate(-20 40 62)"/>
+    <ellipse cx="60" cy="68" rx="8" ry="4" fill="#6DAE4B"
+        transform="rotate(20 60 68)"/>
+    <!-- Petal ring -->
+    <ellipse cx="50" cy="25" rx="8" ry="12" fill="{color}"
+        transform="rotate(0 50 35)"/>
+    <ellipse cx="50" cy="25" rx="8" ry="12" fill="{color}"
+        transform="rotate(60 50 35)"/>
+    <ellipse cx="50" cy="25" rx="8" ry="12" fill="{color}"
+        transform="rotate(120 50 35)"/>
+    <ellipse cx="50" cy="25" rx="8" ry="12" fill="{color}"
+        transform="rotate(180 50 35)"/>
+    <ellipse cx="50" cy="25" rx="8" ry="12" fill="{color}"
+        transform="rotate(240 50 35)"/>
+    <ellipse cx="50" cy="25" rx="8" ry="12" fill="{color}"
+        transform="rotate(300 50 35)"/>
+    <!-- Face center -->
+    <circle cx="50" cy="35" r="12" fill="{accent}"/>
+    <!-- Eyes -->
+    <circle cx="45" cy="33" r="2.5" fill="#FFF"/>
+    <circle cx="45" cy="33" r="1.2" fill="#000"/>
+    <circle cx="55" cy="33" r="2.5" fill="#FFF"/>
+    <circle cx="55" cy="33" r="1.2" fill="#000"/>
+    <!-- Smile -->
+    <path d="M 46 38 Q 50 42 54 38" stroke="#000" stroke-width="1.2"
+        fill="none"/>
+    <!-- Cheek blush -->
+    <circle cx="42" cy="38" r="2.5" fill="#FFB6C1" opacity="0.5"/>
+    <circle cx="58" cy="38" r="2.5" fill="#FFB6C1" opacity="0.5"/>"""
+
+    @classmethod
+    def _generate_beetle(cls, color: str, accent: str) -> str:
+        """Generate a beetle silhouette SVG body."""
+        return f"""
+    <!-- Shell -->
+    <ellipse cx="50" cy="52" rx="20" ry="22" fill="{color}"/>
+    <!-- Shell split line -->
+    <line x1="50" y1="32" x2="50" y2="74" stroke="{accent}"
+        stroke-width="2"/>
+    <!-- Shell shine -->
+    <ellipse cx="42" cy="46" rx="6" ry="8" fill="rgba(255,255,255,0.2)"
+        transform="rotate(-15 42 46)"/>
+    <!-- Head -->
+    <circle cx="50" cy="32" r="10" fill="#333"/>
+    <!-- Antennae -->
+    <path d="M 45 26 Q 38 14 32 10" stroke="#333" stroke-width="2"
+        fill="none" stroke-linecap="round"/>
+    <circle cx="32" cy="10" r="2.5" fill="#333"/>
+    <path d="M 55 26 Q 62 14 68 10" stroke="#333" stroke-width="2"
+        fill="none" stroke-linecap="round"/>
+    <circle cx="68" cy="10" r="2.5" fill="#333"/>
+    <!-- Eyes -->
+    <circle cx="45" cy="30" r="3" fill="#FFF"/>
+    <circle cx="45" cy="30" r="1.5" fill="#000"/>
+    <circle cx="55" cy="30" r="3" fill="#FFF"/>
+    <circle cx="55" cy="30" r="1.5" fill="#000"/>
+    <!-- Legs (6 total) -->
+    <line x1="32" y1="44" x2="22" y2="40" stroke="#333"
+        stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="30" y1="52" x2="18" y2="52" stroke="#333"
+        stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="32" y1="60" x2="22" y2="64" stroke="#333"
+        stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="68" y1="44" x2="78" y2="40" stroke="#333"
+        stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="70" y1="52" x2="82" y2="52" stroke="#333"
+        stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="68" y1="60" x2="78" y2="64" stroke="#333"
+        stroke-width="2.5" stroke-linecap="round"/>"""
+
+    @classmethod
+    def _generate_firefly(cls, color: str, accent: str) -> str:
+        """Generate a firefly silhouette SVG body."""
+        return f"""
+    <!-- Glow effect -->
+    <circle cx="50" cy="62" r="16" fill="{accent}" opacity="0.2"/>
+    <circle cx="50" cy="62" r="10" fill="{accent}" opacity="0.3"/>
+    <!-- Wings (translucent) -->
+    <ellipse cx="36" cy="40" rx="14" ry="8" fill="rgba(200,220,255,0.3)"
+        stroke="rgba(200,220,255,0.5)" stroke-width="1"
+        transform="rotate(-20 36 40)"/>
+    <ellipse cx="64" cy="40" rx="14" ry="8" fill="rgba(200,220,255,0.3)"
+        stroke="rgba(200,220,255,0.5)" stroke-width="1"
+        transform="rotate(20 64 40)"/>
+    <!-- Body (elongated) -->
+    <ellipse cx="50" cy="42" rx="10" ry="8" fill="{color}"/>
+    <!-- Abdomen (glowing) -->
+    <ellipse cx="50" cy="60" rx="9" ry="12" fill="{color}"/>
+    <ellipse cx="50" cy="64" rx="7" ry="8" fill="{accent}"/>
+    <!-- Head -->
+    <circle cx="50" cy="28" r="9" fill="{color}"/>
+    <!-- Antennae -->
+    <path d="M 46 22 Q 40 12 36 8" stroke="{color}" stroke-width="1.5"
+        fill="none" stroke-linecap="round"/>
+    <path d="M 54 22 Q 60 12 64 8" stroke="{color}" stroke-width="1.5"
+        fill="none" stroke-linecap="round"/>
+    <!-- Eyes (large, luminous) -->
+    <circle cx="45" cy="27" r="4" fill="#FFE082"/>
+    <circle cx="45" cy="27" r="2" fill="#000"/>
+    <circle cx="46" cy="26" r="1" fill="#FFF"/>
+    <circle cx="55" cy="27" r="4" fill="#FFE082"/>
+    <circle cx="55" cy="27" r="2" fill="#000"/>
+    <circle cx="56" cy="26" r="1" fill="#FFF"/>
+    <!-- Legs -->
+    <line x1="42" y1="48" x2="32" y2="56" stroke="{color}"
+        stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="42" y1="52" x2="32" y2="62" stroke="{color}"
+        stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="58" y1="48" x2="68" y2="56" stroke="{color}"
+        stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="58" y1="52" x2="68" y2="62" stroke="{color}"
+        stroke-width="1.5" stroke-linecap="round"/>"""
+
+    @classmethod
+    def _generate_caterpillar(cls, color: str, accent: str) -> str:
+        """Generate a caterpillar silhouette SVG body."""
+        return f"""
+    <!-- Body segments (connected circles) -->
+    <circle cx="22" cy="62" r="9" fill="{accent}"/>
+    <circle cx="32" cy="56" r="10" fill="{color}"/>
+    <circle cx="44" cy="52" r="10" fill="{accent}"/>
+    <circle cx="56" cy="50" r="10" fill="{color}"/>
+    <circle cx="68" cy="48" r="10" fill="{accent}"/>
+    <!-- Head (larger) -->
+    <circle cx="78" cy="40" r="12" fill="{color}"/>
+    <!-- Antennae -->
+    <path d="M 74 32 Q 68 20 64 14" stroke="{color}" stroke-width="2"
+        fill="none" stroke-linecap="round"/>
+    <circle cx="64" cy="14" r="3" fill="{accent}"/>
+    <path d="M 82 32 Q 88 20 92 14" stroke="{color}" stroke-width="2"
+        fill="none" stroke-linecap="round"/>
+    <circle cx="92" cy="14" r="3" fill="{accent}"/>
+    <!-- Eyes -->
+    <circle cx="74" cy="38" r="3.5" fill="#FFF"/>
+    <circle cx="74" cy="38" r="1.8" fill="#000"/>
+    <circle cx="84" cy="38" r="3.5" fill="#FFF"/>
+    <circle cx="84" cy="38" r="1.8" fill="#000"/>
+    <!-- Smile -->
+    <path d="M 76 44 Q 80 48 84 44" stroke="#000" stroke-width="1.2"
+        fill="none"/>
+    <!-- Tiny feet on segments -->
+    <line x1="22" y1="70" x2="22" y2="76" stroke="{color}"
+        stroke-width="2" stroke-linecap="round"/>
+    <line x1="32" y1="65" x2="32" y2="71" stroke="{color}"
+        stroke-width="2" stroke-linecap="round"/>
+    <line x1="44" y1="61" x2="44" y2="67" stroke="{color}"
+        stroke-width="2" stroke-linecap="round"/>
+    <line x1="56" y1="59" x2="56" y2="65" stroke="{color}"
+        stroke-width="2" stroke-linecap="round"/>
+    <line x1="68" y1="57" x2="68" y2="63" stroke="{color}"
+        stroke-width="2" stroke-linecap="round"/>"""
+
     @classmethod
     def generate_avatar(
         cls,
@@ -356,7 +613,11 @@ class AvatarGenerator:
         description: str = "",
         personality: str = "",
     ) -> str:
-        """Generate a unique stick-figure avatar for a creature.
+        """Generate a unique avatar for a creature.
+
+        Detects creature type from description keywords and generates
+        a type-specific silhouette. Falls back to generic stickman
+        for unrecognized types.
 
         Args:
             creature_name: Name of the creature
@@ -370,13 +631,7 @@ class AvatarGenerator:
         seed = f"{creature_name}:{description}:{personality}"
         hash_val = cls._hash_string(seed)
 
-        # Derive different aspects from hash
-        head_hash = hash_val >> 8
-        pose_hash = hash_val >> 16
         color_hash = hash_val >> 24
-        eyes_hash = hash_val >> 32
-        mouth_hash = hash_val >> 40
-        accessory_hash = hash_val >> 48
 
         # Determine palette based on personality keywords
         palette = "pastel"  # default
@@ -403,9 +658,51 @@ class AvatarGenerator:
             ):
                 palette = "earth"
 
-        # Get components
         base_color = cls._get_color_from_hash(color_hash, palette)
-        secondary_color = cls._get_color_from_hash(color_hash + 1, palette)
+        accent_color = cls._get_color_from_hash(color_hash + 1, palette)
+
+        # Detect creature type and generate type-specific SVG
+        creature_type = cls._detect_creature_type(description)
+        if creature_type:
+            method_name = cls.CREATURE_TYPES[creature_type]
+            method = getattr(cls, method_name)
+            body_svg = method(base_color, accent_color)
+            svg = (
+                '<svg xmlns="http://www.w3.org/2000/svg"'
+                ' viewBox="0 0 100 100" width="100" height="100">'
+                f"{body_svg}\n</svg>"
+            )
+            return svg
+
+        # Fallback: generic stickman avatar
+        return cls._generate_stickman(
+            creature_name,
+            description,
+            personality,
+            hash_val,
+            base_color,
+            accent_color,
+            palette,
+        )
+
+    @classmethod
+    def _generate_stickman(
+        cls,
+        creature_name: str,
+        description: str,
+        personality: str,
+        hash_val: int,
+        base_color: str,
+        secondary_color: str,
+        palette: str,
+    ) -> str:
+        """Generate the original stickman avatar as fallback."""
+        head_hash = hash_val >> 8
+        pose_hash = hash_val >> 16
+        eyes_hash = hash_val >> 32
+        mouth_hash = hash_val >> 40
+        accessory_hash = hash_val >> 48
+
         head_type, head_svg = cls._get_head_from_hash(head_hash)
         pose_type, pose_svg = cls._get_pose_from_hash(pose_hash)
         eyes_svg = cls._get_eyes_from_hash(eyes_hash)
@@ -414,7 +711,6 @@ class AvatarGenerator:
             accessory_hash, secondary_color
         )
 
-        # Build SVG with transparent background
         svg = f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
     <!-- Stick figure body and limbs -->
     <g>
