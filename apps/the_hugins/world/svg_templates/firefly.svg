@@ -1,0 +1,38 @@
+<!-- Glow effect -->
+<circle cx="50" cy="62" r="16" fill="{accent}" opacity="0.2"/>
+<circle cx="50" cy="62" r="10" fill="{accent}" opacity="0.3"/>
+<!-- Wings (translucent) -->
+<ellipse cx="36" cy="40" rx="14" ry="8" fill="rgba(200,220,255,0.3)"
+    stroke="rgba(200,220,255,0.5)" stroke-width="1"
+    transform="rotate(-20 36 40)"/>
+<ellipse cx="64" cy="40" rx="14" ry="8" fill="rgba(200,220,255,0.3)"
+    stroke="rgba(200,220,255,0.5)" stroke-width="1"
+    transform="rotate(20 64 40)"/>
+<!-- Body (elongated) -->
+<ellipse cx="50" cy="42" rx="10" ry="8" fill="{color}"/>
+<!-- Abdomen (glowing) -->
+<ellipse cx="50" cy="60" rx="9" ry="12" fill="{color}"/>
+<ellipse cx="50" cy="64" rx="7" ry="8" fill="{accent}"/>
+<!-- Head -->
+<circle cx="50" cy="28" r="9" fill="{color}"/>
+<!-- Antennae -->
+<path d="M 46 22 Q 40 12 36 8" stroke="{color}" stroke-width="1.5"
+    fill="none" stroke-linecap="round"/>
+<path d="M 54 22 Q 60 12 64 8" stroke="{color}" stroke-width="1.5"
+    fill="none" stroke-linecap="round"/>
+<!-- Eyes (large, luminous) -->
+<circle cx="45" cy="27" r="4" fill="#FFE082"/>
+<circle cx="45" cy="27" r="2" fill="#000"/>
+<circle cx="46" cy="26" r="1" fill="#FFF"/>
+<circle cx="55" cy="27" r="4" fill="#FFE082"/>
+<circle cx="55" cy="27" r="2" fill="#000"/>
+<circle cx="56" cy="26" r="1" fill="#FFF"/>
+<!-- Legs -->
+<line x1="42" y1="48" x2="32" y2="56" stroke="{color}"
+    stroke-width="1.5" stroke-linecap="round"/>
+<line x1="42" y1="52" x2="32" y2="62" stroke="{color}"
+    stroke-width="1.5" stroke-linecap="round"/>
+<line x1="58" y1="48" x2="68" y2="56" stroke="{color}"
+    stroke-width="1.5" stroke-linecap="round"/>
+<line x1="58" y1="52" x2="68" y2="62" stroke="{color}"
+    stroke-width="1.5" stroke-linecap="round"/>

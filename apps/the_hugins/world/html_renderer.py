@@ -1,5 +1,6 @@
 """HTML renderer for the world with isometric projection."""
 
+import html
 import json
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -406,7 +407,7 @@ def generate_creatures_html(world: World) -> str:
         if creature.inventory:
             inventory_items = "".join(
                 [
-                    f'<div class="inventory-item">{item.name}</div>'
+                    f'<div class="inventory-item">{html.escape(item.name)}</div>'
                     for item in creature.inventory
                 ]
             )
@@ -419,9 +420,7 @@ def generate_creatures_html(world: World) -> str:
         goals_html = ""
         for goal in creature.goals:
             done = " (done)" if goal.completed else ""
-            goals_html += (
-                f'<div class="creature-detail">- {goal.type.value}{done}</div>'
-            )
+            goals_html += f'<div class="creature-detail">- {html.escape(goal.type.value)}{done}</div>'
 
         last_action_html = ""
         last_actions = world.action_log.get_actions_by_creature(
@@ -430,11 +429,11 @@ def generate_creatures_html(world: World) -> str:
         if last_actions:
             la = last_actions[-1]
             reason_html = (
-                f'<div class="creature-detail action-reason"><em>{la.reason}</em></div>'
+                f'<div class="creature-detail action-reason"><em>{html.escape(la.reason)}</em></div>'
                 if la.reason
                 else ""
             )
-            last_action_html = f'<div class="creature-detail" style="margin-top:6px;"><strong>Last Action:</strong> {la.description}</div>{reason_html}'
+            last_action_html = f'<div class="creature-detail" style="margin-top:6px;"><strong>Last Action:</strong> {html.escape(la.description)}</div>{reason_html}'
 
         # Energy bar color based on percentage
         energy_percent = creature.energy / 100
@@ -453,8 +452,8 @@ def generate_creatures_html(world: World) -> str:
 
         html_parts.append(
             f"""
-            <div class="creature-info" onclick="toggleCreature(this, '{creature.agent_id}')">
-                <h3>{creature.name} <span class="expand-indicator">&#9654;</span></h3>
+            <div class="creature-info" onclick="toggleCreature(this, '{html.escape(creature.agent_id)}')">
+                <h3>{html.escape(creature.name)} <span class="expand-indicator">&#9654;</span></h3>
                 <div class="creature-stats">
                     <div class="stat-bar">
                         <span class="stat-label">Energy</span>
@@ -471,8 +470,8 @@ def generate_creatures_html(world: World) -> str:
                 <div class="creature-details-full">
                     {last_action_html}
                     {trades_html}
-                    <div class="creature-detail"><strong>Description:</strong> {creature.description}</div>
-                    <div class="creature-detail"><strong>Personality:</strong> {creature.personality}</div>
+                    <div class="creature-detail"><strong>Description:</strong> {html.escape(creature.description)}</div>
+                    <div class="creature-detail"><strong>Personality:</strong> {html.escape(creature.personality)}</div>
                     {f'<div class="creature-detail" style="margin-top:6px;"><strong>Goals:</strong></div>{goals_html}' if goals_html else ''}
                     <div class="inventory">
                         <div class="creature-detail"><strong>Inventory ({len(creature.inventory)}):</strong></div>
@@ -494,16 +493,16 @@ def generate_actions_html(world: World, count: int = 15) -> str:
     html_parts = []
     for action in reversed(recent_actions):  # Most recent first
         reason_html = (
-            f'<div class="action-reason"><em>{action.reason}</em></div>'
+            f'<div class="action-reason"><em>{html.escape(action.reason)}</em></div>'
             if action.reason
             else ""
         )
         html_parts.append(
             f"""
-            <div class="action-item {action.action_type}">
+            <div class="action-item {html.escape(action.action_type)}">
                 <div>
-                    <span class="action-creature">{action.creature_name}</span>
-                    <span class="action-description">{action.description}</span>
+                    <span class="action-creature">{html.escape(action.creature_name)}</span>
+                    <span class="action-description">{html.escape(action.description)}</span>
                 </div>
                 {reason_html}
                 <div class="action-time">Tick {action.timestamp}</div>

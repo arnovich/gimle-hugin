@@ -18,6 +18,7 @@ from world.economy import (
     TradeOffer,
 )
 from world.goals import Goal, GoalType, Memory, Relationship
+from world.noise import fractal_noise, make_noise_context
 from world.object import Object, ObjectType
 
 
@@ -47,8 +48,6 @@ class World:
         if seed is None:
             seed = random.randint(0, 2**31)
         random.seed(seed)
-
-        from world.noise import fractal_noise, make_noise_context
 
         # Create noise contexts for different layers
         grads_elev, perm_elev = make_noise_context(seed)
@@ -84,7 +83,7 @@ class World:
         self._add_beaches()
 
     @staticmethod
-    def _terrain_from_noise(elevation: float, moisture: float) -> "TerrainType":
+    def _terrain_from_noise(elevation: float, moisture: float) -> TerrainType:
         """Map noise values to terrain type.
 
         Thresholds chosen so that:

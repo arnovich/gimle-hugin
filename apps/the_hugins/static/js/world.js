@@ -1,5 +1,42 @@
 // World visualization JavaScript
 // Extracted from html_renderer.py for maintainability
+//
+// Table of Contents:
+//   1. Utilities & Config ............... ~line 5
+//   2. Ambient Particles ................ ~line 100
+//   3. Action Effects ................... ~line 155
+//   4. Day/Night Cycle .................. ~line 240
+//   5. Main Render (drawWorld) .......... ~line 303
+//   6. Minimap .......................... ~line 438
+//   7. Terrain Rendering ................ ~line 573
+//   8. Decoration Rendering ............. ~line 890
+//   9. Structure Rendering .............. ~line 1017
+//  10. Item Rendering ................... ~line 1213
+//  11. Creature Rendering ............... ~line 1456
+//  12. Speech Bubbles ................... ~line 1590
+//  13. Drag & Drop ...................... ~line 1670
+//  14. Sidebar & Creatures List ......... ~line 1846
+//  15. World Update & API ............... ~line 1936
+//  16. Action Log Filtering ............. ~line 2206
+//  17. Animation Loop ................... ~line 2332
+//  18. Interaction & Modals ............. ~line 2385
+//  19. Keyboard Controls ................ ~line 2524
+//  20. Initialization ................... ~line 2654
+
+// ============================================================
+// 1. Utilities & Config
+// ============================================================
+
+// HTML escaping to prevent XSS from LLM-generated content
+function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
 
 const canvas = document.getElementById('worldCanvas');
 const ctx = canvas.getContext('2d');
@@ -68,6 +105,10 @@ const viewStartY = window.WORLD_DATA.viewStartY;
 const worldWidth = window.WORLD_DATA.worldWidth;
 const worldHeight = window.WORLD_DATA.worldHeight;
 
+// Creature color cache (preserves server-assigned colors across updates)
+const creatureColors = {};
+creatures.forEach(c => { creatureColors[c.name] = c.color; });
+
 // Interaction state
 let selectedCreature = null;
 let isSimulationPaused = false;
@@ -80,6 +121,10 @@ let animationFrameId = null;
 const particles = [];
 const MAX_PARTICLES = 25;
 let particlesInitialized = false;
+
+// ============================================================
+// 2. Ambient Particles
+// ============================================================
 
 function initParticles() {
     if (particlesInitialized) return;
@@ -137,6 +182,10 @@ function drawParticles() {
 }
 
 // Action visual effects system
+// ============================================================
+// 3. Action Effects
+// ============================================================
+
 const actionEffects = [];
 const seenActions = new Set(); // Track which actions we've already processed
 
@@ -222,7 +271,9 @@ function updateAndDrawActionEffects() {
 }
 
 // Draw functions
-// ---- Day/Night Cycle ----
+// ============================================================
+// 4. Day/Night Cycle
+// ============================================================
 // One full day-night cycle every 100 ticks
 const DAY_CYCLE_LENGTH = 100;
 
@@ -284,6 +335,10 @@ function lerpColor(c1, c2, t) {
     const b = Math.round(b1 + (b2 - b1) * t);
     return `rgb(${r}, ${g}, ${b})`;
 }
+
+// ============================================================
+// 5. Main Render (drawWorld)
+// ============================================================
 
 function drawWorld() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -420,7 +475,9 @@ function drawWorld() {
     drawMinimap();
 }
 
-// ---- Minimap ----
+// ============================================================
+// 6. Minimap
+// ============================================================
 const minimapCanvas = document.getElementById('minimapCanvas');
 const minimapCtx = minimapCanvas ? minimapCanvas.getContext('2d') : null;
 let minimapVisible = true;
@@ -554,6 +611,10 @@ if (minimapCanvas) {
         drawWorld();
     });
 }
+
+// ============================================================
+// 7. Terrain Rendering
+// ============================================================
 
 function drawIsometricTile(x, y, color, terrain) {
     const tileSize = TILE_SIZE;
@@ -872,6 +933,10 @@ function drawTerrainTransitions(x, y, terrain, neighbors) {
     }
 }
 
+// ============================================================
+// 8. Decoration Rendering
+// ============================================================
+
 function drawDecorations(x, y, terrain, worldX, worldY) {
     // Use deterministic random based on world position
     const seed = (worldX * 7919 + worldY * 6983) % 1000;
@@ -998,6 +1063,10 @@ function drawDecorations(x, y, terrain, worldX, worldY) {
         }
     }
 }
+
+// ============================================================
+// 9. Structure Rendering
+// ============================================================
 
 function drawStructure(x, y, structureType) {
     if (!structureType) return;
@@ -1194,6 +1263,10 @@ function drawStructure(x, y, structureType) {
         ctx.fillRect(x - 25, y - 25, 50, 50);
     }
 }
+
+// ============================================================
+// 10. Item Rendering
+// ============================================================
 
 function drawItem(x, y, name) {
     const s = 7; // base size
@@ -1438,6 +1511,10 @@ function drawItem(x, y, name) {
 }
 
 // Store idle animation phase per creature (deterministic based on agentId)
+// ============================================================
+// 11. Creature Rendering
+// ============================================================
+
 const creatureIdlePhases = {};
 function getCreatureIdlePhase(agentId) {
     if (!creatureIdlePhases[agentId]) {
@@ -1572,6 +1649,10 @@ function drawCreature(x, y, name, color, lastAction, agentId, energy, maxEnergy,
     }
 }
 
+// ============================================================
+// 12. Speech Bubbles
+// ============================================================
+
 function drawSpeechBubble(x, y, text, actionType) {
     const maxWidth = 120;
     const padding = 8;
@@ -1652,6 +1733,10 @@ function drawSpeechBubble(x, y, text, actionType) {
 }
 
 // Creature drag and drop state
+// ============================================================
+// 13. Drag & Drop
+// ============================================================
+
 let draggedCreature = null;
 let dragOffsetX = 0;
 let dragOffsetY = 0;
@@ -1828,6 +1913,10 @@ function screenToWorld(screenX, screenY) {
 }
 
 // Move creature via API
+// ============================================================
+// 14. Sidebar & Creatures List
+// ============================================================
+
 const expandedCreatures = new Set();
 
 function toggleCreature(el, agentId) {
@@ -1917,6 +2006,10 @@ function resetView() {
     zoomLevel = 1.0;
     drawWorld();
 }
+
+// ============================================================
+// 15. World Update & API
+// ============================================================
 
 function startAutoUpdate() {
     if (updateInterval) {
@@ -2051,7 +2144,7 @@ function updateWorld() {
                     agent_id: agentId,
                     world_x: worldX,
                     world_y: worldY,
-                    color: getCreatureColor(c.name),
+                    color: creatureColors[c.name] || getCreatureColor(c.name),
                     last_action: lastAction ? {
                         description: lastAction.description,
                         action_type: lastAction.action_type,
@@ -2109,7 +2202,7 @@ function updateCreaturesList(creaturesData) {
         let inventoryHtml = '';
         if (inventory.length > 0) {
             const inventoryItems = inventory.map(item =>
-                `<div class="inventory-item">${item.name}</div>`
+                `<div class="inventory-item">${escapeHtml(item.name)}</div>`
             ).join('');
             inventoryHtml = `<div class="inventory-items">${inventoryItems}</div>`;
         } else {
@@ -2117,16 +2210,16 @@ function updateCreaturesList(creaturesData) {
         }
 
         const goalsHtml = (c.goals || []).map(g => {
-            const label = g.type || g;
+            const label = escapeHtml(g.type || g);
             const done = g.completed ? ' (done)' : '';
             return `<div class="creature-detail">- ${label}${done}</div>`;
         }).join('');
 
         const lastActionReason = c.last_action && c.last_action.reason
-            ? `<div class="creature-detail action-reason"><em>${c.last_action.reason}</em></div>`
+            ? `<div class="creature-detail action-reason"><em>${escapeHtml(c.last_action.reason)}</em></div>`
             : '';
         const lastAction = c.last_action
-            ? `<div class="creature-detail" style="margin-top:6px;"><strong>Last Action:</strong> ${c.last_action.description}</div>${lastActionReason}`
+            ? `<div class="creature-detail" style="margin-top:6px;"><strong>Last Action:</strong> ${escapeHtml(c.last_action.description)}</div>${lastActionReason}`
             : '';
 
         // Energy and money
@@ -2151,12 +2244,13 @@ function updateCreaturesList(creaturesData) {
         const isExpanded = expandedCreatures.has(agentId) ? ' expanded' : '';
         const spriteKey = `creature_${c.name.toLowerCase()}`;
         const spriteSrc = spritePaths[spriteKey] || '';
+        const safeName = escapeHtml(c.name);
         const avatarHtml = spriteSrc
-            ? `<img class="creature-avatar" src="${spriteSrc}" alt="${c.name}">`
+            ? `<img class="creature-avatar" src="${escapeHtml(spriteSrc)}" alt="${safeName}">`
             : '';
         html += `
-            <div class="creature-info${isExpanded}" onclick="toggleCreature(this, '${agentId}')">
-                <h3><div class="creature-header">${avatarHtml}${c.name}</div> <span class="expand-indicator">&#9654;</span></h3>
+            <div class="creature-info${isExpanded}" onclick="toggleCreature(this, '${escapeHtml(agentId)}')">
+                <h3><div class="creature-header">${avatarHtml}${safeName}</div> <span class="expand-indicator">&#9654;</span></h3>
                 <div class="creature-stats">
                     <div class="stat-bar">
                         <span class="stat-label">Energy</span>
@@ -2173,8 +2267,8 @@ function updateCreaturesList(creaturesData) {
                 <div class="creature-details-full">
                     ${lastAction}
                     ${tradesHtml}
-                    <div class="creature-detail"><strong>Description:</strong> ${c.description || ''}</div>
-                    <div class="creature-detail"><strong>Personality:</strong> ${c.personality}</div>
+                    <div class="creature-detail"><strong>Description:</strong> ${escapeHtml(c.description || '')}</div>
+                    <div class="creature-detail"><strong>Personality:</strong> ${escapeHtml(c.personality)}</div>
                     ${goalsHtml ? `<div class="creature-detail" style="margin-top:6px;"><strong>Goals:</strong></div>${goalsHtml}` : ''}
                     <div class="inventory">
                         <div class="creature-detail"><strong>Inventory (${inventory.length}):</strong></div>
@@ -2187,7 +2281,9 @@ function updateCreaturesList(creaturesData) {
     creaturesList.innerHTML = html;
 }
 
-// ---- Action Log Filtering ----
+// ============================================================
+// 16. Action Log Filtering
+// ============================================================
 const activeActionFilters = new Set(); // active action_type filters
 const activeCreatureFilters = new Set(); // active creature_name filters
 let lastActionsData = []; // cache for re-filtering
@@ -2208,13 +2304,15 @@ function buildFilterButtons(actions) {
     // Action type buttons
     types.forEach(type => {
         const active = activeActionFilters.has(type) ? ' active' : '';
-        html += `<button class="action-filter-btn${active}" data-filter-type="${type}" onclick="toggleActionFilter('${type}')">${type}</button>`;
+        const safeType = escapeHtml(type);
+        html += `<button class="action-filter-btn${active}" data-filter-type="${safeType}" onclick="toggleActionFilter('${safeType}')">${safeType}</button>`;
     });
     // Creature name buttons
     names.forEach(name => {
         const active = activeCreatureFilters.has(name) ? ' active' : '';
-        const color = getCreatureColor(name);
-        html += `<button class="action-filter-btn creature-filter${active}" data-filter-creature="${name}" style="border-left-color: ${color};" onclick="toggleCreatureFilter('${name}')">${name}</button>`;
+        const color = creatureColors[name] || getCreatureColor(name);
+        const safeName = escapeHtml(name);
+        html += `<button class="action-filter-btn creature-filter${active}" data-filter-creature="${safeName}" style="border-left-color: ${color};" onclick="toggleCreatureFilter('${safeName}')">${safeName}</button>`;
     });
     filtersDiv.innerHTML = html;
 }
@@ -2265,13 +2363,13 @@ function renderFilteredActions() {
     for (let i = filtered.length - 1; i >= 0; i--) {
         const action = filtered[i];
         const reasonHtml = action.reason
-            ? `<div class="action-reason"><em>${action.reason}</em></div>`
+            ? `<div class="action-reason"><em>${escapeHtml(action.reason)}</em></div>`
             : '';
         html += `
-            <div class="action-item ${action.action_type}">
+            <div class="action-item ${escapeHtml(action.action_type)}">
                 <div>
-                    <span class="action-creature">${action.creature_name}</span>
-                    <span class="action-description">${action.description}</span>
+                    <span class="action-creature">${escapeHtml(action.creature_name)}</span>
+                    <span class="action-description">${escapeHtml(action.description)}</span>
                 </div>
                 ${reasonHtml}
                 <div class="action-time">Tick ${action.timestamp}</div>
@@ -2310,6 +2408,10 @@ function getCreatureColor(name) {
     }
     return colors[Math.abs(hash) % colors.length];
 }
+
+// ============================================================
+// 17. Animation Loop
+// ============================================================
 
 function startAnimationLoop() {
     let lastTime = performance.now();
@@ -2363,6 +2465,10 @@ function startAnimationLoop() {
 
     animationFrameId = requestAnimationFrame(animate);
 }
+
+// ============================================================
+// 18. Interaction & Modals
+// ============================================================
 
 function findCreatureAtPosition(x, y) {
     // Check each creature to see if click is within its bounds
@@ -2503,6 +2609,10 @@ function resumeSimulation() {
 }
 
 // Keyboard controls for navigation and interactions
+// ============================================================
+// 19. Keyboard Controls
+// ============================================================
+
 function handleKeyboardPan() {
     const modal = document.getElementById('interactionModal');
     if (modal.classList.contains('active')) return;
@@ -2633,6 +2743,10 @@ function toggleLegend() {
 }
 
 // Resize canvas to fill container
+// ============================================================
+// 20. Initialization
+// ============================================================
+
 function resizeCanvas() {
     const container = canvas.parentElement;
     const containerWidth = container.clientWidth;
