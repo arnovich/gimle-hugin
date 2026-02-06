@@ -222,13 +222,78 @@ function updateAndDrawActionEffects() {
 }
 
 // Draw functions
+// ---- Day/Night Cycle ----
+// One full day-night cycle every 100 ticks
+const DAY_CYCLE_LENGTH = 100;
+
+function getDayPhase(tick) {
+    const phase = (tick % DAY_CYCLE_LENGTH) / DAY_CYCLE_LENGTH; // 0..1
+    // 0.0-0.2 = dawn, 0.2-0.5 = day, 0.5-0.7 = dusk, 0.7-1.0 = night
+    return phase;
+}
+
+function getSkyColors(phase) {
+    if (phase < 0.15) {
+        // Dawn: dark blue -> warm orange
+        const t = phase / 0.15;
+        return {
+            top: lerpColor('#1a1a3e', '#ff8c42', t),
+            bottom: lerpColor('#2c2c5e', '#ffc97e', t),
+            overlay: `rgba(255, 140, 60, ${0.08 * (1 - t)})`,
+            ambientAlpha: 0.15 * (1 - t)
+        };
+    } else if (phase < 0.5) {
+        // Day: clear sky
+        const t = Math.min(1, (phase - 0.15) / 0.1);
+        return {
+            top: lerpColor('#ff8c42', '#5DADE2', t),
+            bottom: lerpColor('#ffc97e', '#AED6F1', t),
+            overlay: 'rgba(0, 0, 0, 0)',
+            ambientAlpha: 0
+        };
+    } else if (phase < 0.65) {
+        // Dusk: clear -> purple/orange
+        const t = (phase - 0.5) / 0.15;
+        return {
+            top: lerpColor('#5DADE2', '#8e44ad', t),
+            bottom: lerpColor('#AED6F1', '#e67e22', t),
+            overlay: `rgba(180, 80, 40, ${0.06 * t})`,
+            ambientAlpha: 0.05 * t
+        };
+    } else {
+        // Night: dark blue
+        const t = Math.min(1, (phase - 0.65) / 0.1);
+        return {
+            top: lerpColor('#8e44ad', '#0d1b2a', t),
+            bottom: lerpColor('#e67e22', '#1b2838', t),
+            overlay: `rgba(10, 20, 50, ${0.25 * t})`,
+            ambientAlpha: 0.25 * t
+        };
+    }
+}
+
+function lerpColor(c1, c2, t) {
+    const r1 = parseInt(c1.slice(1, 3), 16);
+    const g1 = parseInt(c1.slice(3, 5), 16);
+    const b1 = parseInt(c1.slice(5, 7), 16);
+    const r2 = parseInt(c2.slice(1, 3), 16);
+    const g2 = parseInt(c2.slice(3, 5), 16);
+    const b2 = parseInt(c2.slice(5, 7), 16);
+    const r = Math.round(r1 + (r2 - r1) * t);
+    const g = Math.round(g1 + (g2 - g1) * t);
+    const b = Math.round(b1 + (b2 - b1) * t);
+    return `rgb(${r}, ${g}, ${b})`;
+}
+
 function drawWorld() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Draw sky background
+    // Draw sky background with day/night cycle
+    const dayPhase = getDayPhase(worldTick);
+    const sky = getSkyColors(dayPhase);
     const skyGradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-    skyGradient.addColorStop(0, '#5DADE2');
-    skyGradient.addColorStop(1, '#AED6F1');
+    skyGradient.addColorStop(0, sky.top);
+    skyGradient.addColorStop(1, sky.bottom);
     ctx.fillStyle = skyGradient;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -344,6 +409,12 @@ function drawWorld() {
 
     // Restore context
     ctx.restore();
+
+    // Day/night ambient overlay (drawn after restore, covers entire canvas)
+    if (sky.ambientAlpha > 0) {
+        ctx.fillStyle = sky.overlay;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
 
     // Draw minimap overlay
     drawMinimap();
@@ -931,67 +1002,196 @@ function drawDecorations(x, y, terrain, worldX, worldY) {
 function drawStructure(x, y, structureType) {
     if (!structureType) return;
 
+    // Shadow under structure
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
+    ctx.beginPath();
+    ctx.ellipse(x, y + 2, 20, 6, 0, 0, Math.PI * 2);
+    ctx.fill();
+
     if (structureType === 'shelter') {
-        // Draw A-frame shelter
-        ctx.fillStyle = '#8B4513';
+        // Improved A-frame shelter with log texture
+        // Back wall
+        ctx.fillStyle = '#6D4C41';
         ctx.beginPath();
-        ctx.moveTo(x, y - 35);
-        ctx.lineTo(x - 18, y - 5);
+        ctx.moveTo(x - 18, y - 5);
         ctx.lineTo(x + 18, y - 5);
+        ctx.lineTo(x + 18, y + 5);
+        ctx.lineTo(x - 18, y + 5);
         ctx.closePath();
         ctx.fill();
-        ctx.strokeStyle = '#5D4037';
-        ctx.lineWidth = 2;
-        ctx.stroke();
 
-        // Door
-        ctx.fillStyle = '#3E2723';
-        ctx.fillRect(x - 5, y - 15, 10, 10);
-
-        // Roof highlight
-        ctx.strokeStyle = '#A1887F';
-        ctx.lineWidth = 1;
+        // Roof (two slopes)
+        ctx.fillStyle = '#8B4513';
         ctx.beginPath();
-        ctx.moveTo(x, y - 35);
-        ctx.lineTo(x - 10, y - 15);
+        ctx.moveTo(x, y - 38);
+        ctx.lineTo(x - 22, y - 5);
+        ctx.lineTo(x, y - 8);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.fillStyle = '#A0522D';
+        ctx.beginPath();
+        ctx.moveTo(x, y - 38);
+        ctx.lineTo(x + 22, y - 5);
+        ctx.lineTo(x, y - 8);
+        ctx.closePath();
+        ctx.fill();
+
+        // Roof outline
+        ctx.strokeStyle = '#4E342E';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(x, y - 38);
+        ctx.lineTo(x - 22, y - 5);
+        ctx.moveTo(x, y - 38);
+        ctx.lineTo(x + 22, y - 5);
         ctx.stroke();
+
+        // Door opening
+        ctx.fillStyle = '#2E1B0E';
+        ctx.beginPath();
+        ctx.moveTo(x - 5, y - 3);
+        ctx.lineTo(x + 5, y - 3);
+        ctx.lineTo(x + 5, y + 5);
+        ctx.lineTo(x - 5, y + 5);
+        ctx.closePath();
+        ctx.fill();
+
+        // Log texture lines on roof
+        ctx.strokeStyle = '#5D4037';
+        ctx.lineWidth = 0.5;
+        for (let i = 1; i <= 3; i++) {
+            const t = i / 4;
+            ctx.beginPath();
+            ctx.moveTo(x - 22 * t + (1 - t) * 0, y - 5 * t + (1 - t) * (-38) + 4);
+            ctx.lineTo(x, y - 38 + (38 - 8) * t + 4);
+            ctx.stroke();
+        }
     } else if (structureType === 'marker') {
-        // Draw flag post
+        // Flag post
         ctx.fillStyle = '#5D4037';
         ctx.fillRect(x - 2, y - 30, 4, 30);
 
-        // Flag
+        // Animated flag with wave
+        const time = performance.now() / 1000;
+        const wave = Math.sin(time * 3) * 2;
         ctx.fillStyle = '#E53935';
         ctx.beginPath();
         ctx.moveTo(x + 2, y - 30);
-        ctx.lineTo(x + 18, y - 24);
+        ctx.quadraticCurveTo(x + 10, y - 27 + wave, x + 18, y - 24);
         ctx.lineTo(x + 2, y - 18);
         ctx.closePath();
         ctx.fill();
 
-        // Flag wave
+        // Flag outline
         ctx.strokeStyle = '#B71C1C';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(x + 6, y - 28);
-        ctx.quadraticCurveTo(x + 12, y - 26, x + 14, y - 24);
+        ctx.lineWidth = 0.8;
         ctx.stroke();
     } else if (structureType === 'bridge') {
-        // Draw wooden bridge planks
+        // Wooden bridge planks
         ctx.fillStyle = '#8D6E63';
         for (let i = -2; i <= 2; i++) {
             ctx.fillRect(x + i * 8 - 3, y - 8, 6, 16);
         }
 
-        // Rails
+        // Plank lines
         ctx.strokeStyle = '#5D4037';
-        ctx.lineWidth = 2;
+        ctx.lineWidth = 0.5;
+        for (let i = -2; i <= 2; i++) {
+            ctx.beginPath();
+            ctx.moveTo(x + i * 8, y - 6);
+            ctx.lineTo(x + i * 8, y + 6);
+            ctx.stroke();
+        }
+
+        // Rails
+        ctx.strokeStyle = '#4E342E';
+        ctx.lineWidth = 2.5;
         ctx.beginPath();
         ctx.moveTo(x - 20, y - 10);
         ctx.lineTo(x + 20, y - 10);
         ctx.moveTo(x - 20, y + 6);
         ctx.lineTo(x + 20, y + 6);
         ctx.stroke();
+
+        // Rail posts
+        ctx.fillStyle = '#5D4037';
+        ctx.fillRect(x - 20, y - 14, 3, 8);
+        ctx.fillRect(x + 17, y - 14, 3, 8);
+    } else if (structureType === 'storage') {
+        // Wooden chest
+        ctx.fillStyle = '#A1887F';
+        ctx.fillRect(x - 12, y - 14, 24, 16);
+        // Chest lid (slightly darker)
+        ctx.fillStyle = '#8D6E63';
+        ctx.fillRect(x - 13, y - 18, 26, 6);
+        // Lid arc
+        ctx.beginPath();
+        ctx.moveTo(x - 13, y - 18);
+        ctx.quadraticCurveTo(x, y - 22, x + 13, y - 18);
+        ctx.strokeStyle = '#5D4037';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        // Lock
+        ctx.fillStyle = '#FFD54F';
+        ctx.fillRect(x - 3, y - 16, 6, 4);
+        ctx.strokeStyle = '#F9A825';
+        ctx.lineWidth = 0.8;
+        ctx.strokeRect(x - 3, y - 16, 6, 4);
+        // Outline
+        ctx.strokeStyle = '#4E342E';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x - 12, y - 14, 24, 16);
+    } else if (structureType === 'campfire') {
+        // Stones in circle
+        const stoneAngles = [0, 0.8, 1.6, 2.4, 3.2, 4.0, 4.8, 5.6];
+        ctx.fillStyle = '#78909C';
+        stoneAngles.forEach(a => {
+            ctx.beginPath();
+            ctx.ellipse(
+                x + Math.cos(a) * 10,
+                y + Math.sin(a) * 5,
+                4, 3, a * 0.3, 0, Math.PI * 2
+            );
+            ctx.fill();
+        });
+
+        // Animated flames
+        const time = performance.now() / 1000;
+        const flames = [
+            { dx: 0, h: 18, w: 5, color: '#FF6F00' },
+            { dx: -4, h: 13, w: 3.5, color: '#FF8F00' },
+            { dx: 4, h: 14, w: 3.5, color: '#FFA000' },
+            { dx: -1, h: 10, w: 4, color: '#FFCA28' }
+        ];
+        flames.forEach((f, i) => {
+            const flicker = Math.sin(time * 8 + i * 2) * 2;
+            const sway = Math.sin(time * 3 + i) * 1.5;
+            ctx.fillStyle = f.color;
+            ctx.beginPath();
+            ctx.moveTo(x + f.dx - f.w + sway, y - 2);
+            ctx.quadraticCurveTo(
+                x + f.dx + sway, y - f.h - flicker,
+                x + f.dx + f.w + sway, y - 2
+            );
+            ctx.closePath();
+            ctx.fill();
+        });
+
+        // Inner glow
+        ctx.fillStyle = '#FFF8E1';
+        ctx.globalAlpha = 0.6 + Math.sin(time * 6) * 0.2;
+        ctx.beginPath();
+        ctx.ellipse(x, y - 4, 3, 5, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1.0;
+
+        // Warm glow circle on ground
+        const glowGrad = ctx.createRadialGradient(x, y, 2, x, y, 25);
+        glowGrad.addColorStop(0, 'rgba(255, 160, 0, 0.15)');
+        glowGrad.addColorStop(1, 'rgba(255, 160, 0, 0)');
+        ctx.fillStyle = glowGrad;
+        ctx.fillRect(x - 25, y - 25, 50, 50);
     }
 }
 
@@ -1275,6 +1475,13 @@ function drawCreature(x, y, name, color, lastAction, agentId, energy, maxEnergy,
 
     const creatureY = y - 25 + jumpOffset; // Apply jump/idle offset
     const creatureSize = TILE_SIZE * 0.9; // Scale with tile size (increased from 0.4 to 0.65 for bigger sprites)
+
+    // Draw ground shadow (stays at ground level, doesn't move with jump)
+    const shadowScale = 1 - Math.abs(jumpOffset) / 40; // Shrinks slightly when higher
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.18)';
+    ctx.beginPath();
+    ctx.ellipse(x, y - 8, creatureSize * 0.25 * shadowScale, creatureSize * 0.1 * shadowScale, 0, 0, Math.PI * 2);
+    ctx.fill();
 
     // Draw speech bubble if there's a recent action (within last 5 ticks)
     if (lastAction && (worldTick - lastAction.timestamp) <= 5) {
