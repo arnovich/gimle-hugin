@@ -173,18 +173,23 @@ def generate_world_html(
                 else:
                     neighbors[direction] = None
 
-            cells_data.append(
-                {
-                    "x": screen_x,
-                    "y": screen_y,
-                    "terrain": cell.terrain.value,
-                    "color": terrain_color,
-                    "world_x": x_pos,
-                    "world_y": y_pos,
-                    "structure": cell.structure,
-                    "neighbors": neighbors,
-                }
-            )
+            cell_entry = {
+                "x": screen_x,
+                "y": screen_y,
+                "terrain": cell.terrain.value,
+                "color": terrain_color,
+                "world_x": x_pos,
+                "world_y": y_pos,
+                "structure": cell.structure,
+                "neighbors": neighbors,
+            }
+            if cell.lit:
+                cell_entry["lit"] = True
+            if cell.structure == "storage":
+                cell_entry["item_count"] = sum(
+                    1 for o in cell.objects if o.type.value == "item"
+                )
+            cells_data.append(cell_entry)
 
             # Items
             for obj in cell.objects:

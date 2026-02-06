@@ -138,12 +138,22 @@ def take_tool(
             reason=reason,
         )
 
+    # Note storage remaining capacity
+    storage_info = None
+    if cell and cell.structure == "storage":
+        remaining = sum(1 for o in cell.objects if o.type.value == "item")
+        storage_info = f"Storage has {remaining} items remaining."
+
+    msg = f"You picked up {object_name}"
+    if storage_info:
+        msg += f" ({storage_info})"
+
     return ToolResponse(
         is_error=False,
         content={
             "success": True,
             "object": obj.to_dict(),
-            "message": f"You picked up {object_name}",
+            "message": msg,
             "inventory": (
                 [item.to_dict() for item in creature.get_inventory()]
                 if creature

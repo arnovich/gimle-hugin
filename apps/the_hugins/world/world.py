@@ -323,6 +323,9 @@ class World:
             ):
                 self._grow_plant(cell)
 
+        # Update campfire lit flags
+        self._update_campfire_lighting()
+
         # Spawn resources periodically
         if self.tick % SPAWN_INTERVAL_TICKS == 0:
             self._spawn_resources(num_items=SPAWN_COUNT)
@@ -361,6 +364,21 @@ class World:
         cell.planted_seed = None
         cell.plant_growth_tick = 0
         cell.terrain = TerrainType.GRASS  # Return to grass after harvest
+
+    def _update_campfire_lighting(self) -> None:
+        """Set lit flag on cells within radius 2 of campfires."""
+        # Clear all lit flags first
+        for cell in self.cells.values():
+            cell.lit = False
+
+        # Find campfires and light nearby cells
+        for (cx, cy), cell in self.cells.items():
+            if cell.structure == "campfire":
+                for dy in range(-2, 3):
+                    for dx in range(-2, 3):
+                        neighbor = self.cells.get((cx + dx, cy + dy))
+                        if neighbor:
+                            neighbor.lit = True
 
     def _spawn_resources(self, num_items: int = 3) -> None:
         """Spawn random resources in the world."""

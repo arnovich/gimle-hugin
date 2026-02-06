@@ -2,6 +2,8 @@
 
 from typing import TYPE_CHECKING, Any, Dict, Optional, cast
 
+from world.structures import STORAGE_CAPACITY
+
 from gimle.hugin.tools.tool import ToolResponse
 
 if TYPE_CHECKING:
@@ -106,9 +108,28 @@ def drop_tool(
     # Add to cell
     cell = world.get_cell(x, y)
     if not cell:
+        # Put item back in inventory since we already removed it
+        creature.add_to_inventory(obj)
         return ToolResponse(
-            is_error=True, content={"error": f"Cell at ({x}, {y}) not found"}
+            is_error=True,
+            content={"error": f"Cell at ({x}, {y}) not found"},
         )
+
+    # Enforce storage capacity on storage cells
+    if cell.structure == "storage":
+        item_count = sum(1 for o in cell.objects if o.type.value == "item")
+        if item_count >= STORAGE_CAPACITY:
+            creature.add_to_inventory(obj)
+            return ToolResponse(
+                is_error=True,
+                content={
+                    "error": (
+                        f"Storage is full ({item_count}/"
+                        f"{STORAGE_CAPACITY} items)."
+                    ),
+                    "hint": "Take some items out first.",
+                },
+            )
 
     cell.add_object(obj)
 

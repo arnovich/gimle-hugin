@@ -3,6 +3,7 @@
 from typing import TYPE_CHECKING, Any, Dict, Optional, cast
 
 from world.economy import BRIDGE_ENERGY_COST, TERRAIN_ENERGY_COST
+from world.structures import STRUCTURE_EFFECTS
 
 from gimle.hugin.tools.tool import ToolResponse
 
@@ -61,8 +62,15 @@ def look_tool(
 
     x, y = position
 
-    # Get 3x3 view (radius=1 means 1 cell in each direction)
-    view_cells = world.get_view(x, y, radius=1)
+    # Marker extends vision to 5x5
+    current_cell = world.get_cell(x, y)
+    radius = 1
+    if current_cell and current_cell.structure in STRUCTURE_EFFECTS:
+        override = STRUCTURE_EFFECTS[current_cell.structure].get("look_radius")
+        if override:
+            radius = override
+
+    view_cells = world.get_view(x, y, radius=radius)
 
     # Organize cells into a grid for easier visualization
     view_data = []
@@ -85,6 +93,9 @@ def look_tool(
         }
         if cell.structure:
             cell_data["structure"] = cell.structure
+            effects = STRUCTURE_EFFECTS.get(cell.structure, {})
+            if "description" in effects:
+                cell_data["structure_effect"] = effects["description"]
         view_data.append(cell_data)
 
     # Create a text description
@@ -131,7 +142,15 @@ def look_tool(
             description_parts.append(f"{location}: {terrain_name}{cost_str}")
 
         if cell.structure:
-            description_parts.append(f"  Structure: {cell.structure}")
+            effects = STRUCTURE_EFFECTS.get(cell.structure, {})
+            effect_note = (
+                f" - {effects['description']}"
+                if "description" in effects
+                else ""
+            )
+            description_parts.append(
+                f"  Structure: {cell.structure}{effect_note}"
+            )
         if cell.objects:
             obj_names = [obj.name for obj in cell.objects]
             description_parts.append(f"  Objects: {', '.join(obj_names)}")
@@ -149,10 +168,13 @@ def look_tool(
             reason=reason,
         )
 
+    grid_size = radius * 2 + 1
     return ToolResponse(
         is_error=False,
         content={
             "position": {"x": x, "y": y},
+            "view_radius": radius,
+            "view_size": f"{grid_size}x{grid_size}",
             "view": view_data,
             "description": (
                 "\n".join(description_parts)

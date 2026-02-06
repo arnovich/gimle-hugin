@@ -406,13 +406,21 @@ function drawWorld() {
         );
     });
 
+    // Draw campfire glow on lit cells (before structures for layering)
+    sortedCells.forEach(cell => {
+        if (cell.lit) {
+            drawCampfireGlow(cell.x + viewOffsetX, cell.y + viewOffsetY);
+        }
+    });
+
     // Draw structures on terrain (sorted by y for proper layering)
     sortedCells.forEach(cell => {
         if (cell.structure) {
             drawStructure(
                 cell.x + viewOffsetX,
                 cell.y + viewOffsetY,
-                cell.structure
+                cell.structure,
+                cell.item_count
             );
         }
     });
@@ -1118,11 +1126,26 @@ function drawDecorations(x, y, terrain, worldX, worldY) {
     }
 }
 
+// Campfire warm glow on lit cells (stronger at night)
+function drawCampfireGlow(x, y) {
+    const dayPhase = getDayPhase(worldTick);
+    // Glow is subtle during day, strong at night
+    const nightStrength = dayPhase > 0.65 ? 0.18 : dayPhase > 0.5 ? 0.08 : 0.04;
+    const glowRadius = TILE_SIZE * 0.8;
+    const grad = ctx.createRadialGradient(x, y - TILE_SIZE / 4, 0, x, y - TILE_SIZE / 4, glowRadius);
+    grad.addColorStop(0, `rgba(255, 160, 60, ${nightStrength})`);
+    grad.addColorStop(1, 'rgba(255, 160, 60, 0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(x, y - TILE_SIZE / 4, glowRadius, 0, Math.PI * 2);
+    ctx.fill();
+}
+
 // ============================================================
 // 9. Structure Rendering
 // ============================================================
 
-function drawStructure(x, y, structureType) {
+function drawStructure(x, y, structureType, itemCount) {
     if (!structureType) return;
 
     // Shadow under structure
@@ -1210,6 +1233,16 @@ function drawStructure(x, y, structureType) {
         ctx.strokeStyle = '#B71C1C';
         ctx.lineWidth = 0.8;
         ctx.stroke();
+
+        // Visibility ring (dashed circle showing extended look range)
+        ctx.save();
+        ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = 'rgba(229, 57, 53, 0.35)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.ellipse(x, y - 4, TILE_SIZE * 1.2, TILE_SIZE * 0.6, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
     } else if (structureType === 'bridge') {
         // Wooden bridge planks
         ctx.fillStyle = '#8D6E63';
@@ -1265,6 +1298,21 @@ function drawStructure(x, y, structureType) {
         ctx.strokeStyle = '#4E342E';
         ctx.lineWidth = 1;
         ctx.strokeRect(x - 12, y - 14, 24, 16);
+
+        // Item count badge (top-right corner)
+        if (itemCount !== undefined && itemCount > 0) {
+            const badgeX = x + 14;
+            const badgeY = y - 20;
+            ctx.fillStyle = '#1565C0';
+            ctx.beginPath();
+            ctx.arc(badgeX, badgeY, 7, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 9px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(String(itemCount), badgeX, badgeY);
+        }
     } else if (structureType === 'campfire') {
         // Stones in circle
         const stoneAngles = [0, 0.8, 1.6, 2.4, 3.2, 4.0, 4.8, 5.6];

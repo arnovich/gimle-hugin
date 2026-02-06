@@ -3,6 +3,7 @@
 from typing import TYPE_CHECKING, Any, Dict, Optional, cast
 
 from world.economy import ENERGY_RECOVERY_REST, MAX_ENERGY
+from world.structures import STRUCTURE_EFFECTS
 
 from gimle.hugin.tools.tool import ToolResponse
 
@@ -60,22 +61,46 @@ def rest_tool(
             content={"error": f"Creature {agent_id} not found in world"},
         )
 
-    # Restore energy
+    # Check for structure rest bonus
+    cell = world.get_cell(*creature.position)
+    structure = cell.structure if cell else None
+    rest_bonus = 0
+    bonus_source = None
+    if structure and structure in STRUCTURE_EFFECTS:
+        rest_bonus = STRUCTURE_EFFECTS[structure].get("rest_bonus", 0)
+        if rest_bonus > 0:
+            bonus_source = structure
+
+    # Restore energy (base + structure bonus)
+    total_recovery = ENERGY_RECOVERY_REST + rest_bonus
     old_energy = creature.energy
-    actual_gained = creature.add_energy(ENERGY_RECOVERY_REST)
+    actual_gained = creature.add_energy(total_recovery)
+
+    # Build description
+    if bonus_source:
+        desc = (
+            f"Rested at {bonus_source} and gained "
+            f"{actual_gained} energy "
+            f"(base {ENERGY_RECOVERY_REST} + "
+            f"{bonus_source} bonus {rest_bonus})"
+        )
+    else:
+        desc = f"Rested and gained {actual_gained} energy"
 
     # Log the action
     world.action_log.add_action(
         creature_name=creature.name,
         agent_id=agent_id,
         action_type="rest",
-        description=f"Rested and gained {actual_gained} energy",
+        description=desc,
         timestamp=world.tick,
         location=creature.position,
         details={
             "energy_gained": actual_gained,
             "old_energy": old_energy,
             "new_energy": creature.energy,
+            "structure": bonus_source,
+            "rest_bonus": rest_bonus,
         },
         reason=reason,
     )
@@ -88,9 +113,16 @@ def rest_tool(
             "old_energy": old_energy,
             "new_energy": creature.energy,
             "max_energy": MAX_ENERGY,
+            "structure": bonus_source,
+            "rest_bonus": rest_bonus,
             "message": (
                 f"You rested and gained {actual_gained} energy. "
                 f"Energy: {creature.energy}/{MAX_ENERGY}"
+                + (
+                    f" ({bonus_source} bonus: +{rest_bonus})"
+                    if bonus_source
+                    else ""
+                )
             ),
         },
     )
