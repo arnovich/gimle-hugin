@@ -283,6 +283,7 @@ def generate_world_html(
             <span><kbd>&#8592;</kbd><kbd>&#8593;</kbd><kbd>&#8595;</kbd><kbd>&#8594;</kbd> Pan</span>
             <span>Click creature to talk</span>
             <span>Drag creature to move</span>
+            <span><kbd>M</kbd> Minimap</span>
             <span><kbd>?</kbd> All shortcuts</span>
             <span class="speed-control">
                 Speed: <input type="range" id="speedSlider" min="0.1" max="5" value="1" step="0.1" oninput="updateSpeed(this.value)">
@@ -297,6 +298,7 @@ def generate_world_html(
         <div class="main-content">
             <div class="canvas-container">
                 <canvas id="worldCanvas"></canvas>
+                <canvas id="minimapCanvas" width="150" height="150"></canvas>
                 <div class="tooltip" id="tooltip"></div>
                 <div class="simulation-paused" id="simulationPaused">
                     Simulation Paused &mdash; Waiting for human interaction
@@ -311,6 +313,7 @@ def generate_world_html(
 
                 <div class="actions-log">
                     <h2>Recent Actions</h2>
+                    <div class="action-filters" id="actionFilters"></div>
                     <div id="actionsList">
                         {generate_actions_html(world, count=30)}
                     </div>
@@ -354,6 +357,7 @@ def generate_world_html(
             </div>
             <div class="help-section">
                 <h3>Other</h3>
+                <div class="help-row"><kbd>M</kbd> Toggle minimap</div>
                 <div class="help-row"><kbd>R</kbd> or <kbd>Home</kbd> Reset view</div>
                 <div class="help-row"><kbd>?</kbd> Toggle this help</div>
             </div>

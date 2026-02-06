@@ -344,6 +344,144 @@ function drawWorld() {
 
     // Restore context
     ctx.restore();
+
+    // Draw minimap overlay
+    drawMinimap();
+}
+
+// ---- Minimap ----
+const minimapCanvas = document.getElementById('minimapCanvas');
+const minimapCtx = minimapCanvas ? minimapCanvas.getContext('2d') : null;
+let minimapVisible = true;
+
+const TERRAIN_MINIMAP_COLORS = {
+    grass: '#7ec850',
+    water: '#4a90d9',
+    sand: '#e8d174',
+    stone: '#8a8a8a',
+    dirt: '#a0785a',
+    forest: '#3e7a28'
+};
+
+function drawMinimap() {
+    if (!minimapCtx || !minimapVisible) return;
+    const mw = minimapCanvas.width;
+    const mh = minimapCanvas.height;
+    minimapCtx.clearRect(0, 0, mw, mh);
+
+    // Background
+    minimapCtx.fillStyle = 'rgba(20, 20, 20, 0.7)';
+    minimapCtx.fillRect(0, 0, mw, mh);
+
+    if (cells.length === 0) return;
+
+    // Find world bounds from cell world coordinates
+    let minWX = Infinity, maxWX = -Infinity;
+    let minWY = Infinity, maxWY = -Infinity;
+    cells.forEach(cell => {
+        if (cell.world_x < minWX) minWX = cell.world_x;
+        if (cell.world_x > maxWX) maxWX = cell.world_x;
+        if (cell.world_y < minWY) minWY = cell.world_y;
+        if (cell.world_y > maxWY) maxWY = cell.world_y;
+    });
+
+    // Use full world dimensions if available
+    const ww = worldWidth || (maxWX - minWX + 1);
+    const wh = worldHeight || (maxWY - minWY + 1);
+    const cellW = (mw - 4) / ww;
+    const cellH = (mh - 4) / wh;
+    const pad = 2;
+
+    // Draw terrain cells
+    cells.forEach(cell => {
+        const cx = pad + (cell.world_x - minWX) * cellW;
+        const cy = pad + (cell.world_y - minWY) * cellH;
+        minimapCtx.fillStyle = TERRAIN_MINIMAP_COLORS[cell.terrain] || '#666';
+        minimapCtx.fillRect(cx, cy, Math.max(cellW, 1), Math.max(cellH, 1));
+    });
+
+    // Draw creature positions as bright dots
+    creatures.forEach(creature => {
+        const wx = creature.world_x !== undefined ? creature.world_x : 0;
+        const wy = creature.world_y !== undefined ? creature.world_y : 0;
+        const cx = pad + (wx - minWX) * cellW + cellW / 2;
+        const cy = pad + (wy - minWY) * cellH + cellH / 2;
+        minimapCtx.fillStyle = creature.color || '#fff';
+        minimapCtx.beginPath();
+        minimapCtx.arc(cx, cy, Math.max(3, cellW * 0.6), 0, Math.PI * 2);
+        minimapCtx.fill();
+        minimapCtx.strokeStyle = '#fff';
+        minimapCtx.lineWidth = 0.5;
+        minimapCtx.stroke();
+    });
+
+    // Draw viewport rectangle
+    // We need to map the current canvas viewport back to world coordinates
+    // The viewport shows cells whose screen positions (cell.x + viewOffsetX) fall within canvas bounds
+    // Reverse: world_x range where cell.x + viewOffsetX is within [0, canvas.width]
+    // cell.x depends on isometric transform, so approximate using the center
+    const centerX = canvas.width / 2;
+    const centerY = canvas.height / 2;
+    // Visible world area: estimate from the view offset and zoom
+    const visibleW = (canvas.width / zoomLevel) / TILE_SIZE * 1.5;
+    const visibleH = (canvas.height / zoomLevel) / (TILE_SIZE / 2) * 1.5;
+    const viewWorldCX = viewCenterX - viewOffsetX / (TILE_SIZE / 2);
+    const viewWorldCY = viewCenterY - viewOffsetY / (TILE_SIZE / 4);
+
+    // Simple approximation: viewport rectangle based on fraction of world visible
+    const vpW = Math.min(ww, visibleW) * cellW;
+    const vpH = Math.min(wh, visibleH) * cellH;
+    // Center of viewport in minimap coords
+    const vpCX = pad + ww * cellW / 2 - viewOffsetX / (TILE_SIZE / 2) * cellW * 0.5;
+    const vpCY = pad + wh * cellH / 2 - viewOffsetY / (TILE_SIZE / 4) * cellH * 0.5;
+
+    minimapCtx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+    minimapCtx.lineWidth = 1.5;
+    minimapCtx.strokeRect(
+        vpCX - vpW / 2,
+        vpCY - vpH / 2,
+        vpW,
+        vpH
+    );
+}
+
+function toggleMinimap() {
+    minimapVisible = !minimapVisible;
+    if (minimapCanvas) {
+        minimapCanvas.classList.toggle('hidden', !minimapVisible);
+    }
+    if (minimapVisible) drawMinimap();
+}
+
+// Click on minimap to navigate
+if (minimapCanvas) {
+    minimapCanvas.addEventListener('click', function(e) {
+        const rect = minimapCanvas.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+        const mw = minimapCanvas.width;
+        const mh = minimapCanvas.height;
+
+        // Convert click to fraction of map
+        const fracX = mx / mw;
+        const fracY = my / mh;
+
+        // Convert to world coordinates
+        const targetWX = fracX * worldWidth;
+        const targetWY = fracY * worldHeight;
+
+        // Convert to isometric screen coordinates
+        const relX = targetWX - viewStartX;
+        const relY = targetWY - viewStartY;
+        const iso = worldToIsometric(relX, relY, TILE_SIZE);
+        const screenX = iso[0] + (CANVAS_WIDTH / 4);
+        const screenY = iso[1] + (CANVAS_HEIGHT / 8);
+
+        // Center the viewport on this position
+        viewOffsetX = canvas.width / 2 - screenX;
+        viewOffsetY = canvas.height / 2 - screenY;
+        drawWorld();
+    });
 }
 
 function drawIsometricTile(x, y, color, terrain) {
@@ -1804,9 +1942,14 @@ function updateCreaturesList(creaturesData) {
             : '';
 
         const isExpanded = expandedCreatures.has(agentId) ? ' expanded' : '';
+        const spriteKey = `creature_${c.name.toLowerCase()}`;
+        const spriteSrc = spritePaths[spriteKey] || '';
+        const avatarHtml = spriteSrc
+            ? `<img class="creature-avatar" src="${spriteSrc}" alt="${c.name}">`
+            : '';
         html += `
             <div class="creature-info${isExpanded}" onclick="toggleCreature(this, '${agentId}')">
-                <h3>${c.name} <span class="expand-indicator">&#9654;</span></h3>
+                <h3><div class="creature-header">${avatarHtml}${c.name}</div> <span class="expand-indicator">&#9654;</span></h3>
                 <div class="creature-stats">
                     <div class="stat-bar">
                         <span class="stat-label">Energy</span>
@@ -1837,6 +1980,100 @@ function updateCreaturesList(creaturesData) {
     creaturesList.innerHTML = html;
 }
 
+// ---- Action Log Filtering ----
+const activeActionFilters = new Set(); // active action_type filters
+const activeCreatureFilters = new Set(); // active creature_name filters
+let lastActionsData = []; // cache for re-filtering
+
+function buildFilterButtons(actions) {
+    const filtersDiv = document.getElementById('actionFilters');
+    if (!filtersDiv) return;
+
+    // Collect unique action types and creature names
+    const types = new Set();
+    const names = new Set();
+    actions.forEach(a => {
+        if (a.action_type) types.add(a.action_type);
+        if (a.creature_name) names.add(a.creature_name);
+    });
+
+    let html = '';
+    // Action type buttons
+    types.forEach(type => {
+        const active = activeActionFilters.has(type) ? ' active' : '';
+        html += `<button class="action-filter-btn${active}" data-filter-type="${type}" onclick="toggleActionFilter('${type}')">${type}</button>`;
+    });
+    // Creature name buttons
+    names.forEach(name => {
+        const active = activeCreatureFilters.has(name) ? ' active' : '';
+        const color = getCreatureColor(name);
+        html += `<button class="action-filter-btn creature-filter${active}" data-filter-creature="${name}" style="border-left-color: ${color};" onclick="toggleCreatureFilter('${name}')">${name}</button>`;
+    });
+    filtersDiv.innerHTML = html;
+}
+
+function toggleActionFilter(type) {
+    if (activeActionFilters.has(type)) {
+        activeActionFilters.delete(type);
+    } else {
+        activeActionFilters.add(type);
+    }
+    renderFilteredActions();
+    // Update button state
+    document.querySelectorAll('.action-filter-btn[data-filter-type]').forEach(btn => {
+        btn.classList.toggle('active', activeActionFilters.has(btn.dataset.filterType));
+    });
+}
+
+function toggleCreatureFilter(name) {
+    if (activeCreatureFilters.has(name)) {
+        activeCreatureFilters.delete(name);
+    } else {
+        activeCreatureFilters.add(name);
+    }
+    renderFilteredActions();
+    document.querySelectorAll('.action-filter-btn[data-filter-creature]').forEach(btn => {
+        btn.classList.toggle('active', activeCreatureFilters.has(btn.dataset.filterCreature));
+    });
+}
+
+function renderFilteredActions() {
+    const actionsList = document.getElementById('actionsList');
+    if (!actionsList) return;
+
+    let filtered = lastActionsData;
+    if (activeActionFilters.size > 0) {
+        filtered = filtered.filter(a => activeActionFilters.has(a.action_type));
+    }
+    if (activeCreatureFilters.size > 0) {
+        filtered = filtered.filter(a => activeCreatureFilters.has(a.creature_name));
+    }
+
+    if (filtered.length === 0) {
+        actionsList.innerHTML = '<div class="action-item">No matching actions...</div>';
+        return;
+    }
+
+    let html = '';
+    for (let i = filtered.length - 1; i >= 0; i--) {
+        const action = filtered[i];
+        const reasonHtml = action.reason
+            ? `<div class="action-reason"><em>${action.reason}</em></div>`
+            : '';
+        html += `
+            <div class="action-item ${action.action_type}">
+                <div>
+                    <span class="action-creature">${action.creature_name}</span>
+                    <span class="action-description">${action.description}</span>
+                </div>
+                ${reasonHtml}
+                <div class="action-time">Tick ${action.timestamp}</div>
+            </div>
+        `;
+    }
+    actionsList.innerHTML = html;
+}
+
 function updateActionsList() {
     fetch('/api/actions?count=30')
         .then(response => {
@@ -1846,36 +2083,9 @@ function updateActionsList() {
             return response.json();
         })
         .then(actions => {
-            const actionsList = document.getElementById('actionsList');
-            if (!actionsList) {
-                console.error('Actions list element not found');
-                return;
-            }
-
-            if (actions.length === 0) {
-                actionsList.innerHTML = '<div class="action-item">No actions yet...</div>';
-                return;
-            }
-
-            let html = '';
-            // Show most recent first (reverse order)
-            for (let i = actions.length - 1; i >= 0; i--) {
-                const action = actions[i];
-                const reasonHtml = action.reason
-                    ? `<div class="action-reason"><em>${action.reason}</em></div>`
-                    : '';
-                html += `
-                    <div class="action-item ${action.action_type}">
-                        <div>
-                            <span class="action-creature">${action.creature_name}</span>
-                            <span class="action-description">${action.description}</span>
-                        </div>
-                        ${reasonHtml}
-                        <div class="action-time">Tick ${action.timestamp}</div>
-                    </div>
-                `;
-            }
-            actionsList.innerHTML = html;
+            lastActionsData = actions;
+            buildFilterButtons(actions);
+            renderFilteredActions();
         })
         .catch(error => {
             console.error('Error updating actions:', error);
@@ -2174,6 +2384,11 @@ document.addEventListener('keydown', (e) => {
     // Reset view: Home or R
     if (e.key === 'Home' || e.key === 'r' || e.key === 'R') {
         resetView();
+    }
+
+    // Toggle minimap: M
+    if (e.key === 'm' || e.key === 'M') {
+        toggleMinimap();
     }
 
     // Show help: ?

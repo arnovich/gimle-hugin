@@ -474,6 +474,75 @@ body {
     margin-top: 2px;
 }
 
+/* Minimap */
+#minimapCanvas {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 150px;
+    height: 150px;
+    border: 2px solid rgba(255, 255, 255, 0.6);
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.4);
+    cursor: pointer;
+    z-index: 50;
+    transition: opacity 0.2s;
+}
+
+#minimapCanvas.hidden {
+    display: none;
+}
+
+/* Creature avatar in sidebar */
+.creature-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.creature-avatar {
+    width: 32px;
+    height: 32px;
+    flex-shrink: 0;
+    border-radius: 4px;
+    background: #f0f0f0;
+    object-fit: contain;
+}
+
+/* Action log filters */
+.action-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-bottom: 8px;
+}
+
+.action-filter-btn {
+    padding: 3px 8px;
+    border: 1px solid #ddd;
+    border-radius: 12px;
+    background: #fff;
+    font-size: 0.72em;
+    color: #666;
+    cursor: pointer;
+    transition: all 0.15s;
+    font-family: inherit;
+}
+
+.action-filter-btn:hover {
+    background: #f0f0f0;
+}
+
+.action-filter-btn.active {
+    background: #333;
+    color: #fff;
+    border-color: #333;
+}
+
+.action-filter-btn.creature-filter {
+    border-left-width: 3px;
+}
+
 .tooltip {
     position: absolute;
     background: #1a1a1a;
