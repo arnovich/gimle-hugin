@@ -213,6 +213,8 @@ class WorldHTTPRequestHandler(BaseHTTPRequestHandler):
                 "money": creature.money,
                 "warmth": creature.warmth,
                 "mood": creature.mood,
+                "friends": creature.get_friend_names(),
+                "rivals": creature.get_rival_names(),
                 "pending_trades": [
                     t.to_dict() for t in creature.pending_trades
                 ],

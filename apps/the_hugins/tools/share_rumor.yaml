@@ -1,0 +1,26 @@
+name: share_rumor
+description: "Share a rumor or piece of information about a third creature with a nearby creature. This helps spread knowledge and builds rapport."
+parameters:
+  world_id:
+    type: string
+    description: The ID of the world you are in
+    required: true
+  creature_name:
+    type: string
+    description: Name of the creature to share the rumor with
+    required: true
+  about_creature:
+    type: string
+    description: Name of the creature the rumor is about
+    required: true
+  rumor:
+    type: string
+    description: The rumor or information to share
+    required: true
+  reason:
+    type: string
+    description: Why you are performing this action
+    required: false
+is_interactive: false
+implementation_path: the_hugins.tools.share_rumor:share_rumor_tool
+options: {}

@@ -55,16 +55,26 @@ def get_relationships_tool(
             content={"error": f"Creature {agent_id} not found in world"},
         )
 
+    # Get friend/rival lists
+    friends = creature.get_friend_names()
+    rivals = creature.get_rival_names()
+
     # Get relationships
     relationships: List[RelationshipDict] = []
     for name, rel in creature.relationships.items():
         sentiment_desc = _describe_sentiment(rel.sentiment)
+        classification = "neutral"
+        if name in friends:
+            classification = "friend"
+        elif name in rivals:
+            classification = "rival"
         relationships.append(
             {
                 "creature_name": name,
                 "relationship_type": rel.relationship_type,
                 "sentiment": rel.sentiment,
                 "sentiment_description": sentiment_desc,
+                "classification": classification,
                 "interactions": rel.interactions,
                 "last_interaction_tick": rel.last_interaction_tick,
             }
@@ -79,22 +89,12 @@ def get_relationships_tool(
 
     # Create summary
     if relationships:
-        friends: List[str] = []
-        rivals: List[str] = []
-        for r in relationships:
-            sentiment = r.get("sentiment")
-            name_val = r.get("creature_name")
-            if isinstance(sentiment, int) and isinstance(name_val, str):
-                if sentiment >= 7:
-                    friends.append(name_val)
-                elif sentiment <= 3:
-                    rivals.append(name_val)
-
         summary_parts = [f"You know {len(relationships)} creature(s)."]
         if friends:
             summary_parts.append(f"Friends: {', '.join(friends)}")
         if rivals:
             summary_parts.append(f"Rivals: {', '.join(rivals)}")
+        summary_parts.append(f"Mood: {creature.mood}")
         summary = " ".join(summary_parts)
     else:
         summary = "You haven't met any other creatures yet."
@@ -103,6 +103,9 @@ def get_relationships_tool(
         is_error=False,
         content={
             "relationships": relationships,
+            "friends": friends,
+            "rivals": rivals,
+            "mood": creature.mood,
             "count": len(relationships),
             "summary": summary,
         },

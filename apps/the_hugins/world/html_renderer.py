@@ -239,6 +239,8 @@ def generate_world_html(
                                 "money": creature_state.money,
                                 "warmth": creature_state.warmth,
                                 "mood": creature_state.mood,
+                                "friends": creature_state.get_friend_names(),
+                                "rivals": creature_state.get_rival_names(),
                             }
                         )
 

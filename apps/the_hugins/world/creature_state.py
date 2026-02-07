@@ -98,6 +98,22 @@ class CreatureState:
             self.memories.sort(key=lambda m: m.importance, reverse=True)
             self.memories = self.memories[:50]
 
+    def get_friend_names(self) -> List[str]:
+        """Get names of creatures with sentiment >= 7."""
+        return [
+            name
+            for name, rel in self.relationships.items()
+            if rel.sentiment >= 7
+        ]
+
+    def get_rival_names(self) -> List[str]:
+        """Get names of creatures with sentiment <= 3."""
+        return [
+            name
+            for name, rel in self.relationships.items()
+            if rel.sentiment <= 3
+        ]
+
     def get_relationship(self, creature_name: str) -> Optional[Relationship]:
         """Get relationship with another creature."""
         return self.relationships.get(creature_name)

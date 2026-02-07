@@ -108,6 +108,9 @@ const worldHeight = window.WORLD_DATA.worldHeight;
 // Weather state
 let currentWeather = window.WORLD_DATA.weather || 'clear';
 
+// Selected creature for relationship lines
+let selectedCreatureId = null;
+
 // Creature color cache (preserves server-assigned colors across updates)
 const creatureColors = {};
 creatures.forEach(c => { creatureColors[c.name] = c.color; });
@@ -479,6 +482,9 @@ function drawWorld() {
         }
     });
 
+    // Draw relationship lines for selected creature
+    drawRelationshipLines();
+
     // Draw action effects on top of everything
     updateAndDrawActionEffects();
 
@@ -595,6 +601,47 @@ function drawWeatherOverlay() {
         // Clear weather — remove particles
         weatherParticles.length = 0;
     }
+}
+
+// ============================================================
+// 5c. Relationship Lines
+// ============================================================
+function drawRelationshipLines() {
+    if (!selectedCreatureId) return;
+    const selected = creatures.find(c => c.agent_id === selectedCreatureId);
+    if (!selected) return;
+
+    const friends = selected.friends || [];
+    const rivals = selected.rivals || [];
+
+    creatures.forEach(other => {
+        if (other.agent_id === selectedCreatureId) return;
+        let color = null;
+        if (friends.includes(other.name)) {
+            color = 'rgba(76, 175, 80, 0.5)';  // green
+        } else if (rivals.includes(other.name)) {
+            color = 'rgba(244, 67, 54, 0.5)';  // red
+        } else {
+            // Check if known at all (has any relationship)
+            return;
+        }
+
+        const sx = selected.x + viewOffsetX;
+        const sy = selected.y + viewOffsetY - 25;
+        const ox = other.x + viewOffsetX;
+        const oy = other.y + viewOffsetY - 25;
+
+        ctx.save();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([6, 4]);
+        ctx.beginPath();
+        ctx.moveTo(sx, sy);
+        ctx.lineTo(ox, oy);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
+    });
 }
 
 // ============================================================
@@ -1849,6 +1896,19 @@ function drawCreature(x, y, name, color, lastAction, agentId, energy, maxEnergy,
 
     ctx.restore();
 
+    // Mood-based tint (subtle glow around creature)
+    if (mood === 'happy') {
+        ctx.fillStyle = 'rgba(255, 200, 50, 0.12)';
+        ctx.beginPath();
+        ctx.arc(x, creatureY, creatureSize * 0.45, 0, Math.PI * 2);
+        ctx.fill();
+    } else if (mood === 'miserable') {
+        ctx.fillStyle = 'rgba(50, 100, 200, 0.12)';
+        ctx.beginPath();
+        ctx.arc(x, creatureY, creatureSize * 0.45, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
     // Draw name label below with better styling
     ctx.fillStyle = '#fff';
     ctx.font = `bold ${Math.max(12, TILE_SIZE * 0.18)}px sans-serif`;
@@ -2238,9 +2298,13 @@ function toggleCreature(el, agentId) {
     el.classList.toggle('expanded');
     if (el.classList.contains('expanded')) {
         expandedCreatures.add(agentId);
+        selectedCreatureId = agentId;
         centerOnCreature(agentId);
     } else {
         expandedCreatures.delete(agentId);
+        if (selectedCreatureId === agentId) {
+            selectedCreatureId = null;
+        }
     }
 }
 
@@ -2501,7 +2565,9 @@ function updateWorld() {
                     max_energy: 100,
                     money: c.money !== undefined ? c.money : 50,
                     warmth: c.warmth !== undefined ? c.warmth : 20,
-                    mood: c.mood || 'neutral'
+                    mood: c.mood || 'neutral',
+                    friends: c.friends || [],
+                    rivals: c.rivals || []
                 });
             }
             creatures = newCreatures;
@@ -2624,6 +2690,8 @@ function updateCreaturesList(creaturesData) {
                 <div class="creature-details-full">
                     ${lastAction}
                     ${tradesHtml}
+                    ${(c.friends && c.friends.length > 0) ? `<div class="creature-detail" style="color: #4caf50;"><strong>Friends:</strong> ${c.friends.map(f => escapeHtml(f)).join(', ')}</div>` : ''}
+                    ${(c.rivals && c.rivals.length > 0) ? `<div class="creature-detail" style="color: #f44336;"><strong>Rivals:</strong> ${c.rivals.map(r => escapeHtml(r)).join(', ')}</div>` : ''}
                     <div class="creature-detail"><strong>Description:</strong> ${escapeHtml(c.description || '')}</div>
                     <div class="creature-detail"><strong>Personality:</strong> ${escapeHtml(c.personality)}</div>
                     ${goalsHtml ? `<div class="creature-detail" style="margin-top:6px;"><strong>Goals:</strong></div>${goalsHtml}` : ''}
