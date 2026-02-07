@@ -144,6 +144,10 @@ class World:
         if not self.is_valid_position(x, y):
             return False
 
+        cell = self.get_cell(x, y)
+        if cell and cell.terrain == TerrainType.WATER:
+            return False
+
         if agent_id in self.creatures:
             # Update existing creature position
             self.creatures[agent_id].position = (x, y)
@@ -283,10 +287,20 @@ class World:
         ]
 
         for _ in range(num_items):
-            x = random.randint(0, self.width - 1)
-            y = random.randint(0, self.height - 1)
+            # Find a non-water cell
+            for _attempt in range(50):
+                x = random.randint(0, self.width - 1)
+                y = random.randint(0, self.height - 1)
+                cell = self.get_cell(x, y)
+                if cell and cell.terrain != TerrainType.WATER:
+                    break
+            else:
+                continue
+
             item_name = random.choice(item_names)
-            item_id = f"item_{x}_{y}_{self.tick}_{random.randint(1000, 9999)}"
+            item_id = (
+                f"item_{x}_{y}_{self.tick}" f"_{random.randint(1000, 9999)}"
+            )
 
             item = Object(
                 name=item_name,
