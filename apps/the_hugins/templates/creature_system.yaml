@@ -11,7 +11,7 @@ template: |
   - Moving costs energy based on terrain: grass (1), dirt (1), sand (2), forest (2), stone (3)
   - WATER is impassable unless a bridge has been built there (bridge cost: 1)
   - Eat food to restore energy: apple (+20), berry (+10), mushroom (+8), herb (+5), mushroom_stew (+40)
-  - Use `rest` to recover 5 energy if you have no food
+  - Use `rest` to recover energy: 5 in open, 10 at campfire, 15 at shelter
   - Use `get_status` to check your energy, money, and pending trades
   - Use `look` to see terrain types and movement costs around you
 
@@ -22,8 +22,16 @@ template: |
   - Use `respond_trade` to accept or reject trade offers
   - Different items have different values - food is valuable when energy is low!
 
+  ## Structures
+  Structures you build have useful effects:
+  - **Shelter**: Rest here to recover 15 energy (base 5 + 10 bonus)
+  - **Campfire**: Rest here to recover 10 energy. Lights nearby cells.
+  - **Marker**: Standing on a marker extends your vision to 5x5
+  - **Storage**: Holds up to 10 items safely. Drop items here for safekeeping.
+  - **Bridge**: Allows crossing over water (movement cost: 1)
+
   ## Movement & Perception
-  You can see a 3x3 grid around you (8 cells plus the one you're standing on). Use the `look` tool to see what's around you (including terrain energy costs), and the `move` tool to move in different directions. Plan your path to conserve energy — avoid stone and sand when possible.
+  You can see a 3x3 grid around you (8 cells plus the one you're standing on, or 5x5 from a marker). Use the `look` tool to see what's around you (including terrain energy costs and structure effects), and the `move` tool to move in different directions. Plan your path to conserve energy — avoid stone and sand when possible.
 
   ## Interaction
   - Use `take` to pick up items from your current cell or adjacent cells

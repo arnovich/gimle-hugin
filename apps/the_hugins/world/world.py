@@ -310,6 +310,29 @@ class World:
             )
             self.add_object(x, y, item)
 
+    def add_starter_structures(self, count: int = 6) -> None:
+        """Place a few structures in the world so it feels lived-in."""
+        structure_types = [
+            "campfire",
+            "shelter",
+            "storage",
+            "marker",
+            "campfire",
+            "shelter",
+        ]
+        for i in range(min(count, len(structure_types))):
+            for _attempt in range(50):
+                x = random.randint(2, self.width - 3)
+                y = random.randint(2, self.height - 3)
+                cell = self.get_cell(x, y)
+                if (
+                    cell
+                    and cell.terrain != TerrainType.WATER
+                    and cell.structure is None
+                ):
+                    cell.structure = structure_types[i]
+                    break
+
     def tick_world(self) -> None:
         """Advance the world by one tick."""
         self.tick += 1
@@ -322,6 +345,9 @@ class World:
                 and cell.plant_growth_tick <= self.tick
             ):
                 self._grow_plant(cell)
+
+        # Update campfire lit flags
+        self._update_campfire_lighting()
 
         # Spawn resources periodically
         if self.tick % SPAWN_INTERVAL_TICKS == 0:
@@ -361,6 +387,21 @@ class World:
         cell.planted_seed = None
         cell.plant_growth_tick = 0
         cell.terrain = TerrainType.GRASS  # Return to grass after harvest
+
+    def _update_campfire_lighting(self) -> None:
+        """Set lit flag on cells within radius 2 of campfires."""
+        # Clear all lit flags first
+        for cell in self.cells.values():
+            cell.lit = False
+
+        # Find campfires and light nearby cells
+        for (cx, cy), cell in self.cells.items():
+            if cell.structure == "campfire":
+                for dy in range(-2, 3):
+                    for dx in range(-2, 3):
+                        neighbor = self.cells.get((cx + dx, cy + dy))
+                        if neighbor:
+                            neighbor.lit = True
 
     def _spawn_resources(self, num_items: int = 3) -> None:
         """Spawn random resources in the world."""

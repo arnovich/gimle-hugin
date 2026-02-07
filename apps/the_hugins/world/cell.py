@@ -34,6 +34,7 @@ class Cell:
     planted_seed: Optional[str] = None  # Type of seed planted
     plant_growth_tick: int = 0  # World tick when plant will be ready
     structure: Optional[str] = None  # Built structure (shelter, marker, bridge)
+    lit: bool = False  # Illuminated by a nearby campfire
 
     def add_object(self, obj: Object) -> None:
         """Add an object to this cell."""
@@ -67,4 +68,6 @@ class Cell:
             data["plant_growth_tick"] = self.plant_growth_tick
         if self.structure:
             data["structure"] = self.structure
+        if self.lit:
+            data["lit"] = True
         return data

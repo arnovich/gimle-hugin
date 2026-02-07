@@ -626,7 +626,10 @@ class WorldHTTPRequestHandler(BaseHTTPRequestHandler):
 
             self.send_response(200)
             self.send_header("Content-type", content_type)
-            self.send_header("Cache-Control", "public, max-age=3600")
+            self.send_header(
+                "Cache-Control",
+                "no-cache, no-store, must-revalidate",
+            )
             self.end_headers()
             self.wfile.write(file_data)
         except Exception as e:

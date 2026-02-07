@@ -99,6 +99,7 @@ def create_new_world(
     world.initialize(seed=seed)
 
     world.add_items_to_world(num_items=num_items)
+    world.add_starter_structures()
 
     storage = LocalStorage(base_path=SESSION_DIR)
     env = Environment.load(
