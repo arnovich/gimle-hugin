@@ -31,7 +31,25 @@ WEATHER_VISIBILITY_MODIFIER: Dict[str, int] = {
     "rain": 0,
     "fog": -1,
     "wind": 0,
-    "snow": 0,
+    "snow": -1,
+}
+
+# Extra warmth drain per weather tick (on top of night drain)
+WEATHER_WARMTH_DRAIN: Dict[str, int] = {
+    "clear": 0,
+    "rain": 0,
+    "fog": 0,
+    "wind": 0,
+    "snow": 1,
+}
+
+# Display icons per weather type
+WEATHER_ICONS: Dict[str, str] = {
+    "clear": "☀",
+    "rain": "🌧",
+    "fog": "🌫",
+    "wind": "💨",
+    "snow": "❄",
 }
 
 
@@ -46,11 +64,11 @@ class WeatherSystem:
         """Advance weather, possibly transitioning."""
         if current_tick >= self.next_change_tick:
             self._transition()
-            duration = random.randint(20, 40)
+            duration = random.randint(60, 120)
             self.next_change_tick = current_tick + duration
 
     def _transition(self) -> None:
-        """Pick a new weather type with weighted randomness."""
+        """Pick a new weather type, excluding current."""
         weights = {
             WeatherType.CLEAR: 40,
             WeatherType.RAIN: 20,
@@ -58,6 +76,8 @@ class WeatherSystem:
             WeatherType.WIND: 15,
             WeatherType.SNOW: 10,
         }
+        # Remove current type so weather always visibly changes
+        weights.pop(self.current, None)
         types = list(weights.keys())
         w = list(weights.values())
         self.current = random.choices(types, weights=w, k=1)[0]
@@ -67,8 +87,16 @@ class WeatherSystem:
         return WEATHER_ENERGY_MODIFIER.get(self.current.value, 1.0)
 
     def get_visibility_modifier(self) -> int:
-        """Get look radius modifier (negative reduces radius)."""
+        """Get look radius modifier (negative reduces)."""
         return WEATHER_VISIBILITY_MODIFIER.get(self.current.value, 0)
+
+    def get_warmth_drain(self) -> int:
+        """Get extra warmth drain for current weather."""
+        return WEATHER_WARMTH_DRAIN.get(self.current.value, 0)
+
+    def get_icon(self) -> str:
+        """Get display icon for current weather."""
+        return WEATHER_ICONS.get(self.current.value, "")
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize weather state."""

@@ -23,12 +23,12 @@ template: |
   - Seek shelter or a campfire before nightfall to stay warm and keep your mood up!
 
   ## Weather
-  Weather changes every 20-40 ticks and affects gameplay:
+  Weather changes every 60-120 ticks and affects gameplay:
   - **Clear**: Normal conditions
   - **Rain**: Movement costs 1.5x energy
   - **Fog**: Vision reduced by 1 cell radius
   - **Wind**: Movement costs 1.3x energy
-  - **Snow**: Movement costs 2x energy
+  - **Snow**: Movement costs 2x energy, vision reduced, drains extra warmth at night
   - Use `get_status` to check current weather. Plan your travel accordingly!
 
   ## Economy

@@ -145,6 +145,7 @@ def move_tool(
 
     # Apply weather modifier to movement cost
     weather_mod = world.weather.get_energy_modifier()
+    weather_name = world.weather.current.value
     if weather_mod != 1.0:
         energy_cost = max(1, int(energy_cost * weather_mod))
 
@@ -236,9 +237,15 @@ def move_tool(
             "energy_cost": energy_cost,
             "view": view_data,
             "energy": current_energy,
+            "weather": weather_name,
             "message": (
                 f"You moved {direction} to ({new_x}, {new_y}) "
-                f"[{terrain_name}, cost: {energy_cost} energy]"
+                f"[{terrain_name}, cost: {energy_cost} energy"
+                + (
+                    f", {weather_name} {weather_mod}x]"
+                    if weather_mod != 1.0
+                    else "]"
+                )
             ),
         },
     )

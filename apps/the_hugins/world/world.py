@@ -443,13 +443,14 @@ class World:
 
     def _apply_night_drain(self) -> None:
         """Drain energy and warmth from creatures not on shelter/campfire."""
+        weather_warmth = self.weather.get_warmth_drain()
         for agent_id, creature in self.creatures.items():
             cell = self.get_cell(*creature.position)
             structure = cell.structure if cell else None
             if structure in ("shelter", "campfire"):
                 continue
             creature.remove_energy(NIGHT_ENERGY_DRAIN)
-            creature.remove_warmth(1)
+            creature.remove_warmth(1 + weather_warmth)
 
     def _spawn_resources(self, num_items: int = 3) -> None:
         """Spawn random resources in the world."""

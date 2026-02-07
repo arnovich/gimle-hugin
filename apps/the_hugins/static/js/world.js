@@ -2380,7 +2380,9 @@ function updateWorld() {
                 currentWeather = worldData.weather;
                 const weatherEl = document.getElementById('weatherDisplay');
                 if (weatherEl) {
-                    weatherEl.textContent = worldData.weather.charAt(0).toUpperCase() + worldData.weather.slice(1);
+                    const icon = worldData.weather_icon || '';
+                    const label = worldData.weather.charAt(0).toUpperCase() + worldData.weather.slice(1);
+                    weatherEl.textContent = icon + ' ' + label;
                 }
             }
             console.log('Creatures data received:', creaturesData);

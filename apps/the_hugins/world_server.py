@@ -153,6 +153,7 @@ class WorldHTTPRequestHandler(BaseHTTPRequestHandler):
             "day_phase": self.world.get_day_phase(),
             "temperature": self.world.get_temperature(),
             "weather": self.world.weather.current.value,
+            "weather_icon": self.world.weather.get_icon(),
             "creatures": {
                 agent_id: {
                     "name": creature.name,
