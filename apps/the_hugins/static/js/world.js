@@ -797,12 +797,12 @@ function drawIsometricTile(x, y, color, terrain) {
         } else if (terrain === 'forest') {
             // Draw layered trees with swaying canopy
             const time = Date.now() / 1000;
-            const sway = Math.sin(time * 0.8 + seed * 0.05) * 1.5;
+            const sway = Math.sin(time * 0.8 + seed * 0.05) * 4;
 
             // Background trees (smaller, darker) — slight sway
             ctx.fillStyle = darkenColor(color, 25);
             ctx.beginPath();
-            ctx.arc(x - 8 + sway * 0.5, y - halfTile * 0.4, 6, 0, Math.PI * 2);
+            ctx.arc(x - 8 + sway * 0.4, y - halfTile * 0.4, 6, 0, Math.PI * 2);
             ctx.fill();
             ctx.fillStyle = darkenColor(color, 20);
             ctx.beginPath();
@@ -816,15 +816,15 @@ function drawIsometricTile(x, y, color, terrain) {
             // Main tree canopy layers (sway increases with height)
             ctx.fillStyle = darkenColor(color, 10);
             ctx.beginPath();
-            ctx.arc(x + sway * 0.4, y - halfTile * 0.45, 10, 0, Math.PI * 2);
+            ctx.arc(x + sway * 0.3, y - halfTile * 0.45, 10, 0, Math.PI * 2);
             ctx.fill();
             ctx.fillStyle = color;
             ctx.beginPath();
-            ctx.arc(x - 2 + sway * 0.7, y - halfTile * 0.55, 8, 0, Math.PI * 2);
+            ctx.arc(x - 2 + sway * 0.6, y - halfTile * 0.55, 8, 0, Math.PI * 2);
             ctx.fill();
             ctx.fillStyle = lightenColor(color, 15);
             ctx.beginPath();
-            ctx.arc(x - 3 + sway, y - halfTile * 0.65, 5, 0, Math.PI * 2);
+            ctx.arc(x - 3 + sway * 0.9, y - halfTile * 0.65, 5, 0, Math.PI * 2);
             ctx.fill();
         } else if (terrain === 'stone') {
             // Draw scattered rounded rocks
