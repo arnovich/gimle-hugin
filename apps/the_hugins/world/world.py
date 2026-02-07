@@ -310,6 +310,29 @@ class World:
             )
             self.add_object(x, y, item)
 
+    def add_starter_structures(self, count: int = 6) -> None:
+        """Place a few structures in the world so it feels lived-in."""
+        structure_types = [
+            "campfire",
+            "shelter",
+            "storage",
+            "marker",
+            "campfire",
+            "shelter",
+        ]
+        for i in range(min(count, len(structure_types))):
+            for _attempt in range(50):
+                x = random.randint(2, self.width - 3)
+                y = random.randint(2, self.height - 3)
+                cell = self.get_cell(x, y)
+                if (
+                    cell
+                    and cell.terrain != TerrainType.WATER
+                    and cell.structure is None
+                ):
+                    cell.structure = structure_types[i]
+                    break
+
     def tick_world(self) -> None:
         """Advance the world by one tick."""
         self.tick += 1
