@@ -335,7 +335,7 @@ class World:
                     cell.structure = structure_types[i]
                     break
 
-    DAY_CYCLE_LENGTH = 100
+    DAY_CYCLE_LENGTH = 400
 
     def get_day_phase(self) -> str:
         """Get current day phase from tick."""

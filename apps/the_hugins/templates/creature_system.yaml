@@ -16,7 +16,7 @@ template: |
   - Use `look` to see terrain types and movement costs around you
 
   ## Day/Night Cycle & Warmth
-  The world has a day/night cycle (dawn → day → dusk → night, 100 ticks per cycle).
+  The world has a day/night cycle (dawn → day → dusk → night, 400 ticks per cycle).
   - You have WARMTH (max 20). At night, exposed creatures lose 1 energy and 1 warmth every 5 ticks.
   - Shelter fully restores warmth to 20 when resting. Campfire restores warmth to 18.
   - Your MOOD depends on energy and warmth: happy, content, neutral, uncomfortable, or miserable.

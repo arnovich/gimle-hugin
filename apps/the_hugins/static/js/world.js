@@ -1857,6 +1857,7 @@ function drawMoodIcon(x, y, mood) {
             break;
     }
     ctx.restore();
+}
 
 // ============================================================
 // 12. Speech Bubbles
