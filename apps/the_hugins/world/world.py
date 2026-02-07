@@ -22,6 +22,7 @@ from world.economy import (
 from world.goals import Goal, GoalType, Memory, Relationship
 from world.noise import fractal_noise, make_noise_context
 from world.object import Object, ObjectType
+from world.weather import WeatherSystem
 
 
 @dataclass
@@ -36,6 +37,7 @@ class World:
         default_factory=dict
     )  # agent_id -> state
     tick: int = 0
+    weather: WeatherSystem = field(default_factory=WeatherSystem)
     action_log: ActionLog = field(
         default_factory=lambda: ActionLog(max_actions=200)
     )
@@ -375,6 +377,9 @@ class World:
         # Update campfire lit flags
         self._update_campfire_lighting()
 
+        # Advance weather
+        self.weather.tick(self.tick)
+
         # Night energy/warmth drain for exposed creatures
         if (
             self.get_day_phase() == "night"
@@ -438,13 +443,14 @@ class World:
 
     def _apply_night_drain(self) -> None:
         """Drain energy and warmth from creatures not on shelter/campfire."""
+        weather_warmth = self.weather.get_warmth_drain()
         for agent_id, creature in self.creatures.items():
             cell = self.get_cell(*creature.position)
             structure = cell.structure if cell else None
             if structure in ("shelter", "campfire"):
                 continue
             creature.remove_energy(NIGHT_ENERGY_DRAIN)
-            creature.remove_warmth(1)
+            creature.remove_warmth(1 + weather_warmth)
 
     def _spawn_resources(self, num_items: int = 3) -> None:
         """Spawn random resources in the world."""
@@ -549,6 +555,7 @@ class World:
                 agent_id: state.to_dict()
                 for agent_id, state in self.creatures.items()
             },
+            "weather": self.weather.to_dict(),
             "action_log": self.action_log.to_dict(),
         }
 
@@ -683,6 +690,11 @@ class World:
                     id=agent_id,
                 )
                 target_cell.add_object(creature_obj)
+
+        # Deserialize weather
+        weather_data = data.get("weather")
+        if weather_data:
+            world.weather = WeatherSystem.from_dict(weather_data)
 
         # Deserialize action log
         action_log_data = data.get("action_log", {})

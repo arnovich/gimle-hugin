@@ -105,6 +105,9 @@ const viewStartY = window.WORLD_DATA.viewStartY;
 const worldWidth = window.WORLD_DATA.worldWidth;
 const worldHeight = window.WORLD_DATA.worldHeight;
 
+// Weather state
+let currentWeather = window.WORLD_DATA.weather || 'clear';
+
 // Creature color cache (preserves server-assigned colors across updates)
 const creatureColors = {};
 creatures.forEach(c => { creatureColors[c.name] = c.color; });
@@ -488,8 +491,110 @@ function drawWorld() {
         ctx.fillRect(0, 0, canvas.width, canvas.height);
     }
 
+    // Draw weather overlay effects
+    drawWeatherOverlay();
+
     // Draw minimap overlay
     drawMinimap();
+}
+
+// ============================================================
+// 5b. Weather Overlay
+// ============================================================
+const weatherParticles = [];
+const MAX_WEATHER_PARTICLES = 120;
+let lastWeatherType = 'clear';
+
+function drawWeatherOverlay() {
+    const time = performance.now() / 1000;
+    const w = canvas.width;
+    const h = canvas.height;
+
+    // Clear particles when weather type changes
+    if (currentWeather !== lastWeatherType) {
+        weatherParticles.length = 0;
+        lastWeatherType = currentWeather;
+    }
+
+    if (currentWeather === 'rain') {
+        // Ensure we have enough rain particles
+        while (weatherParticles.length < MAX_WEATHER_PARTICLES) {
+            weatherParticles.push({
+                x: Math.random() * w,
+                y: Math.random() * h,
+                speed: 4 + Math.random() * 3,
+                len: 8 + Math.random() * 12
+            });
+        }
+        ctx.strokeStyle = 'rgba(120, 160, 220, 0.4)';
+        ctx.lineWidth = 1;
+        weatherParticles.forEach(p => {
+            p.x -= p.speed * 0.3;
+            p.y += p.speed;
+            if (p.y > h) { p.y = -p.len; p.x = Math.random() * w; }
+            if (p.x < 0) { p.x = w; }
+            ctx.beginPath();
+            ctx.moveTo(p.x, p.y);
+            ctx.lineTo(p.x - p.len * 0.3, p.y + p.len);
+            ctx.stroke();
+        });
+    } else if (currentWeather === 'snow') {
+        while (weatherParticles.length < MAX_WEATHER_PARTICLES) {
+            weatherParticles.push({
+                x: Math.random() * w,
+                y: Math.random() * h,
+                speed: 0.5 + Math.random() * 1,
+                size: 1.5 + Math.random() * 2.5,
+                drift: Math.random() * Math.PI * 2
+            });
+        }
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+        weatherParticles.forEach(p => {
+            p.y += p.speed;
+            p.x += Math.sin(time + p.drift) * 0.4;
+            if (p.y > h) { p.y = -p.size; p.x = Math.random() * w; }
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+            ctx.fill();
+        });
+    } else if (currentWeather === 'fog') {
+        // White vignette gradient overlay
+        const grd = ctx.createRadialGradient(
+            w / 2, h / 2, h * 0.2,
+            w / 2, h / 2, h * 0.8
+        );
+        grd.addColorStop(0, 'rgba(200, 210, 220, 0.05)');
+        grd.addColorStop(1, 'rgba(200, 210, 220, 0.35)');
+        ctx.fillStyle = grd;
+        ctx.fillRect(0, 0, w, h);
+        weatherParticles.length = 0;
+    } else if (currentWeather === 'wind') {
+        while (weatherParticles.length < 40) {
+            weatherParticles.push({
+                x: Math.random() * w,
+                y: Math.random() * h,
+                speed: 6 + Math.random() * 4,
+                size: 3 + Math.random() * 5
+            });
+        }
+        ctx.strokeStyle = 'rgba(180, 200, 160, 0.25)';
+        ctx.lineWidth = 1.5;
+        ctx.lineCap = 'round';
+        weatherParticles.forEach(p => {
+            p.x += p.speed;
+            if (p.x > w + p.size) {
+                p.x = -p.size;
+                p.y = Math.random() * h;
+            }
+            ctx.beginPath();
+            ctx.moveTo(p.x, p.y);
+            ctx.lineTo(p.x + p.size * 2, p.y - 1);
+            ctx.stroke();
+        });
+    } else {
+        // Clear weather — remove particles
+        weatherParticles.length = 0;
+    }
 }
 
 // ============================================================
@@ -2270,6 +2375,15 @@ function updateWorld() {
             const tempEl = document.getElementById('temperatureDisplay');
             if (tempEl && worldData.temperature !== undefined) {
                 tempEl.textContent = worldData.temperature + '\u00B0C';
+            }
+            if (worldData.weather) {
+                currentWeather = worldData.weather;
+                const weatherEl = document.getElementById('weatherDisplay');
+                if (weatherEl) {
+                    const icon = worldData.weather_icon || '';
+                    const label = worldData.weather.charAt(0).toUpperCase() + worldData.weather.slice(1);
+                    weatherEl.textContent = icon + ' ' + label;
+                }
             }
             console.log('Creatures data received:', creaturesData);
             console.log('Actions data received:', actionsData);
