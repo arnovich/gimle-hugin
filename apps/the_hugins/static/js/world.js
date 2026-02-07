@@ -117,6 +117,11 @@ let isSimulationPaused = false;
 const creatureAnimations = {}; // agent_id -> {startX, startY, targetX, targetY, progress, duration}
 let animationFrameId = null;
 
+// Creature footprint trails (last 5 screen positions per creature)
+const creatureFootprints = {}; // agent_id -> [{x, y, time}]
+const MAX_FOOTPRINTS = 5;
+const FOOTPRINT_FADE_MS = 8000; // Footprints fade over 8 seconds
+
 // Ambient particle system (floating dust motes / fireflies)
 const particles = [];
 const MAX_PARTICLES = 25;
@@ -274,8 +279,8 @@ function updateAndDrawActionEffects() {
 // ============================================================
 // 4. Day/Night Cycle
 // ============================================================
-// One full day-night cycle every 100 ticks
-const DAY_CYCLE_LENGTH = 100;
+// One full day-night cycle every 400 ticks
+const DAY_CYCLE_LENGTH = 400;
 
 function getDayPhase(tick) {
     const phase = (tick % DAY_CYCLE_LENGTH) / DAY_CYCLE_LENGTH; // 0..1
@@ -421,6 +426,9 @@ function drawWorld() {
         );
     });
 
+    // Draw creature footprint trails (below creatures)
+    drawFootprintTrails();
+
     // Draw creatures (sorted by y for proper layering)
     const sortedCreatures = [...creatures].sort((a, b) => a.y - b.y);
     sortedCreatures.forEach(creature => {
@@ -543,34 +551,56 @@ function drawMinimap() {
         minimapCtx.stroke();
     });
 
-    // Draw viewport rectangle
-    // We need to map the current canvas viewport back to world coordinates
-    // The viewport shows cells whose screen positions (cell.x + viewOffsetX) fall within canvas bounds
-    // Reverse: world_x range where cell.x + viewOffsetX is within [0, canvas.width]
-    // cell.x depends on isometric transform, so approximate using the center
-    const centerX = canvas.width / 2;
-    const centerY = canvas.height / 2;
-    // Visible world area: estimate from the view offset and zoom
-    const visibleW = (canvas.width / zoomLevel) / TILE_SIZE * 1.5;
-    const visibleH = (canvas.height / zoomLevel) / (TILE_SIZE / 2) * 1.5;
-    const viewWorldCX = viewCenterX - viewOffsetX / (TILE_SIZE / 2);
-    const viewWorldCY = viewCenterY - viewOffsetY / (TILE_SIZE / 4);
+    // Draw viewport rectangle using inverse isometric transform
+    // Screen point -> world coordinate mapping:
+    //   adjustedX = screenX - viewOffsetX - CANVAS_WIDTH/4
+    //   adjustedY = screenY - viewOffsetY - CANVAS_HEIGHT/8
+    //   worldX = (adjustedX/halfTile + adjustedY/quarterTile) / 2 + viewStartX
+    //   worldY = (adjustedY/quarterTile - adjustedX/halfTile) / 2 + viewStartY
+    const halfTile = TILE_SIZE / 2;
+    const quarterTile = TILE_SIZE / 4;
+    const offsetX0 = CANVAS_WIDTH / 4;
+    const offsetY0 = CANVAS_HEIGHT / 8;
 
-    // Simple approximation: viewport rectangle based on fraction of world visible
-    const vpW = Math.min(ww, visibleW) * cellW;
-    const vpH = Math.min(wh, visibleH) * cellH;
-    // Center of viewport in minimap coords
-    const vpCX = pad + ww * cellW / 2 - viewOffsetX / (TILE_SIZE / 2) * cellW * 0.5;
-    const vpCY = pad + wh * cellH / 2 - viewOffsetY / (TILE_SIZE / 4) * cellH * 0.5;
+    // Account for zoom: visible area in unzoomed coords
+    const cx = canvas.width / 2;
+    const cy = canvas.height / 2;
+    // Corners of canvas in unzoomed space
+    const corners = [
+        [cx - cx / zoomLevel, cy - cy / zoomLevel],  // top-left
+        [cx + cx / zoomLevel, cy - cy / zoomLevel],  // top-right
+        [cx + cx / zoomLevel, cy + cy / zoomLevel],  // bottom-right
+        [cx - cx / zoomLevel, cy + cy / zoomLevel],  // bottom-left
+    ];
+
+    let minWorldX = Infinity, maxWorldX = -Infinity;
+    let minWorldY = Infinity, maxWorldY = -Infinity;
+    corners.forEach(([sx, sy]) => {
+        const ax = sx - viewOffsetX - offsetX0;
+        const ay = sy - viewOffsetY - offsetY0;
+        const wx = (ax / halfTile + ay / quarterTile) / 2 + viewStartX;
+        const wy = (ay / quarterTile - ax / halfTile) / 2 + viewStartY;
+        if (wx < minWorldX) minWorldX = wx;
+        if (wx > maxWorldX) maxWorldX = wx;
+        if (wy < minWorldY) minWorldY = wy;
+        if (wy > maxWorldY) maxWorldY = wy;
+    });
+
+    // Clamp to world bounds
+    minWorldX = Math.max(0, minWorldX);
+    minWorldY = Math.max(0, minWorldY);
+    maxWorldX = Math.min(ww, maxWorldX);
+    maxWorldY = Math.min(wh, maxWorldY);
+
+    // Convert to minimap coordinates
+    const vpX = pad + (minWorldX / ww) * (mw - 2 * pad);
+    const vpY = pad + (minWorldY / wh) * (mh - 2 * pad);
+    const vpW = ((maxWorldX - minWorldX) / ww) * (mw - 2 * pad);
+    const vpH = ((maxWorldY - minWorldY) / wh) * (mh - 2 * pad);
 
     minimapCtx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
     minimapCtx.lineWidth = 1.5;
-    minimapCtx.strokeRect(
-        vpCX - vpW / 2,
-        vpCY - vpH / 2,
-        vpW,
-        vpH
-    );
+    minimapCtx.strokeRect(vpX, vpY, vpW, vpH);
 }
 
 function toggleMinimap() {
@@ -725,9 +755,30 @@ function drawIsometricTile(x, y, color, terrain) {
                 ctx.stroke();
             }
         } else if (terrain === 'water') {
-            // Draw animated water ripples with opacity
+            // Animated water with sine-wave shimmer overlay
             const time = Date.now() / 1000;
             const phase = (time + seed / 100) % 3;
+
+            // Sine-wave shimmer bands across the tile
+            ctx.save();
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+            ctx.lineTo(x + halfTile, y - halfTile / 2);
+            ctx.lineTo(x, y - halfTile);
+            ctx.lineTo(x - halfTile, y - halfTile / 2);
+            ctx.closePath();
+            ctx.clip();
+
+            for (let band = 0; band < 5; band++) {
+                const bandY = y - halfTile + band * (halfTile / 4);
+                const wave = Math.sin(time * 2 + band * 1.2 + seed * 0.01) * 2;
+                const alpha = 0.08 + Math.sin(time * 1.5 + band) * 0.04;
+                ctx.fillStyle = `rgba(200, 230, 255, ${alpha})`;
+                ctx.fillRect(x - halfTile, bandY + wave, halfTile * 2, halfTile / 6);
+            }
+            ctx.restore();
+
+            // Ripple rings
             ctx.lineWidth = 1;
             for (let i = 0; i < 3; i++) {
                 const ripplePhase = (phase + i) % 3;
@@ -738,39 +789,42 @@ function drawIsometricTile(x, y, color, terrain) {
                 ctx.ellipse(x, y - halfTile/2, radius, radius * 0.5, 0, 0, Math.PI * 2);
                 ctx.stroke();
             }
-            // Add shimmer highlight
+            // Shimmer highlight
             ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
             ctx.beginPath();
             ctx.ellipse(x - halfTile * 0.15, y - halfTile * 0.6, 3, 2, -0.3, 0, Math.PI * 2);
             ctx.fill();
         } else if (terrain === 'forest') {
-            // Draw layered trees with depth
-            // Background trees (smaller, darker)
+            // Draw layered trees with swaying canopy
+            const time = Date.now() / 1000;
+            const sway = Math.sin(time * 0.8 + seed * 0.05) * 4;
+
+            // Background trees (smaller, darker) — slight sway
             ctx.fillStyle = darkenColor(color, 25);
             ctx.beginPath();
-            ctx.arc(x - 8, y - halfTile * 0.4, 6, 0, Math.PI * 2);
+            ctx.arc(x - 8 + sway * 0.4, y - halfTile * 0.4, 6, 0, Math.PI * 2);
             ctx.fill();
             ctx.fillStyle = darkenColor(color, 20);
             ctx.beginPath();
-            ctx.arc(x + 7, y - halfTile * 0.35, 5, 0, Math.PI * 2);
+            ctx.arc(x + 7 + sway * 0.3, y - halfTile * 0.35, 5, 0, Math.PI * 2);
             ctx.fill();
 
-            // Main tree trunk
+            // Main tree trunk (static)
             ctx.fillStyle = '#5D4037';
             ctx.fillRect(x - 3, y - halfTile * 0.25, 6, 12);
 
-            // Main tree canopy layers
+            // Main tree canopy layers (sway increases with height)
             ctx.fillStyle = darkenColor(color, 10);
             ctx.beginPath();
-            ctx.arc(x, y - halfTile * 0.45, 10, 0, Math.PI * 2);
+            ctx.arc(x + sway * 0.3, y - halfTile * 0.45, 10, 0, Math.PI * 2);
             ctx.fill();
             ctx.fillStyle = color;
             ctx.beginPath();
-            ctx.arc(x - 2, y - halfTile * 0.55, 8, 0, Math.PI * 2);
+            ctx.arc(x - 2 + sway * 0.6, y - halfTile * 0.55, 8, 0, Math.PI * 2);
             ctx.fill();
             ctx.fillStyle = lightenColor(color, 15);
             ctx.beginPath();
-            ctx.arc(x - 3, y - halfTile * 0.65, 5, 0, Math.PI * 2);
+            ctx.arc(x - 3 + sway * 0.9, y - halfTile * 0.65, 5, 0, Math.PI * 2);
             ctx.fill();
         } else if (terrain === 'stone') {
             // Draw scattered rounded rocks
@@ -1510,6 +1564,33 @@ function drawItem(x, y, name) {
     ctx.fillText(name, x, y + s + 10);
 }
 
+// Draw footprint trails for all creatures
+function drawFootprintTrails() {
+    const now = performance.now();
+    for (const agentId in creatureFootprints) {
+        const prints = creatureFootprints[agentId];
+        // Remove expired footprints
+        while (prints.length > 0 && (now - prints[0].time) > FOOTPRINT_FADE_MS) {
+            prints.shift();
+        }
+        // Draw remaining footprints as fading ellipses
+        prints.forEach((fp, i) => {
+            const age = now - fp.time;
+            const fade = 1 - age / FOOTPRINT_FADE_MS;
+            const alpha = Math.max(0, 0.25 * fade);
+            const size = 3 + fade * 2;
+            ctx.fillStyle = `rgba(80, 60, 40, ${alpha})`;
+            ctx.beginPath();
+            ctx.ellipse(
+                fp.x + viewOffsetX,
+                fp.y + viewOffsetY - 6,
+                size, size * 0.4, 0, 0, Math.PI * 2
+            );
+            ctx.fill();
+        });
+    }
+}
+
 // Store idle animation phase per creature (deterministic based on agentId)
 // ============================================================
 // 11. Creature Rendering
@@ -2113,6 +2194,20 @@ function updateWorld() {
                 let currentScreenY = targetScreenY;
 
                 if (hasMoved && existingCreature) {
+                    // Record footprint at old position
+                    if (!creatureFootprints[agentId]) {
+                        creatureFootprints[agentId] = [];
+                    }
+                    creatureFootprints[agentId].push({
+                        x: existingCreature.x,
+                        y: existingCreature.y,
+                        time: performance.now(),
+                        color: existingCreature.color
+                    });
+                    if (creatureFootprints[agentId].length > MAX_FOOTPRINTS) {
+                        creatureFootprints[agentId].shift();
+                    }
+
                     // Start new animation from current animated position (or previous position)
                     const anim = creatureAnimations[agentId];
                     const startX = anim && anim.progress < 1 ?
@@ -2178,10 +2273,7 @@ function updateWorld() {
             updateCreaturesList(creaturesData);
 
             // Redraw the world with updated creature positions
-            // Only redraw if no animations are running (animation loop will handle redraws)
-            if (!animationFrameId) {
-                drawWorld();
-            }
+            // Animation loop handles continuous redraws
 
             // Update actions list
             updateActionsList();
@@ -2431,8 +2523,6 @@ function startAnimationLoop() {
         const deltaTime = currentTime - lastTime;
         lastTime = currentTime;
 
-        let hasActiveAnimations = false;
-
         // Update all creature animations
         for (let agentId in creatureAnimations) {
             const anim = creatureAnimations[agentId];
@@ -2454,28 +2544,24 @@ function startAnimationLoop() {
                     creature.y = anim.startY + (anim.targetY - anim.startY) * eased;
                 }
 
-                if (anim.progress < 1) {
-                    hasActiveAnimations = true;
-                } else {
+                if (anim.progress >= 1) {
                     // Animation complete, remove it
                     delete creatureAnimations[agentId];
                 }
             }
         }
 
-        // Redraw world if there are active animations
-        if (hasActiveAnimations) {
-            drawWorld();
-            animationFrameId = requestAnimationFrame(animate);
-        } else {
-            animationFrameId = null;
-            // Final redraw to ensure creatures are at target positions
-            drawWorld();
-        }
+        // Always redraw — terrain animations (water shimmer, tree sway)
+        // need continuous rendering
+        drawWorld();
+        animationFrameId = requestAnimationFrame(animate);
     }
 
     animationFrameId = requestAnimationFrame(animate);
 }
+
+// Start the continuous animation loop immediately
+startAnimationLoop();
 
 // ============================================================
 // 18. Interaction & Modals
