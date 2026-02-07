@@ -274,8 +274,8 @@ function updateAndDrawActionEffects() {
 // ============================================================
 // 4. Day/Night Cycle
 // ============================================================
-// One full day-night cycle every 100 ticks
-const DAY_CYCLE_LENGTH = 100;
+// One full day-night cycle every 400 ticks
+const DAY_CYCLE_LENGTH = 400;
 
 function getDayPhase(tick) {
     const phase = (tick % DAY_CYCLE_LENGTH) / DAY_CYCLE_LENGTH; // 0..1
@@ -543,34 +543,56 @@ function drawMinimap() {
         minimapCtx.stroke();
     });
 
-    // Draw viewport rectangle
-    // We need to map the current canvas viewport back to world coordinates
-    // The viewport shows cells whose screen positions (cell.x + viewOffsetX) fall within canvas bounds
-    // Reverse: world_x range where cell.x + viewOffsetX is within [0, canvas.width]
-    // cell.x depends on isometric transform, so approximate using the center
-    const centerX = canvas.width / 2;
-    const centerY = canvas.height / 2;
-    // Visible world area: estimate from the view offset and zoom
-    const visibleW = (canvas.width / zoomLevel) / TILE_SIZE * 1.5;
-    const visibleH = (canvas.height / zoomLevel) / (TILE_SIZE / 2) * 1.5;
-    const viewWorldCX = viewCenterX - viewOffsetX / (TILE_SIZE / 2);
-    const viewWorldCY = viewCenterY - viewOffsetY / (TILE_SIZE / 4);
+    // Draw viewport rectangle using inverse isometric transform
+    // Screen point -> world coordinate mapping:
+    //   adjustedX = screenX - viewOffsetX - CANVAS_WIDTH/4
+    //   adjustedY = screenY - viewOffsetY - CANVAS_HEIGHT/8
+    //   worldX = (adjustedX/halfTile + adjustedY/quarterTile) / 2 + viewStartX
+    //   worldY = (adjustedY/quarterTile - adjustedX/halfTile) / 2 + viewStartY
+    const halfTile = TILE_SIZE / 2;
+    const quarterTile = TILE_SIZE / 4;
+    const offsetX0 = CANVAS_WIDTH / 4;
+    const offsetY0 = CANVAS_HEIGHT / 8;
 
-    // Simple approximation: viewport rectangle based on fraction of world visible
-    const vpW = Math.min(ww, visibleW) * cellW;
-    const vpH = Math.min(wh, visibleH) * cellH;
-    // Center of viewport in minimap coords
-    const vpCX = pad + ww * cellW / 2 - viewOffsetX / (TILE_SIZE / 2) * cellW * 0.5;
-    const vpCY = pad + wh * cellH / 2 - viewOffsetY / (TILE_SIZE / 4) * cellH * 0.5;
+    // Account for zoom: visible area in unzoomed coords
+    const cx = canvas.width / 2;
+    const cy = canvas.height / 2;
+    // Corners of canvas in unzoomed space
+    const corners = [
+        [cx - cx / zoomLevel, cy - cy / zoomLevel],  // top-left
+        [cx + cx / zoomLevel, cy - cy / zoomLevel],  // top-right
+        [cx + cx / zoomLevel, cy + cy / zoomLevel],  // bottom-right
+        [cx - cx / zoomLevel, cy + cy / zoomLevel],  // bottom-left
+    ];
+
+    let minWorldX = Infinity, maxWorldX = -Infinity;
+    let minWorldY = Infinity, maxWorldY = -Infinity;
+    corners.forEach(([sx, sy]) => {
+        const ax = sx - viewOffsetX - offsetX0;
+        const ay = sy - viewOffsetY - offsetY0;
+        const wx = (ax / halfTile + ay / quarterTile) / 2 + viewStartX;
+        const wy = (ay / quarterTile - ax / halfTile) / 2 + viewStartY;
+        if (wx < minWorldX) minWorldX = wx;
+        if (wx > maxWorldX) maxWorldX = wx;
+        if (wy < minWorldY) minWorldY = wy;
+        if (wy > maxWorldY) maxWorldY = wy;
+    });
+
+    // Clamp to world bounds
+    minWorldX = Math.max(0, minWorldX);
+    minWorldY = Math.max(0, minWorldY);
+    maxWorldX = Math.min(ww, maxWorldX);
+    maxWorldY = Math.min(wh, maxWorldY);
+
+    // Convert to minimap coordinates
+    const vpX = pad + (minWorldX / ww) * (mw - 2 * pad);
+    const vpY = pad + (minWorldY / wh) * (mh - 2 * pad);
+    const vpW = ((maxWorldX - minWorldX) / ww) * (mw - 2 * pad);
+    const vpH = ((maxWorldY - minWorldY) / wh) * (mh - 2 * pad);
 
     minimapCtx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
     minimapCtx.lineWidth = 1.5;
-    minimapCtx.strokeRect(
-        vpCX - vpW / 2,
-        vpCY - vpH / 2,
-        vpW,
-        vpH
-    );
+    minimapCtx.strokeRect(vpX, vpY, vpW, vpH);
 }
 
 function toggleMinimap() {
