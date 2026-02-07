@@ -473,9 +473,6 @@ def generate_creatures_html(world: World) -> str:
                         </div>
                         <span class="stat-value">{creature.energy}</span>
                     </div>
-                    <div class="stat-money">
-                        <span style="color: #ffd700;">$</span> {creature.money}
-                    </div>
                     <div class="stat-bar">
                         <span class="stat-label">Warmth</span>
                         <div class="stat-bar-bg">
@@ -483,8 +480,13 @@ def generate_creatures_html(world: World) -> str:
                         </div>
                         <span class="stat-value">{creature.warmth}</span>
                     </div>
-                    <div class="stat-mood">
-                        Mood: {creature.mood.capitalize()}
+                    <div class="stat-row">
+                        <div class="stat-money">
+                            <span style="color: #ffd700;">$</span> {creature.money}
+                        </div>
+                        <div class="stat-mood">
+                            Mood: {creature.mood.capitalize()}
+                        </div>
                     </div>
                 </div>
                 <div class="creature-detail"><strong>Position:</strong> ({x}, {y})</div>

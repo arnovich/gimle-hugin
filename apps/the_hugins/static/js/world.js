@@ -2490,9 +2490,6 @@ function updateCreaturesList(creaturesData) {
                         </div>
                         <span class="stat-value">${energy}</span>
                     </div>
-                    <div class="stat-money">
-                        <span style="color: #ffd700;">$</span> ${money}
-                    </div>
                     <div class="stat-bar">
                         <span class="stat-label">Warmth</span>
                         <div class="stat-bar-bg">
@@ -2500,8 +2497,13 @@ function updateCreaturesList(creaturesData) {
                         </div>
                         <span class="stat-value">${c.warmth !== undefined ? c.warmth : 20}</span>
                     </div>
-                    <div class="stat-mood">
-                        Mood: ${escapeHtml((c.mood || 'neutral').charAt(0).toUpperCase() + (c.mood || 'neutral').slice(1))}
+                    <div class="stat-row">
+                        <div class="stat-money">
+                            <span style="color: #ffd700;">$</span> ${money}
+                        </div>
+                        <div class="stat-mood">
+                            Mood: ${escapeHtml((c.mood || 'neutral').charAt(0).toUpperCase() + (c.mood || 'neutral').slice(1))}
+                        </div>
                     </div>
                 </div>
                 <div class="creature-detail"><strong>Position:</strong> (${c.position[0]}, ${c.position[1]})</div>
