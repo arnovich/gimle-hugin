@@ -94,6 +94,7 @@ def get_status_tool(
     # Day/night and temperature info
     day_phase = world.get_day_phase()
     temperature = world.get_temperature()
+    weather = world.weather.current.value
 
     return ToolResponse(
         is_error=False,
@@ -106,6 +107,7 @@ def get_status_tool(
             "mood": creature.mood,
             "time_of_day": day_phase,
             "temperature": temperature,
+            "weather": weather,
             "food_in_inventory": food_items,
             "total_food_energy": total_food_energy,
             "pending_trades": pending_trades,
@@ -116,6 +118,7 @@ def get_status_tool(
                 f"Warmth: {creature.warmth}/20, "
                 f"Mood: {creature.mood}, "
                 f"Time: {day_phase} ({temperature}C), "
+                f"Weather: {weather}, "
                 f"Food items: {len(food_items)} "
                 f"(total energy: {total_food_energy})"
             ),

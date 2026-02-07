@@ -143,6 +143,11 @@ def move_tool(
     else:
         energy_cost = BRIDGE_ENERGY_COST if has_bridge else base_cost
 
+    # Apply weather modifier to movement cost
+    weather_mod = world.weather.get_energy_modifier()
+    if weather_mod != 1.0:
+        energy_cost = max(1, int(energy_cost * weather_mod))
+
     # Check energy before moving
     creature = world.get_creature(agent_id)
     if creature and creature.energy < energy_cost:

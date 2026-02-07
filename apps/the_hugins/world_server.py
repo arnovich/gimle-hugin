@@ -152,6 +152,7 @@ class WorldHTTPRequestHandler(BaseHTTPRequestHandler):
             "tick": self.world.tick,
             "day_phase": self.world.get_day_phase(),
             "temperature": self.world.get_temperature(),
+            "weather": self.world.weather.current.value,
             "creatures": {
                 agent_id: {
                     "name": creature.name,

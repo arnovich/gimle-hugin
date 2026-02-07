@@ -70,6 +70,9 @@ def look_tool(
         if override:
             radius = override
 
+    # Weather may reduce visibility (e.g. fog)
+    radius = max(1, radius + world.weather.get_visibility_modifier())
+
     view_cells = world.get_view(x, y, radius=radius)
 
     # Organize cells into a grid for easier visualization

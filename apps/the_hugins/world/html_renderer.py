@@ -253,6 +253,7 @@ def generate_world_html(
             "worldTick": world.tick,
             "dayPhase": world.get_day_phase(),
             "temperature": world.get_temperature(),
+            "weather": world.weather.current.value,
             "viewCenterX": view_x,
             "viewCenterY": view_y,
             "viewStartX": start_x,
@@ -285,6 +286,7 @@ def generate_world_html(
                 <span>Tick: <span id="tick">{world.tick}</span></span>
                 <span id="dayPhaseDisplay">{world.get_day_phase().capitalize()}</span>
                 <span id="temperatureDisplay">{world.get_temperature()}&deg;C</span>
+                <span id="weatherDisplay">{world.weather.current.value.capitalize()}</span>
                 <span>Creatures: {len(world.creatures)}</span>
             </div>
             <button class="leave-btn" onclick="leaveWorld()">Leave World</button>
