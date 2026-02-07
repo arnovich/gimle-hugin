@@ -111,6 +111,47 @@ let currentWeather = window.WORLD_DATA.weather || 'clear';
 // Selected creature for relationship lines
 let selectedCreatureId = null;
 
+// Accessory items that trigger sparkle effects on creatures
+const ACCESSORY_ITEMS = ['flower_crown', 'feather_charm'];
+
+// Seasonal palette shift (400-tick cycle)
+function getSeasonalColor(baseColor, terrain, tick) {
+    const cycle = tick % 400;
+    const season = Math.floor(cycle / 100); // 0=spring, 1=summer, 2=autumn, 3=winter
+    const progress = (cycle % 100) / 100; // 0..1 within season
+
+    // Only shift grass and forest terrain
+    if (terrain !== 'grass' && terrain !== 'forest') return baseColor;
+
+    const num = parseInt(baseColor.replace('#', ''), 16);
+    let r = (num >> 16) & 0xFF;
+    let g = (num >> 8) & 0xFF;
+    let b = num & 0xFF;
+
+    if (season === 0) {
+        // Spring: slightly brighter, more green
+        g = Math.min(255, g + Math.round(12 * (1 - progress)));
+    } else if (season === 1) {
+        // Summer: warmer, slightly yellow-shifted
+        r = Math.min(255, r + Math.round(15 * progress));
+        g = Math.min(255, g + Math.round(5 * progress));
+    } else if (season === 2) {
+        // Autumn: orange/brown shift
+        r = Math.min(255, r + Math.round(30 * progress));
+        g = Math.max(0, g - Math.round(15 * progress));
+        b = Math.max(0, b - Math.round(10 * progress));
+    } else {
+        // Winter: desaturated, cooler
+        const gray = Math.round((r + g + b) / 3);
+        const t = progress * 0.3; // max 30% desaturation
+        r = Math.round(r + (gray - r) * t);
+        g = Math.round(g + (gray - g) * t);
+        b = Math.min(255, Math.round(b + (gray - b) * t + 8 * progress));
+    }
+
+    return '#' + (0x1000000 + r * 0x10000 + g * 0x100 + b).toString(16).slice(1);
+}
+
 // Creature color cache (preserves server-assigned colors across updates)
 const creatureColors = {};
 creatures.forEach(c => { creatureColors[c.name] = c.color; });
@@ -381,10 +422,11 @@ function drawWorld() {
     // Draw terrain (sorted by y for proper layering)
     const sortedCells = [...cells].sort((a, b) => a.y - b.y);
     sortedCells.forEach(cell => {
+        const seasonColor = getSeasonalColor(cell.color, cell.terrain, worldTick);
         drawIsometricTile(
             cell.x + viewOffsetX,
             cell.y + viewOffsetY,
-            cell.color,
+            seasonColor,
             cell.terrain
         );
     });
@@ -456,7 +498,8 @@ function drawWorld() {
             creature.energy,
             creature.max_energy,
             creature.money,
-            creature.mood
+            creature.mood,
+            creature.inventory_names
         );
 
         // Trigger action effects for recent actions
@@ -1078,7 +1121,7 @@ function drawTerrainTransitions(x, y, terrain, neighbors) {
             x + halfTile * 0.3, y - halfTile * 0.85
         );
         gradient.addColorStop(0, 'transparent');
-        gradient.addColorStop(1, neighbors.north.color + '40');  // 25% opacity
+        gradient.addColorStop(1, neighbors.north.color + '55');
 
         ctx.fillStyle = gradient;
         ctx.beginPath();
@@ -1097,7 +1140,7 @@ function drawTerrainTransitions(x, y, terrain, neighbors) {
             x + halfTile * 0.7, y - halfTile * 0.35
         );
         gradient.addColorStop(0, 'transparent');
-        gradient.addColorStop(1, neighbors.east.color + '40');
+        gradient.addColorStop(1, neighbors.east.color + '55');
 
         ctx.fillStyle = gradient;
         ctx.beginPath();
@@ -1116,7 +1159,7 @@ function drawTerrainTransitions(x, y, terrain, neighbors) {
             x - halfTile * 0.3, y - halfTile * 0.15
         );
         gradient.addColorStop(0, 'transparent');
-        gradient.addColorStop(1, neighbors.south.color + '40');
+        gradient.addColorStop(1, neighbors.south.color + '55');
 
         ctx.fillStyle = gradient;
         ctx.beginPath();
@@ -1135,7 +1178,7 @@ function drawTerrainTransitions(x, y, terrain, neighbors) {
             x - halfTile * 0.7, y - halfTile * 0.65
         );
         gradient.addColorStop(0, 'transparent');
-        gradient.addColorStop(1, neighbors.west.color + '40');
+        gradient.addColorStop(1, neighbors.west.color + '55');
 
         ctx.fillStyle = gradient;
         ctx.beginPath();
@@ -1818,7 +1861,7 @@ function getCreatureIdlePhase(agentId) {
     return creatureIdlePhases[agentId];
 }
 
-function drawCreature(x, y, name, color, lastAction, agentId, energy, maxEnergy, money, mood) {
+function drawCreature(x, y, name, color, lastAction, agentId, energy, maxEnergy, money, mood, inventoryNames) {
     // Check if this creature is animating
     let jumpOffset = 0;
     const anim = creatureAnimations[agentId];
@@ -1907,6 +1950,22 @@ function drawCreature(x, y, name, color, lastAction, agentId, energy, maxEnergy,
         ctx.beginPath();
         ctx.arc(x, creatureY, creatureSize * 0.45, 0, Math.PI * 2);
         ctx.fill();
+    }
+
+    // Accessory sparkle for creatures with crafted items
+    if (inventoryNames && inventoryNames.some(n => ACCESSORY_ITEMS.includes(n))) {
+        const time = performance.now() / 1000;
+        for (let i = 0; i < 3; i++) {
+            const angle = time * 1.5 + i * (Math.PI * 2 / 3);
+            const r = creatureSize * 0.35;
+            const sx = x + Math.cos(angle) * r;
+            const sy = creatureY - creatureSize * 0.2 + Math.sin(angle) * r * 0.5;
+            const sparkleAlpha = 0.4 + 0.4 * Math.sin(time * 3 + i);
+            ctx.fillStyle = `rgba(255, 215, 0, ${sparkleAlpha})`;
+            ctx.beginPath();
+            ctx.arc(sx, sy, 1.5, 0, Math.PI * 2);
+            ctx.fill();
+        }
     }
 
     // Draw name label below with better styling
@@ -2567,7 +2626,8 @@ function updateWorld() {
                     warmth: c.warmth !== undefined ? c.warmth : 20,
                     mood: c.mood || 'neutral',
                     friends: c.friends || [],
-                    rivals: c.rivals || []
+                    rivals: c.rivals || [],
+                    inventory_names: (c.inventory || []).map(item => item.name || item)
                 });
             }
             creatures = newCreatures;

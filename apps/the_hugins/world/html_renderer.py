@@ -241,6 +241,9 @@ def generate_world_html(
                                 "mood": creature_state.mood,
                                 "friends": creature_state.get_friend_names(),
                                 "rivals": creature_state.get_rival_names(),
+                                "inventory_names": [
+                                    obj.name for obj in creature_state.inventory
+                                ],
                             }
                         )
 

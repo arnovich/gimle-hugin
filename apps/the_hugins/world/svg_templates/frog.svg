@@ -1,0 +1,39 @@
+<!-- Body -->
+<ellipse cx="50" cy="58" rx="20" ry="14" fill="{color}"/>
+<!-- Belly -->
+<ellipse cx="50" cy="60" rx="14" ry="10" fill="{accent}"/>
+<!-- Head (wide) -->
+<ellipse cx="50" cy="42" rx="18" ry="12" fill="{color}"/>
+<!-- Eye bumps (protruding) -->
+<circle cx="36" cy="30" r="8" fill="{color}"/>
+<circle cx="64" cy="30" r="8" fill="{color}"/>
+<!-- Eyes (large, round) -->
+<circle cx="36" cy="29" r="6" fill="#FFF"/>
+<circle cx="36" cy="29" r="3" fill="#000"/>
+<circle cx="37" cy="28" r="1" fill="#FFF"/>
+<circle cx="64" cy="29" r="6" fill="#FFF"/>
+<circle cx="64" cy="29" r="3" fill="#000"/>
+<circle cx="65" cy="28" r="1" fill="#FFF"/>
+<!-- Wide mouth -->
+<path d="M 34 48 Q 42 54 50 50 Q 58 54 66 48"
+    stroke="#333" stroke-width="1.5" fill="none"/>
+<!-- Nostrils -->
+<circle cx="44" cy="42" r="1.5" fill="#333"/>
+<circle cx="56" cy="42" r="1.5" fill="#333"/>
+<!-- Front legs -->
+<path d="M 32 56 L 20 64 L 16 62 M 20 64 L 18 68 M 20 64 L 22 68"
+    stroke="{color}" stroke-width="2.5" fill="none"
+    stroke-linecap="round"/>
+<path d="M 68 56 L 80 64 L 84 62 M 80 64 L 82 68 M 80 64 L 78 68"
+    stroke="{color}" stroke-width="2.5" fill="none"
+    stroke-linecap="round"/>
+<!-- Back legs (folded) -->
+<ellipse cx="32" cy="68" rx="8" ry="5" fill="{color}"
+    transform="rotate(-10 32 68)"/>
+<ellipse cx="68" cy="68" rx="8" ry="5" fill="{color}"
+    transform="rotate(10 68 68)"/>
+<!-- Toes -->
+<path d="M 24 72 L 20 78 M 26 73 L 24 79 M 28 73 L 28 79"
+    stroke="{color}" stroke-width="2" stroke-linecap="round"/>
+<path d="M 76 72 L 80 78 M 74 73 L 76 79 M 72 73 L 72 79"
+    stroke="{color}" stroke-width="2" stroke-linecap="round"/>

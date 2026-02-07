@@ -1,0 +1,29 @@
+<!-- Shell (spiral) -->
+<circle cx="54" cy="42" r="20" fill="{color}"/>
+<circle cx="54" cy="42" r="15" fill="{accent}" opacity="0.4"/>
+<circle cx="54" cy="42" r="10" fill="{color}" opacity="0.6"/>
+<circle cx="54" cy="42" r="5" fill="{accent}" opacity="0.5"/>
+<!-- Shell highlight -->
+<ellipse cx="48" cy="36" rx="6" ry="8" fill="rgba(255,255,255,0.2)"
+    transform="rotate(-15 48 36)"/>
+<!-- Body (slug base) -->
+<ellipse cx="42" cy="66" rx="24" ry="8" fill="{accent}"/>
+<!-- Neck connecting to shell -->
+<ellipse cx="38" cy="56" rx="8" ry="10" fill="{accent}"/>
+<!-- Head -->
+<circle cx="24" cy="50" r="10" fill="{accent}"/>
+<!-- Eye stalks -->
+<line x1="20" y1="44" x2="14" y2="28" stroke="{accent}"
+    stroke-width="2.5" stroke-linecap="round"/>
+<line x1="28" y1="44" x2="34" y2="28" stroke="{accent}"
+    stroke-width="2.5" stroke-linecap="round"/>
+<!-- Eyes on stalks -->
+<circle cx="14" cy="28" r="4" fill="#FFF"/>
+<circle cx="14" cy="28" r="2" fill="#000"/>
+<circle cx="15" cy="27" r="0.8" fill="#FFF"/>
+<circle cx="34" cy="28" r="4" fill="#FFF"/>
+<circle cx="34" cy="28" r="2" fill="#000"/>
+<circle cx="35" cy="27" r="0.8" fill="#FFF"/>
+<!-- Smile -->
+<path d="M 20 54 Q 24 58 28 54" stroke="#333" stroke-width="1"
+    fill="none"/>

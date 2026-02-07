@@ -360,6 +360,12 @@ class AvatarGenerator:
         "beetle": "beetle",
         "firefly": "firefly",
         "caterpillar": "caterpillar",
+        "owl": "owl",
+        "fox": "fox",
+        "frog": "frog",
+        "snail": "snail",
+        "moth": "moth",
+        "squirrel": "squirrel",
     }
 
     # Cached SVG templates (loaded once from disk)

@@ -170,6 +170,61 @@ CREATURE_POOL = [
         ),
         "goals": ["collect", "explore"],
     },
+    {
+        "name": "Hoot",
+        "description": "A wise owl who watches from above",
+        "personality": (
+            "Wise, observant, calm. You prefer to study your "
+            "surroundings before acting. You offer advice to "
+            "those who seek it."
+        ),
+        "goals": ["explore", "meet"],
+    },
+    {
+        "name": "Rustle",
+        "description": "A cunning fox who thrives on cleverness",
+        "personality": (
+            "Clever, playful, resourceful. You enjoy finding "
+            "creative solutions and outsmarting challenges."
+        ),
+        "goals": ["collect", "explore"],
+    },
+    {
+        "name": "Puddle",
+        "description": "A cheerful frog who loves rainy weather",
+        "personality": (
+            "Jolly, carefree, energetic. You love splashing "
+            "around and are happiest when the weather is wet."
+        ),
+        "goals": ["explore", "meet"],
+    },
+    {
+        "name": "Drift",
+        "description": "A patient snail who savors every moment",
+        "personality": (
+            "Patient, gentle, philosophical. You take your time "
+            "and appreciate the small details others miss."
+        ),
+        "goals": ["explore", "collect"],
+    },
+    {
+        "name": "Flicker",
+        "description": "A nocturnal moth drawn to warm light",
+        "personality": (
+            "Dreamy, artistic, sensitive. You are drawn to "
+            "beauty and warmth, especially campfires at night."
+        ),
+        "goals": ["explore", "avoid"],
+    },
+    {
+        "name": "Nutkin",
+        "description": "A hyperactive squirrel who hoards everything",
+        "personality": (
+            "Energetic, excitable, possessive. You love "
+            "collecting and stashing items. The more the better!"
+        ),
+        "goals": ["collect", "reach"],
+    },
 ]
 
 

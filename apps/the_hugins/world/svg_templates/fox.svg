@@ -1,0 +1,39 @@
+<!-- Body -->
+<ellipse cx="50" cy="58" rx="16" ry="14" fill="{color}"/>
+<!-- Chest/belly -->
+<ellipse cx="50" cy="62" rx="10" ry="10" fill="{accent}"/>
+<!-- Head -->
+<ellipse cx="50" cy="38" rx="16" ry="13" fill="{color}"/>
+<!-- Ears (pointed) -->
+<polygon points="34,34 30,12 42,28" fill="{color}"/>
+<polygon points="36,30 32,16 42,28" fill="{accent}"/>
+<polygon points="66,34 70,12 58,28" fill="{color}"/>
+<polygon points="64,30 68,16 58,28" fill="{accent}"/>
+<!-- Eyes (sly, angled) -->
+<ellipse cx="42" cy="36" rx="3.5" ry="3" fill="#FFF"/>
+<circle cx="43" cy="36" r="1.8" fill="#000"/>
+<ellipse cx="58" cy="36" rx="3.5" ry="3" fill="#FFF"/>
+<circle cx="57" cy="36" r="1.8" fill="#000"/>
+<!-- Nose -->
+<circle cx="50" cy="42" r="2.5" fill="#333"/>
+<!-- Muzzle -->
+<path d="M 44 42 Q 50 40 56 42" stroke="{accent}" stroke-width="1.5"
+    fill="{accent}"/>
+<ellipse cx="50" cy="43" rx="6" ry="4" fill="{accent}"/>
+<!-- Whiskers -->
+<line x1="38" y1="42" x2="28" y2="40" stroke="#888"
+    stroke-width="0.7"/>
+<line x1="38" y1="44" x2="28" y2="46" stroke="#888"
+    stroke-width="0.7"/>
+<line x1="62" y1="42" x2="72" y2="40" stroke="#888"
+    stroke-width="0.7"/>
+<line x1="62" y1="44" x2="72" y2="46" stroke="#888"
+    stroke-width="0.7"/>
+<!-- Tail (bushy) -->
+<ellipse cx="26" cy="64" rx="12" ry="6" fill="{color}"
+    transform="rotate(-30 26 64)"/>
+<ellipse cx="22" cy="60" rx="5" ry="3" fill="{accent}"
+    transform="rotate(-30 22 60)"/>
+<!-- Legs -->
+<rect x="38" y="68" width="5" height="10" rx="2" fill="{color}"/>
+<rect x="57" y="68" width="5" height="10" rx="2" fill="{color}"/>

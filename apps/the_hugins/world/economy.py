@@ -33,6 +33,7 @@ BRIDGE_ENERGY_COST = 1
 # Night energy drain (exposed creatures lose energy at night)
 NIGHT_ENERGY_DRAIN = 1
 NIGHT_DRAIN_INTERVAL = 5  # ticks between drain events
+WEATHER_DRAIN_INTERVAL = 10  # ticks between weather warmth drain
 
 # Food energy values - what creatures can eat to restore energy
 FOOD_ENERGY: Dict[str, int] = {
