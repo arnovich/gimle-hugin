@@ -103,9 +103,17 @@ def propose_trade_tool(
             },
         )
 
-    # Determine price
+    # Determine price with relationship modifier
     if price is None:
-        price = ITEM_PRICES.get(item_name, 10)  # Default price if not known
+        base_price = ITEM_PRICES.get(item_name, 10)
+        # Friends get 20% discount, rivals pay 20% premium
+        rel = proposer.get_relationship(creature_name)
+        if rel and rel.sentiment >= 7:
+            price = max(1, int(base_price * 0.8))
+        elif rel and rel.sentiment <= 3:
+            price = int(base_price * 1.2)
+        else:
+            price = base_price
 
     # Validate the trade can potentially happen
     if action_lower == "sell":

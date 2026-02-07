@@ -96,6 +96,27 @@ def talk_to_tool(
             },
         )
 
+    # Talking improves sentiment for both parties
+    creature.update_relationship(creature_name, "known", 1)
+    target_creature.update_relationship(creature.name, "known", 1)
+
+    # Log the action
+    world.action_log.add_action(
+        creature_name=creature.name,
+        agent_id=agent_id,
+        action_type="talk_to",
+        description=(
+            f"Talked to {creature_name}" + (f": '{message}'" if message else "")
+        ),
+        timestamp=world.tick,
+        location=(x, y),
+        details={
+            "target": creature_name,
+            "message": message,
+        },
+        reason=reason,
+    )
+
     # If message provided, it's like saying something to them
     if message:
         return ToolResponse(
@@ -105,7 +126,9 @@ def talk_to_tool(
                 "speaker": creature.name,
                 "target": creature_name,
                 "message": message,
-                "message_display": f"{creature.name} says to {creature_name}: '{message}'",
+                "message_display": (
+                    f"{creature.name} says to" f" {creature_name}: '{message}'"
+                ),
             },
         )
     else:
@@ -117,6 +140,8 @@ def talk_to_tool(
                 "target": creature_name,
                 "target_description": target_creature.description,
                 "target_personality": target_creature.personality,
-                "message_display": f"{creature.name} approaches {creature_name}",
+                "message_display": (
+                    f"{creature.name} approaches {creature_name}"
+                ),
             },
         )

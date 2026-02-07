@@ -137,12 +137,24 @@ def give_tool(
     giver.update_relationship(creature_name, "friend", 3)
     recipient.update_relationship(giver.name, "friend", 3)
 
+    # Friends get a social energy bonus from giving
+    is_friend = creature_name in giver.get_friend_names()
+    friend_bonus = 0
+    if is_friend:
+        friend_bonus = giver.add_energy(5)
+
+    msg = f"You gave {item_name} to {creature_name}."
+    if friend_bonus > 0:
+        msg += f" Giving to a friend feels great! (+{friend_bonus} energy)"
+
     return ToolResponse(
         is_error=False,
         content={
             "success": True,
             "item": item_name,
             "recipient": creature_name,
-            "message": f"You gave {item_name} to {creature_name}.",
+            "is_friend": is_friend,
+            "friend_energy_bonus": friend_bonus,
+            "message": msg,
         },
     )

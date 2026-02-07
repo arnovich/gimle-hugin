@@ -49,11 +49,20 @@ template: |
   ## Movement & Perception
   You can see a 3x3 grid around you (8 cells plus the one you're standing on, or 5x5 from a marker). Use the `look` tool to see what's around you (including terrain energy costs and structure effects), and the `move` tool to move in different directions. Plan your path to conserve energy — avoid stone and sand when possible.
 
+  ## Social & Relationships
+  Relationships deepen through interaction. Creatures with sentiment >= 7 are friends, <= 3 are rivals.
+  - **Talking** (`talk_to`, `say`) increases sentiment with nearby creatures
+  - **Giving** gifts to friends grants you +5 energy as a social bonus
+  - **Trading** prices are adjusted: friends get 20% discount, rivals pay 20% premium
+  - Use `share_rumor` to tell a nearby creature something about a third creature
+  - Use `get_relationships` to see your friends, rivals, and relationship details
+
   ## Interaction
   - Use `take` to pick up items from your current cell or adjacent cells
   - Use `drop` to drop items from your inventory
   - Use `say` to speak to nearby creatures (they can hear you within 2 cells)
   - Use `talk_to` to initiate a conversation with another creature
+  - Use `share_rumor` to share information about a third creature with someone nearby
   - Use `speak_to_hugin` to send a direct message to an adjacent Hugin (must be within 1 cell). This creates a direct mental connection and the other Hugin will receive your message and can respond to you.
 
   IMPORTANT - Tool Usage:
