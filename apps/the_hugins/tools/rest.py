@@ -76,16 +76,28 @@ def rest_tool(
     old_energy = creature.energy
     actual_gained = creature.add_energy(total_recovery)
 
+    # Warmth restoration based on structure
+    old_warmth = creature.warmth
+    if structure == "shelter":
+        creature.warmth = 20
+    elif structure == "campfire":
+        creature.warmth = min(20, max(creature.warmth, 18))
+    warmth_gained = creature.warmth - old_warmth
+
     # Build description
+    warmth_note = ""
+    if warmth_gained > 0:
+        warmth_note = f", warmth +{warmth_gained}"
     if bonus_source:
         desc = (
             f"Rested at {bonus_source} and gained "
             f"{actual_gained} energy "
             f"(base {ENERGY_RECOVERY_REST} + "
             f"{bonus_source} bonus {rest_bonus})"
+            f"{warmth_note}"
         )
     else:
-        desc = f"Rested and gained {actual_gained} energy"
+        desc = f"Rested and gained {actual_gained} energy{warmth_note}"
 
     # Log the action
     world.action_log.add_action(
@@ -115,6 +127,8 @@ def rest_tool(
             "max_energy": MAX_ENERGY,
             "structure": bonus_source,
             "rest_bonus": rest_bonus,
+            "warmth": creature.warmth,
+            "mood": creature.mood,
             "message": (
                 f"You rested and gained {actual_gained} energy. "
                 f"Energy: {creature.energy}/{MAX_ENERGY}"
@@ -123,6 +137,7 @@ def rest_tool(
                     if bonus_source
                     else ""
                 )
+                + (f" Warmth: {creature.warmth}/20." f" Mood: {creature.mood}.")
             ),
         },
     )

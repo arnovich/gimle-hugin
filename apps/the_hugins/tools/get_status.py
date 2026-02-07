@@ -91,6 +91,10 @@ def get_status_tool(
     elif creature.energy < 50:
         energy_status = "low"
 
+    # Day/night and temperature info
+    day_phase = world.get_day_phase()
+    temperature = world.get_temperature()
+
     return ToolResponse(
         is_error=False,
         content={
@@ -98,12 +102,20 @@ def get_status_tool(
             "max_energy": MAX_ENERGY,
             "energy_status": energy_status,
             "money": creature.money,
+            "warmth": creature.warmth,
+            "mood": creature.mood,
+            "time_of_day": day_phase,
+            "temperature": temperature,
             "food_in_inventory": food_items,
             "total_food_energy": total_food_energy,
             "pending_trades": pending_trades,
             "message": (
-                f"Energy: {creature.energy}/{MAX_ENERGY} ({energy_status}), "
+                f"Energy: {creature.energy}/{MAX_ENERGY}"
+                f" ({energy_status}), "
                 f"Money: {creature.money}, "
+                f"Warmth: {creature.warmth}/20, "
+                f"Mood: {creature.mood}, "
+                f"Time: {day_phase} ({temperature}C), "
                 f"Food items: {len(food_items)} "
                 f"(total energy: {total_food_energy})"
             ),

@@ -237,6 +237,8 @@ def generate_world_html(
                                 "energy": creature_state.energy,
                                 "max_energy": 100,
                                 "money": creature_state.money,
+                                "warmth": creature_state.warmth,
+                                "mood": creature_state.mood,
                             }
                         )
 
@@ -249,6 +251,8 @@ def generate_world_html(
             "spritePaths": sprite_paths,
             "useSprites": use_sprites,
             "worldTick": world.tick,
+            "dayPhase": world.get_day_phase(),
+            "temperature": world.get_temperature(),
             "viewCenterX": view_x,
             "viewCenterY": view_y,
             "viewStartX": start_x,
@@ -279,6 +283,8 @@ def generate_world_html(
             <div class="header-info">
                 <span>Size: {world.width}&times;{world.height}</span>
                 <span>Tick: <span id="tick">{world.tick}</span></span>
+                <span id="dayPhaseDisplay">{world.get_day_phase().capitalize()}</span>
+                <span id="temperatureDisplay">{world.get_temperature()}&deg;C</span>
                 <span>Creatures: {len(world.creatures)}</span>
             </div>
             <button class="leave-btn" onclick="leaveWorld()">Leave World</button>
@@ -467,8 +473,20 @@ def generate_creatures_html(world: World) -> str:
                         </div>
                         <span class="stat-value">{creature.energy}</span>
                     </div>
-                    <div class="stat-money">
-                        <span style="color: #ffd700;">$</span> {creature.money}
+                    <div class="stat-bar">
+                        <span class="stat-label">Warmth</span>
+                        <div class="stat-bar-bg">
+                            <div class="stat-bar-fill" style="width: {creature.warmth * 5}%; background: #ff9800;"></div>
+                        </div>
+                        <span class="stat-value">{creature.warmth}</span>
+                    </div>
+                    <div class="stat-row">
+                        <div class="stat-money">
+                            <span style="color: #ffd700;">$</span> {creature.money}
+                        </div>
+                        <div class="stat-mood">
+                            Mood: {creature.mood.capitalize()}
+                        </div>
                     </div>
                 </div>
                 <div class="creature-detail"><strong>Position:</strong> ({x}, {y})</div>

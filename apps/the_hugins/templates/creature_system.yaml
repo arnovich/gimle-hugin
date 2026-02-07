@@ -12,8 +12,15 @@ template: |
   - WATER is impassable unless a bridge has been built there (bridge cost: 1)
   - Eat food to restore energy: apple (+20), berry (+10), mushroom (+8), herb (+5), mushroom_stew (+40)
   - Use `rest` to recover energy: 5 in open, 10 at campfire, 15 at shelter
-  - Use `get_status` to check your energy, money, and pending trades
+  - Use `get_status` to check your energy, money, warmth, mood, and time of day
   - Use `look` to see terrain types and movement costs around you
+
+  ## Day/Night Cycle & Warmth
+  The world has a day/night cycle (dawn → day → dusk → night, 400 ticks per cycle).
+  - You have WARMTH (max 20). At night, exposed creatures lose 1 energy and 1 warmth every 5 ticks.
+  - Shelter fully restores warmth to 20 when resting. Campfire restores warmth to 18.
+  - Your MOOD depends on energy and warmth: happy, content, neutral, uncomfortable, or miserable.
+  - Seek shelter or a campfire before nightfall to stay warm and keep your mood up!
 
   ## Economy
   You have MONEY (starting: 50 coins) that you can use to trade with other creatures.

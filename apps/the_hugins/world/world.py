@@ -10,6 +10,8 @@ from world.action_log import ActionLog
 from world.cell import Cell, TerrainType
 from world.creature_state import CreatureState
 from world.economy import (
+    NIGHT_DRAIN_INTERVAL,
+    NIGHT_ENERGY_DRAIN,
     SPAWN_COUNT,
     SPAWN_INTERVAL_TICKS,
     SPAWN_WEIGHTS,
@@ -333,6 +335,30 @@ class World:
                     cell.structure = structure_types[i]
                     break
 
+    DAY_CYCLE_LENGTH = 400
+
+    def get_day_phase(self) -> str:
+        """Get current day phase from tick."""
+        phase = (self.tick % self.DAY_CYCLE_LENGTH) / self.DAY_CYCLE_LENGTH
+        if phase < 0.2:
+            return "dawn"
+        elif phase < 0.5:
+            return "day"
+        elif phase < 0.7:
+            return "dusk"
+        return "night"
+
+    def get_temperature(self) -> int:
+        """Get temperature based on day phase (0-30 scale)."""
+        phase = self.get_day_phase()
+        temps = {
+            "dawn": 12,
+            "day": 25,
+            "dusk": 18,
+            "night": 5,
+        }
+        return temps[phase]
+
     def tick_world(self) -> None:
         """Advance the world by one tick."""
         self.tick += 1
@@ -348,6 +374,13 @@ class World:
 
         # Update campfire lit flags
         self._update_campfire_lighting()
+
+        # Night energy/warmth drain for exposed creatures
+        if (
+            self.get_day_phase() == "night"
+            and self.tick % NIGHT_DRAIN_INTERVAL == 0
+        ):
+            self._apply_night_drain()
 
         # Spawn resources periodically
         if self.tick % SPAWN_INTERVAL_TICKS == 0:
@@ -402,6 +435,16 @@ class World:
                         neighbor = self.cells.get((cx + dx, cy + dy))
                         if neighbor:
                             neighbor.lit = True
+
+    def _apply_night_drain(self) -> None:
+        """Drain energy and warmth from creatures not on shelter/campfire."""
+        for agent_id, creature in self.creatures.items():
+            cell = self.get_cell(*creature.position)
+            structure = cell.structure if cell else None
+            if structure in ("shelter", "campfire"):
+                continue
+            creature.remove_energy(NIGHT_ENERGY_DRAIN)
+            creature.remove_warmth(1)
 
     def _spawn_resources(self, num_items: int = 3) -> None:
         """Spawn random resources in the world."""
@@ -624,6 +667,7 @@ class World:
                 relationships=relationships,
                 energy=creature_data.get("energy", STARTING_ENERGY),
                 money=creature_data.get("money", STARTING_MONEY),
+                warmth=creature_data.get("warmth", 20),
                 pending_trades=pending_trades,
             )
             world.creatures[agent_id] = creature_state
