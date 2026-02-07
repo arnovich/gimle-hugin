@@ -17,6 +17,7 @@ from world.economy import (
     SPAWN_WEIGHTS,
     STARTING_ENERGY,
     STARTING_MONEY,
+    WEATHER_DRAIN_INTERVAL,
     TradeOffer,
 )
 from world.goals import Goal, GoalType, Memory, Relationship
@@ -387,6 +388,11 @@ class World:
         ):
             self._apply_night_drain()
 
+        # Weather warmth drain (rain/wind/snow chill exposed creatures)
+        weather_drain = self.weather.get_warmth_drain()
+        if weather_drain > 0 and self.tick % WEATHER_DRAIN_INTERVAL == 0:
+            self._apply_weather_drain(weather_drain)
+
         # Spawn resources periodically
         if self.tick % SPAWN_INTERVAL_TICKS == 0:
             self._spawn_resources(num_items=SPAWN_COUNT)
@@ -451,6 +457,15 @@ class World:
                 continue
             creature.remove_energy(NIGHT_ENERGY_DRAIN)
             creature.remove_warmth(1 + weather_warmth)
+
+    def _apply_weather_drain(self, amount: int) -> None:
+        """Drain warmth from creatures exposed to bad weather."""
+        for agent_id, creature in self.creatures.items():
+            cell = self.get_cell(*creature.position)
+            structure = cell.structure if cell else None
+            if structure == "shelter":
+                continue
+            creature.remove_warmth(amount)
 
     def _spawn_resources(self, num_items: int = 3) -> None:
         """Spawn random resources in the world."""

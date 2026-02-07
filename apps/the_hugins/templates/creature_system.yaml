@@ -25,10 +25,11 @@ template: |
   ## Weather
   Weather changes every 60-120 ticks and affects gameplay:
   - **Clear**: Normal conditions
-  - **Rain**: Movement costs 1.5x energy
+  - **Rain**: Movement costs 1.5x energy, drains warmth over time
   - **Fog**: Vision reduced by 1 cell radius
-  - **Wind**: Movement costs 1.3x energy
-  - **Snow**: Movement costs 2x energy, vision reduced, drains extra warmth at night
+  - **Wind**: Movement costs 1.3x energy, drains warmth over time
+  - **Snow**: Movement costs 2x energy, vision reduced, drains warmth quickly
+  - Bad weather drains warmth even during the day! Shelter protects you fully.
   - Use `get_status` to check current weather. Plan your travel accordingly!
 
   ## Economy

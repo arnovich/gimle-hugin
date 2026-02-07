@@ -37,10 +37,10 @@ WEATHER_VISIBILITY_MODIFIER: Dict[str, int] = {
 # Extra warmth drain per weather tick (on top of night drain)
 WEATHER_WARMTH_DRAIN: Dict[str, int] = {
     "clear": 0,
-    "rain": 0,
+    "rain": 1,
     "fog": 0,
-    "wind": 0,
-    "snow": 1,
+    "wind": 1,
+    "snow": 2,
 }
 
 # Display icons per weather type

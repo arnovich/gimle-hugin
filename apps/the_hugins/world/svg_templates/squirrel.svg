@@ -1,0 +1,39 @@
+<!-- Tail (big, fluffy, curled up) -->
+<path d="M 26 60 Q 10 50 14 30 Q 18 14 30 18 Q 40 22 36 36"
+    stroke="{color}" stroke-width="10" fill="none"
+    stroke-linecap="round"/>
+<path d="M 26 60 Q 10 50 14 30 Q 18 14 30 18 Q 40 22 36 36"
+    stroke="{accent}" stroke-width="5" fill="none"
+    stroke-linecap="round" opacity="0.4"/>
+<!-- Body -->
+<ellipse cx="50" cy="56" rx="14" ry="16" fill="{color}"/>
+<!-- Belly -->
+<ellipse cx="50" cy="60" rx="9" ry="10" fill="{accent}"/>
+<!-- Head -->
+<circle cx="50" cy="36" r="12" fill="{color}"/>
+<!-- Ears (small, rounded, tufted) -->
+<ellipse cx="38" cy="24" rx="5" ry="7" fill="{color}"/>
+<ellipse cx="38" cy="22" rx="3" ry="4" fill="{accent}"/>
+<ellipse cx="62" cy="24" rx="5" ry="7" fill="{color}"/>
+<ellipse cx="62" cy="22" rx="3" ry="4" fill="{accent}"/>
+<!-- Eyes -->
+<circle cx="44" cy="34" r="3.5" fill="#FFF"/>
+<circle cx="44" cy="34" r="2" fill="#000"/>
+<circle cx="45" cy="33" r="0.8" fill="#FFF"/>
+<circle cx="56" cy="34" r="3.5" fill="#FFF"/>
+<circle cx="56" cy="34" r="2" fill="#000"/>
+<circle cx="57" cy="33" r="0.8" fill="#FFF"/>
+<!-- Nose -->
+<circle cx="50" cy="40" r="2" fill="#333"/>
+<!-- Cheeks -->
+<circle cx="42" cy="40" r="3" fill="{accent}" opacity="0.4"/>
+<circle cx="58" cy="40" r="3" fill="{accent}" opacity="0.4"/>
+<!-- Mouth -->
+<path d="M 48 42 Q 50 44 52 42" stroke="#333" stroke-width="0.8"
+    fill="none"/>
+<!-- Front paws (holding something) -->
+<ellipse cx="40" cy="58" rx="4" ry="3" fill="{color}"/>
+<ellipse cx="60" cy="58" rx="4" ry="3" fill="{color}"/>
+<!-- Back feet -->
+<ellipse cx="40" cy="72" rx="6" ry="3.5" fill="{color}"/>
+<ellipse cx="60" cy="72" rx="6" ry="3.5" fill="{color}"/>
