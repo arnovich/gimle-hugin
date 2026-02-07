@@ -64,15 +64,11 @@ class WeatherSystem:
 
     def get_energy_modifier(self) -> float:
         """Get movement energy cost multiplier."""
-        return WEATHER_ENERGY_MODIFIER.get(
-            self.current.value, 1.0
-        )
+        return WEATHER_ENERGY_MODIFIER.get(self.current.value, 1.0)
 
     def get_visibility_modifier(self) -> int:
         """Get look radius modifier (negative reduces radius)."""
-        return WEATHER_VISIBILITY_MODIFIER.get(
-            self.current.value, 0
-        )
+        return WEATHER_VISIBILITY_MODIFIER.get(self.current.value, 0)
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize weather state."""

@@ -503,11 +503,18 @@ function drawWorld() {
 // ============================================================
 const weatherParticles = [];
 const MAX_WEATHER_PARTICLES = 120;
+let lastWeatherType = 'clear';
 
 function drawWeatherOverlay() {
     const time = performance.now() / 1000;
     const w = canvas.width;
     const h = canvas.height;
+
+    // Clear particles when weather type changes
+    if (currentWeather !== lastWeatherType) {
+        weatherParticles.length = 0;
+        lastWeatherType = currentWeather;
+    }
 
     if (currentWeather === 'rain') {
         // Ensure we have enough rain particles
