@@ -1148,84 +1148,91 @@ function drawCampfireGlow(x, y) {
 function drawStructure(x, y, structureType, itemCount) {
     if (!structureType) return;
 
-    // Shadow under structure
+    // All structures use tile center as reference point
+    const qt = TILE_SIZE / 4;
+    const cy = y - qt;  // visual center of the isometric tile
+
+    // Shadow under structure (small, within diamond)
     ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
     ctx.beginPath();
-    ctx.ellipse(x, y + 2, 20, 6, 0, 0, Math.PI * 2);
+    ctx.ellipse(x, cy + qt * 0.4, qt * 0.7, qt * 0.2, 0, 0, Math.PI * 2);
     ctx.fill();
 
     if (structureType === 'shelter') {
-        // Improved A-frame shelter with log texture
-        // Back wall
+        // Tiny A-frame shelter fitting within one tile
+        const wallW = qt * 0.25;
+        const wallBot = cy + qt * 0.1;
+        const wallTop = cy - qt * 0.025;
+        const roofPeak = cy - qt * 0.325;
+        const roofW = wallW + 1;
+
+        // Wooden back wall
         ctx.fillStyle = '#6D4C41';
         ctx.beginPath();
-        ctx.moveTo(x - 18, y - 5);
-        ctx.lineTo(x + 18, y - 5);
-        ctx.lineTo(x + 18, y + 5);
-        ctx.lineTo(x - 18, y + 5);
+        ctx.moveTo(x - wallW, wallTop);
+        ctx.lineTo(x + wallW, wallTop);
+        ctx.lineTo(x + wallW, wallBot);
+        ctx.lineTo(x - wallW, wallBot);
         ctx.closePath();
         ctx.fill();
 
-        // Roof (two slopes)
+        // Left roof slope (shadow side)
         ctx.fillStyle = '#8B4513';
         ctx.beginPath();
-        ctx.moveTo(x, y - 38);
-        ctx.lineTo(x - 22, y - 5);
-        ctx.lineTo(x, y - 8);
+        ctx.moveTo(x, roofPeak);
+        ctx.lineTo(x - roofW, wallTop);
+        ctx.lineTo(x, wallTop + 1);
         ctx.closePath();
         ctx.fill();
 
+        // Right roof slope (lit side)
         ctx.fillStyle = '#A0522D';
         ctx.beginPath();
-        ctx.moveTo(x, y - 38);
-        ctx.lineTo(x + 22, y - 5);
-        ctx.lineTo(x, y - 8);
+        ctx.moveTo(x, roofPeak);
+        ctx.lineTo(x + roofW, wallTop);
+        ctx.lineTo(x, wallTop + 1);
         ctx.closePath();
         ctx.fill();
 
-        // Roof outline
+        // Roof ridge outline
         ctx.strokeStyle = '#4E342E';
-        ctx.lineWidth = 1.5;
+        ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.moveTo(x, y - 38);
-        ctx.lineTo(x - 22, y - 5);
-        ctx.moveTo(x, y - 38);
-        ctx.lineTo(x + 22, y - 5);
+        ctx.moveTo(x, roofPeak);
+        ctx.lineTo(x - roofW, wallTop);
+        ctx.moveTo(x, roofPeak);
+        ctx.lineTo(x + roofW, wallTop);
         ctx.stroke();
 
         // Door opening
         ctx.fillStyle = '#2E1B0E';
-        ctx.beginPath();
-        ctx.moveTo(x - 5, y - 3);
-        ctx.lineTo(x + 5, y - 3);
-        ctx.lineTo(x + 5, y + 5);
-        ctx.lineTo(x - 5, y + 5);
-        ctx.closePath();
-        ctx.fill();
+        ctx.fillRect(x - 3, wallBot - 5, 6, 5);
 
-        // Log texture lines on roof
+        // Log texture lines on left roof slope
         ctx.strokeStyle = '#5D4037';
         ctx.lineWidth = 0.5;
-        for (let i = 1; i <= 3; i++) {
-            const t = i / 4;
+        for (let i = 1; i <= 2; i++) {
+            const t = i / 3;
             ctx.beginPath();
-            ctx.moveTo(x - 22 * t + (1 - t) * 0, y - 5 * t + (1 - t) * (-38) + 4);
-            ctx.lineTo(x, y - 38 + (38 - 8) * t + 4);
+            ctx.moveTo(x - roofW * (1 - t), roofPeak + (wallTop - roofPeak) * t);
+            ctx.lineTo(x, roofPeak + (wallTop + 1 - roofPeak) * t);
             ctx.stroke();
         }
     } else if (structureType === 'marker') {
-        // Flag post
+        // Flag post centered on tile
+        const postBase = cy + qt * 0.4;
+        const postTop = cy - qt * 1.6;
         ctx.fillStyle = '#5D4037';
-        ctx.fillRect(x - 2, y - 30, 4, 30);
+        ctx.fillRect(x - 2, postTop, 4, postBase - postTop);
 
         // Animated flag with wave
         const time = performance.now() / 1000;
         const wave = Math.sin(time * 3) * 2;
         ctx.fillStyle = '#E53935';
         ctx.beginPath();
-        ctx.moveTo(x + 2, y - 30);
-        ctx.quadraticCurveTo(x + 10, y - 27 + wave, x + 18, y - 24);
-        ctx.lineTo(x + 2, y - 18);
+        ctx.moveTo(x + 2, postTop);
+        ctx.quadraticCurveTo(x + 10, postTop + 3 + wave, x + 18, postTop + 6);
+        ctx.lineTo(x + 2, postTop + 12);
         ctx.closePath();
         ctx.fill();
 
@@ -1240,14 +1247,14 @@ function drawStructure(x, y, structureType, itemCount) {
         ctx.strokeStyle = 'rgba(229, 57, 53, 0.35)';
         ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.ellipse(x, y - 4, TILE_SIZE * 1.2, TILE_SIZE * 0.6, 0, 0, Math.PI * 2);
+        ctx.ellipse(x, cy, TILE_SIZE * 1.2, TILE_SIZE * 0.6, 0, 0, Math.PI * 2);
         ctx.stroke();
         ctx.restore();
     } else if (structureType === 'bridge') {
-        // Wooden bridge planks
+        // Wooden bridge planks centered on tile
         ctx.fillStyle = '#8D6E63';
         for (let i = -2; i <= 2; i++) {
-            ctx.fillRect(x + i * 8 - 3, y - 8, 6, 16);
+            ctx.fillRect(x + i * 8 - 3, cy - qt * 0.5, 6, qt);
         }
 
         // Plank lines
@@ -1255,8 +1262,8 @@ function drawStructure(x, y, structureType, itemCount) {
         ctx.lineWidth = 0.5;
         for (let i = -2; i <= 2; i++) {
             ctx.beginPath();
-            ctx.moveTo(x + i * 8, y - 6);
-            ctx.lineTo(x + i * 8, y + 6);
+            ctx.moveTo(x + i * 8, cy - qt * 0.4);
+            ctx.lineTo(x + i * 8, cy + qt * 0.4);
             ctx.stroke();
         }
 
@@ -1264,45 +1271,48 @@ function drawStructure(x, y, structureType, itemCount) {
         ctx.strokeStyle = '#4E342E';
         ctx.lineWidth = 2.5;
         ctx.beginPath();
-        ctx.moveTo(x - 20, y - 10);
-        ctx.lineTo(x + 20, y - 10);
-        ctx.moveTo(x - 20, y + 6);
-        ctx.lineTo(x + 20, y + 6);
+        ctx.moveTo(x - 20, cy - qt * 0.6);
+        ctx.lineTo(x + 20, cy - qt * 0.6);
+        ctx.moveTo(x - 20, cy + qt * 0.4);
+        ctx.lineTo(x + 20, cy + qt * 0.4);
         ctx.stroke();
 
         // Rail posts
         ctx.fillStyle = '#5D4037';
-        ctx.fillRect(x - 20, y - 14, 3, 8);
-        ctx.fillRect(x + 17, y - 14, 3, 8);
+        ctx.fillRect(x - 20, cy - qt * 0.85, 3, qt * 0.5);
+        ctx.fillRect(x + 17, cy - qt * 0.85, 3, qt * 0.5);
     } else if (structureType === 'storage') {
-        // Wooden chest
+        // Wooden chest centered on tile
+        const chestTop = cy - qt * 0.1;
+        const chestBot = cy + qt * 0.6;
+        const chestW = qt * 0.75;
         ctx.fillStyle = '#A1887F';
-        ctx.fillRect(x - 12, y - 14, 24, 16);
+        ctx.fillRect(x - chestW, chestTop, chestW * 2, chestBot - chestTop);
         // Chest lid (slightly darker)
         ctx.fillStyle = '#8D6E63';
-        ctx.fillRect(x - 13, y - 18, 26, 6);
+        ctx.fillRect(x - chestW - 1, chestTop - qt * 0.25, chestW * 2 + 2, qt * 0.25);
         // Lid arc
         ctx.beginPath();
-        ctx.moveTo(x - 13, y - 18);
-        ctx.quadraticCurveTo(x, y - 22, x + 13, y - 18);
+        ctx.moveTo(x - chestW - 1, chestTop - qt * 0.25);
+        ctx.quadraticCurveTo(x, chestTop - qt * 0.5, x + chestW + 1, chestTop - qt * 0.25);
         ctx.strokeStyle = '#5D4037';
         ctx.lineWidth = 1.5;
         ctx.stroke();
         // Lock
         ctx.fillStyle = '#FFD54F';
-        ctx.fillRect(x - 3, y - 16, 6, 4);
+        ctx.fillRect(x - 3, chestTop - qt * 0.12, 6, qt * 0.2);
         ctx.strokeStyle = '#F9A825';
         ctx.lineWidth = 0.8;
-        ctx.strokeRect(x - 3, y - 16, 6, 4);
+        ctx.strokeRect(x - 3, chestTop - qt * 0.12, 6, qt * 0.2);
         // Outline
         ctx.strokeStyle = '#4E342E';
         ctx.lineWidth = 1;
-        ctx.strokeRect(x - 12, y - 14, 24, 16);
+        ctx.strokeRect(x - chestW, chestTop, chestW * 2, chestBot - chestTop);
 
         // Item count badge (top-right corner)
         if (itemCount !== undefined && itemCount > 0) {
-            const badgeX = x + 14;
-            const badgeY = y - 20;
+            const badgeX = x + chestW + 2;
+            const badgeY = chestTop - qt * 0.3;
             ctx.fillStyle = '#1565C0';
             ctx.beginPath();
             ctx.arc(badgeX, badgeY, 7, 0, Math.PI * 2);
@@ -1314,55 +1324,49 @@ function drawStructure(x, y, structureType, itemCount) {
             ctx.fillText(String(itemCount), badgeX, badgeY);
         }
     } else if (structureType === 'campfire') {
-        // Stones in circle
+        // Small stone circle centered on tile
+        const stoneR = qt * 0.4;
         const stoneAngles = [0, 0.8, 1.6, 2.4, 3.2, 4.0, 4.8, 5.6];
         ctx.fillStyle = '#78909C';
         stoneAngles.forEach(a => {
             ctx.beginPath();
             ctx.ellipse(
-                x + Math.cos(a) * 10,
-                y + Math.sin(a) * 5,
-                4, 3, a * 0.3, 0, Math.PI * 2
+                x + Math.cos(a) * stoneR,
+                cy + Math.sin(a) * stoneR * 0.5,
+                3, 2, a * 0.3, 0, Math.PI * 2
             );
             ctx.fill();
         });
 
-        // Animated flames
+        // Animated flames rising from tile center
         const time = performance.now() / 1000;
         const flames = [
-            { dx: 0, h: 18, w: 5, color: '#FF6F00' },
-            { dx: -4, h: 13, w: 3.5, color: '#FF8F00' },
-            { dx: 4, h: 14, w: 3.5, color: '#FFA000' },
-            { dx: -1, h: 10, w: 4, color: '#FFCA28' }
+            { dx: 0, h: qt * 0.7, w: qt * 0.2, color: '#FF6F00' },
+            { dx: -3, h: qt * 0.5, w: qt * 0.15, color: '#FF8F00' },
+            { dx: 3, h: qt * 0.55, w: qt * 0.15, color: '#FFA000' },
+            { dx: -1, h: qt * 0.4, w: qt * 0.18, color: '#FFCA28' }
         ];
         flames.forEach((f, i) => {
-            const flicker = Math.sin(time * 8 + i * 2) * 2;
-            const sway = Math.sin(time * 3 + i) * 1.5;
+            const flicker = Math.sin(time * 8 + i * 2) * 1.5;
+            const sway = Math.sin(time * 3 + i) * 1;
             ctx.fillStyle = f.color;
             ctx.beginPath();
-            ctx.moveTo(x + f.dx - f.w + sway, y - 2);
+            ctx.moveTo(x + f.dx - f.w + sway, cy);
             ctx.quadraticCurveTo(
-                x + f.dx + sway, y - f.h - flicker,
-                x + f.dx + f.w + sway, y - 2
+                x + f.dx + sway, cy - f.h - flicker,
+                x + f.dx + f.w + sway, cy
             );
             ctx.closePath();
             ctx.fill();
         });
 
-        // Inner glow
+        // Inner glow dot
         ctx.fillStyle = '#FFF8E1';
         ctx.globalAlpha = 0.6 + Math.sin(time * 6) * 0.2;
         ctx.beginPath();
-        ctx.ellipse(x, y - 4, 3, 5, 0, 0, Math.PI * 2);
+        ctx.ellipse(x, cy - 2, 2, 3, 0, 0, Math.PI * 2);
         ctx.fill();
         ctx.globalAlpha = 1.0;
-
-        // Warm glow circle on ground
-        const glowGrad = ctx.createRadialGradient(x, y, 2, x, y, 25);
-        glowGrad.addColorStop(0, 'rgba(255, 160, 0, 0.15)');
-        glowGrad.addColorStop(1, 'rgba(255, 160, 0, 0)');
-        ctx.fillStyle = glowGrad;
-        ctx.fillRect(x - 25, y - 25, 50, 50);
     }
 }
 
