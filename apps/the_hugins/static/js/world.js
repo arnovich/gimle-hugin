@@ -2273,10 +2273,7 @@ function updateWorld() {
             updateCreaturesList(creaturesData);
 
             // Redraw the world with updated creature positions
-            // Only redraw if no animations are running (animation loop will handle redraws)
-            if (!animationFrameId) {
-                drawWorld();
-            }
+            // Animation loop handles continuous redraws
 
             // Update actions list
             updateActionsList();
@@ -2526,8 +2523,6 @@ function startAnimationLoop() {
         const deltaTime = currentTime - lastTime;
         lastTime = currentTime;
 
-        let hasActiveAnimations = false;
-
         // Update all creature animations
         for (let agentId in creatureAnimations) {
             const anim = creatureAnimations[agentId];
@@ -2549,28 +2544,24 @@ function startAnimationLoop() {
                     creature.y = anim.startY + (anim.targetY - anim.startY) * eased;
                 }
 
-                if (anim.progress < 1) {
-                    hasActiveAnimations = true;
-                } else {
+                if (anim.progress >= 1) {
                     // Animation complete, remove it
                     delete creatureAnimations[agentId];
                 }
             }
         }
 
-        // Redraw world if there are active animations
-        if (hasActiveAnimations) {
-            drawWorld();
-            animationFrameId = requestAnimationFrame(animate);
-        } else {
-            animationFrameId = null;
-            // Final redraw to ensure creatures are at target positions
-            drawWorld();
-        }
+        // Always redraw — terrain animations (water shimmer, tree sway)
+        // need continuous rendering
+        drawWorld();
+        animationFrameId = requestAnimationFrame(animate);
     }
 
     animationFrameId = requestAnimationFrame(animate);
 }
+
+// Start the continuous animation loop immediately
+startAnimationLoop();
 
 // ============================================================
 // 18. Interaction & Modals
