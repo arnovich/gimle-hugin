@@ -28,9 +28,6 @@ MODEL_PROVIDERS: Dict[str, str] = {
     "qwen3-30b-a3b": "ollama",
     "llama3.3-70b": "ollama",
     "mistral-small3.2": "ollama",
-    # Ollama cloud models (require OLLAMA_REMOTE_HOST + OLLAMA_API_KEY)
-    "qwen3-coder-next-cloud": "ollama_cloud",
-    "kimi-k2.5-cloud": "ollama_cloud",
 }
 
 
@@ -207,26 +204,6 @@ def get_model_registry() -> ModelRegistry:
     if remote_host:
         _load_ollama_api_key()
         register_remote_ollama_models(model_registry, remote_host)
-
-        # Ollama cloud models (known large models)
-        model_registry.register_model(
-            "qwen3-coder-next-cloud",
-            OllamaModel(
-                model_name="qwen3-coder-next:cloud",
-                host=remote_host,
-                strict_tool_calling=True,
-                timeout_seconds=300,
-            ),
-        )
-        model_registry.register_model(
-            "kimi-k2.5-cloud",
-            OllamaModel(
-                model_name="kimi-k2.5:cloud",
-                host=remote_host,
-                strict_tool_calling=True,
-                timeout_seconds=300,
-            ),
-        )
 
     return model_registry
 
