@@ -4,6 +4,7 @@
 import argparse
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -232,11 +233,17 @@ def find_agent_directories() -> List[Path]:
     return candidates
 
 
-def _ensure_ollama_model(model_name: str) -> Optional[str]:
-    """Ensure an Ollama model is installed and registered.
+def _ensure_ollama_model(
+    model_name: str, host: Optional[str] = None
+) -> Optional[str]:
+    """Ensure an Ollama model is available and registered.
+
+    For local models, checks installation and pulls if needed.
+    For remote models (host is set), checks availability only.
 
     Args:
         model_name: The Ollama model name (e.g., 'llama3.1:8b')
+        host: Optional remote Ollama server URL.
 
     Returns:
         The registry name if successful, None if failed.
@@ -251,10 +258,61 @@ def _ensure_ollama_model(model_name: str) -> Optional[str]:
     # Create registry name from ollama model name
     registry_name = model_name.replace(":", "-").replace(".", "-")
 
-    # Check if model is installed in Ollama
+    if host:
+        # Remote mode: check availability via Client API
+        try:
+            from ollama import Client
+
+            client = Client(host=host)
+            response = client.list()
+            remote_models: list[str] = []
+            for model_info in response.models:
+                name = model_info.model
+                if not name:
+                    continue
+                if name.endswith(":latest"):
+                    name = name[:-7]
+                remote_models.append(name)
+
+            if model_name not in remote_models:
+                # Also check with :latest suffix
+                raw_names = [m.model for m in response.models if m.model]
+                if f"{model_name}:latest" not in raw_names:
+                    print(
+                        f"Error: Model '{model_name}' not found "
+                        f"on remote server {host}"
+                    )
+                    print(f"Available: {remote_models}")
+                    return None
+
+        except Exception as e:
+            print(f"Error: Could not reach remote Ollama " f"at {host}: {e}")
+            return None
+
+        # Register with host parameter
+        if registry_name not in registry.models:
+            registry.register_model(
+                registry_name,
+                OllamaModel(
+                    model_name=model_name,
+                    host=host,
+                    strict_tool_calling=True,
+                    timeout_seconds=300,
+                ),
+            )
+            print(f"Registered remote model as " f"'{registry_name}' ({host})")
+        else:
+            print(f"Model '{registry_name}' ready ({host})")
+
+        return registry_name
+
+    # Local mode: check installation via subprocess
     try:
         result = subprocess.run(
-            ["ollama", "list"], capture_output=True, text=True, timeout=10
+            ["ollama", "list"],
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         installed_models = result.stdout
     except (subprocess.TimeoutExpired, FileNotFoundError) as e:
@@ -284,11 +342,13 @@ def _ensure_ollama_model(model_name: str) -> Optional[str]:
                     print(line.rstrip())
             process.wait()
             if process.returncode != 0:
-                print(f"Error: Failed to install model '{model_name}'")
+                print(f"Error: Failed to install model " f"'{model_name}'")
                 return None
             print(f"Successfully installed '{model_name}'")
         except FileNotFoundError:
-            print("Error: 'ollama' command not found. Please install Ollama.")
+            print(
+                "Error: 'ollama' command not found. " "Please install Ollama."
+            )
             return None
         except Exception as e:
             print(f"Error installing model: {e}")
@@ -438,7 +498,10 @@ def run_interactive(
         model_name = args.model
         if model_name.startswith("ollama:"):
             ollama_model = model_name[7:]
-            model_name = _ensure_ollama_model(ollama_model)
+            ollama_host = getattr(args, "ollama_host", None) or os.environ.get(
+                "OLLAMA_REMOTE_HOST"
+            )
+            model_name = _ensure_ollama_model(ollama_model, host=ollama_host)
             if model_name is None:
                 return 1
         config.llm_model = model_name
@@ -701,6 +764,16 @@ Examples:
     )
 
     parser.add_argument(
+        "--ollama-host",
+        type=str,
+        default=None,
+        help=(
+            "Remote Ollama server URL (e.g. http://gpu-box:11434). "
+            "Also reads OLLAMA_REMOTE_HOST env var."
+        ),
+    )
+
+    parser.add_argument(
         "--monitor",
         action="store_true",
         help="Run the monitor dashboard alongside the agent",
@@ -827,7 +900,10 @@ Examples:
         model_name = args.model
         if model_name.startswith("ollama:"):
             ollama_model = model_name[7:]
-            model_name = _ensure_ollama_model(ollama_model)
+            ollama_host = args.ollama_host or os.environ.get(
+                "OLLAMA_REMOTE_HOST"
+            )
+            model_name = _ensure_ollama_model(ollama_model, host=ollama_host)
             if model_name is None:
                 return 1
         else:
