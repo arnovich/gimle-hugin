@@ -321,6 +321,99 @@ Available tools: dummy_tool - use this when asked to use the dummy tool."""
         ), "Should correctly identify non-existent model"
 
 
+class TestOllamaModelHost:
+    """Tests for OllamaModel host parameter support."""
+
+    def test_default_host_is_none(self):
+        """Local models have host=None by default."""
+        from gimle.hugin.llm.models.ollama import OllamaModel
+
+        model = OllamaModel(model_name="test-model")
+        assert model.host is None
+
+    def test_custom_host(self):
+        """Remote models store the host URL."""
+        from gimle.hugin.llm.models.ollama import OllamaModel
+
+        model = OllamaModel(
+            model_name="test-model",
+            host="http://gpu-box:11434",
+        )
+        assert model.host == "http://gpu-box:11434"
+
+    def test_host_in_config(self):
+        """Host appears in the model config dict."""
+        from gimle.hugin.llm.models.ollama import OllamaModel
+
+        model = OllamaModel(
+            model_name="test-model",
+            host="http://remote:11434",
+        )
+        assert model.config["host"] == "http://remote:11434"
+
+    def test_host_in_config_none_for_local(self):
+        """Host is None in config for local models."""
+        from gimle.hugin.llm.models.ollama import OllamaModel
+
+        model = OllamaModel(model_name="test-model")
+        assert model.config["host"] is None
+
+    def test_host_display_local(self):
+        """Returns 'localhost' when host is None."""
+        from gimle.hugin.llm.models.ollama import OllamaModel
+
+        model = OllamaModel(model_name="test-model")
+        assert model.host_display == "localhost"
+
+    def test_host_display_remote(self):
+        """Returns the URL when host is set."""
+        from gimle.hugin.llm.models.ollama import OllamaModel
+
+        model = OllamaModel(
+            model_name="test-model",
+            host="http://gpu-box:11434",
+        )
+        assert model.host_display == "http://gpu-box:11434"
+
+    def test_client_created_with_host(self):
+        """Client property returns a Client instance."""
+        from unittest.mock import patch
+
+        from gimle.hugin.llm.models.ollama import OllamaModel
+
+        model = OllamaModel(
+            model_name="test-model",
+            host="http://remote:11434",
+        )
+        with patch("gimle.hugin.llm.models.ollama.Client") as mock_client_cls:
+            _ = model.client
+            mock_client_cls.assert_called_once_with(host="http://remote:11434")
+
+    def test_client_created_without_host(self):
+        """Client property creates default client for local."""
+        from unittest.mock import patch
+
+        from gimle.hugin.llm.models.ollama import OllamaModel
+
+        model = OllamaModel(model_name="test-model")
+        with patch("gimle.hugin.llm.models.ollama.Client") as mock_client_cls:
+            _ = model.client
+            mock_client_cls.assert_called_once_with()
+
+    def test_client_is_lazy_and_cached(self):
+        """Client is created lazily and reused."""
+        from unittest.mock import patch
+
+        from gimle.hugin.llm.models.ollama import OllamaModel
+
+        model = OllamaModel(model_name="test-model")
+        with patch("gimle.hugin.llm.models.ollama.Client") as mock_client_cls:
+            client1 = model.client
+            client2 = model.client
+            assert client1 is client2
+            mock_client_cls.assert_called_once()
+
+
 if __name__ == "__main__":
     # Allow running this test file directly
     pytest.main([__file__, "-v"])
