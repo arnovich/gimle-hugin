@@ -6,7 +6,7 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional
 
-from ollama import chat
+from ollama import Client
 
 from gimle.hugin.tools.tool import Tool
 
@@ -30,8 +30,20 @@ class ToolCallExpectedException(Exception):
         )
 
 
-# Global lock to prevent concurrent Ollama calls that might cause hanging
-_ollama_call_lock = threading.Lock()
+# Per-host locks to prevent concurrent Ollama calls to the same
+# server (which can cause hanging), while allowing calls to
+# different hosts (local vs remote) to run concurrently.
+_ollama_host_locks: Dict[str, threading.Lock] = {}
+_ollama_host_locks_guard = threading.Lock()
+
+
+def _get_host_lock(host: Optional[str]) -> threading.Lock:
+    """Get or create a lock for a specific Ollama host."""
+    key = host or "localhost"
+    with _ollama_host_locks_guard:
+        if key not in _ollama_host_locks:
+            _ollama_host_locks[key] = threading.Lock()
+        return _ollama_host_locks[key]
 
 
 class OllamaModel(Model):
@@ -45,6 +57,7 @@ class OllamaModel(Model):
         strict_tool_calling: bool = False,
         timeout_seconds: int = 60,
         tool_call_retries: int = 3,
+        host: Optional[str] = None,
     ):
         """Initialize the Ollama model."""
         super().__init__(
@@ -55,11 +68,29 @@ class OllamaModel(Model):
                 "strict_tool_calling": strict_tool_calling,
                 "timeout_seconds": timeout_seconds,
                 "tool_call_retries": tool_call_retries,
+                "host": host,
             }
         )
         self.strict_tool_calling = strict_tool_calling
         self.timeout_seconds = timeout_seconds
         self.tool_call_retries = tool_call_retries
+        self.host = host
+        self._client: Optional[Client] = None
+
+    @property
+    def client(self) -> Client:
+        """Lazy-initialized Ollama client."""
+        if self._client is None:
+            if self.host:
+                self._client = Client(host=self.host)
+            else:
+                self._client = Client()
+        return self._client
+
+    @property
+    def host_display(self) -> str:
+        """Display-friendly host string."""
+        return self.host or "localhost"
 
     def _try_parse_json_tool_call(
         self, content: str, tools: List[Any]
@@ -439,7 +470,7 @@ CRITICAL INSTRUCTIONS FOR TOOL USAGE:
                 )
 
                 # Use global lock to prevent concurrent Ollama calls that might hang
-                with _ollama_call_lock:
+                with _get_host_lock(self.host):
                     logging.debug("Acquired Ollama lock")
                     if tools_to_use:
                         try:
@@ -486,7 +517,7 @@ CRITICAL INSTRUCTIONS FOR TOOL USAGE:
                                 signal.alarm(self.timeout_seconds)
 
                             try:
-                                response = chat(
+                                response = self.client.chat(
                                     model=self.model_name,
                                     messages=retry_messages,
                                     options=retry_options,
@@ -860,7 +891,7 @@ CRITICAL INSTRUCTIONS FOR TOOL USAGE:
                                     if "qwen3" in self.model_name.lower()
                                     else None
                                 )
-                                response = chat(
+                                response = self.client.chat(
                                     model=self.model_name,
                                     messages=simplified_messages,
                                     options=options,
@@ -908,7 +939,7 @@ CRITICAL INSTRUCTIONS FOR TOOL USAGE:
                             signal.alarm(self.timeout_seconds)
 
                         try:
-                            response = chat(
+                            response = self.client.chat(
                                 model=self.model_name,
                                 messages=retry_messages,
                                 options=retry_options,
@@ -921,8 +952,11 @@ CRITICAL INSTRUCTIONS FOR TOOL USAGE:
                             "Ollama chat without tools completed successfully"
                         )
 
-                    # Longer delay for smaller models to prevent resource conflicts
-                    if any(
+                    # Longer delay for local small models to prevent
+                    # resource conflicts. Skip for remote/cloud models.
+                    if self.host:
+                        logging.debug("Skipping delay for remote model")
+                    elif any(
                         model in self.model_name.lower()
                         for model in [
                             "qwen",
@@ -937,7 +971,7 @@ CRITICAL INSTRUCTIONS FOR TOOL USAGE:
                         )
                         time.sleep(
                             1.0
-                        )  # Much longer delay for resource-constrained models
+                        )  # Longer delay for resource-constrained models
                         logging.debug(
                             "Delay completed for resource-constrained model"
                         )

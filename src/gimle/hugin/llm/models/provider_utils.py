@@ -186,13 +186,70 @@ def check_ollama() -> ProviderStatus:
     )
 
 
-def detect_all_providers() -> Dict[str, ProviderStatus]:
+def get_ollama_remote_host() -> Optional[str]:
+    """Get remote Ollama host from environment or .env files."""
+    host = os.environ.get("OLLAMA_REMOTE_HOST")
+    if host:
+        return host
+
+    dotenv = load_dotenv_credentials()
+    return dotenv.get("OLLAMA_REMOTE_HOST")
+
+
+def check_remote_ollama(host: str) -> ProviderStatus:
+    """Check remote Ollama availability and installed models."""
+    try:
+        from ollama import Client
+
+        # Ensure OLLAMA_API_KEY is loaded from .env
+        _load_ollama_api_key()
+        client = Client(host=host)
+        response = client.list()
+        models: List[str] = []
+        for model_info in response.models:
+            name = model_info.model
+            if not name:
+                continue
+            if name.endswith(":latest"):
+                name = name[:-7]
+            models.append(name)
+        return ProviderStatus(
+            name="Ollama (remote)",
+            available=True,
+            credential_source="remote",
+            models=models if models else ["(no models installed)"],
+        )
+    except ImportError:
+        return ProviderStatus(
+            name="Ollama (remote)",
+            available=False,
+            error="ollama Python package not installed",
+            models=[],
+        )
+    except Exception as e:
+        return ProviderStatus(
+            name="Ollama (remote)",
+            available=False,
+            error=f"Remote Ollama at {host} not reachable: {e}",
+            models=[],
+        )
+
+
+def detect_all_providers(
+    remote_ollama_host: Optional[str] = None,
+) -> Dict[str, ProviderStatus]:
     """Detect all available providers and their status."""
-    return {
+    providers: Dict[str, ProviderStatus] = {
         "ollama": check_ollama(),
         "anthropic": check_anthropic(),
         "openai": check_openai(),
     }
+
+    host = remote_ollama_host or get_ollama_remote_host()
+    if host:
+        providers["ollama_remote"] = check_remote_ollama(host)
+
+    return providers
 
 
 def get_credential_for_provider(provider: str) -> Optional[str]:
@@ -209,6 +266,12 @@ def get_credential_for_provider(provider: str) -> Optional[str]:
             dotenv = load_dotenv_credentials()
             key = dotenv.get("OPENAI_API_KEY")
         return key
+    elif provider in ("ollama", "ollama_remote"):
+        key = os.environ.get("OLLAMA_API_KEY")
+        if not key:
+            dotenv = load_dotenv_credentials()
+            key = dotenv.get("OLLAMA_API_KEY")
+        return key
     return None
 
 
@@ -219,7 +282,15 @@ def ensure_credentials_loaded(provider: str) -> bool:
     Returns True if credentials are available, False otherwise.
     """
     if provider == "ollama":
-        return True  # No credentials needed
+        # Local Ollama needs no credentials, but load
+        # OLLAMA_API_KEY if present (used by remote too).
+        _load_ollama_api_key()
+        return True
+
+    if provider == "ollama_remote":
+        # Remote may need OLLAMA_API_KEY — load if available.
+        _load_ollama_api_key()
+        return True  # Key is optional; server may be open
 
     env_var = f"{provider.upper()}_API_KEY"
 
@@ -235,3 +306,17 @@ def ensure_credentials_loaded(provider: str) -> bool:
         return True
 
     return False
+
+
+def _load_ollama_api_key() -> None:
+    """Load OLLAMA_API_KEY from .env into environment if not set.
+
+    The ollama Python Client reads OLLAMA_API_KEY from the
+    environment automatically and sends it as a Bearer token.
+    """
+    if os.environ.get("OLLAMA_API_KEY"):
+        return
+    dotenv = load_dotenv_credentials()
+    key = dotenv.get("OLLAMA_API_KEY")
+    if key:
+        os.environ["OLLAMA_API_KEY"] = key
