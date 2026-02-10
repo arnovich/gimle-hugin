@@ -37,30 +37,20 @@ def check_folder(
         ToolResponse with new file list or a silent heartbeat loop.
     """
     try:
-        current_files: List[str] = sorted(
-            os.listdir(folder_path)
-        )
+        current_files: List[str] = sorted(os.listdir(folder_path))
     except FileNotFoundError:
         return ToolResponse(
             is_error=True,
-            content={
-                "error": f"Folder not found: {folder_path}"
-            },
+            content={"error": f"Folder not found: {folder_path}"},
         )
     except OSError as e:
         return ToolResponse(
             is_error=True,
-            content={
-                "error": (
-                    f"Cannot read folder {folder_path}: {e}"
-                )
-            },
+            content={"error": (f"Cannot read folder {folder_path}: {e}")},
         )
 
     # Compare against previously seen files
-    seen: List[str] = stack.get_shared_state(
-        "seen_files", default=[]
-    )
+    seen: List[str] = stack.get_shared_state("seen_files", default=[])
     seen_set = set(seen)
     new_files = [f for f in current_files if f not in seen_set]
 
@@ -71,9 +61,7 @@ def check_folder(
             is_error=False,
             content={
                 "new_files": new_files,
-                "message": (
-                    f"Found {len(new_files)} new file(s)"
-                ),
+                "message": (f"Found {len(new_files)} new file(s)"),
             },
         )
 

@@ -67,9 +67,7 @@ class TestCheckFolder:
 
     def test_folder_not_found(self, mock_agent):
         """Test returns error when folder does not exist."""
-        result = check_folder(
-            mock_agent.stack, "/nonexistent/path"
-        )
+        result = check_folder(mock_agent.stack, "/nonexistent/path")
         assert result.is_error is True
         assert "not found" in result.content["error"]
 
@@ -77,17 +75,13 @@ class TestCheckFolder:
         """Test returns error on OS-level read failure."""
         os.chmod(watched_folder, 0o000)
         try:
-            result = check_folder(
-                mock_agent.stack, watched_folder
-            )
+            result = check_folder(mock_agent.stack, watched_folder)
             assert result.is_error is True
             assert "Cannot read folder" in result.content["error"]
         finally:
             os.chmod(watched_folder, 0o755)
 
-    def test_first_check_finds_files(
-        self, mock_agent, watched_folder
-    ):
+    def test_first_check_finds_files(self, mock_agent, watched_folder):
         """Test first check detects all files as new."""
         open(os.path.join(watched_folder, "a.txt"), "w").close()
         open(os.path.join(watched_folder, "b.txt"), "w").close()
@@ -118,9 +112,7 @@ class TestCheckFolder:
 
         assert result.content["new_files"] == ["b.txt"]
 
-    def test_empty_check_returns_waiting(
-        self, mock_agent, watched_folder
-    ):
+    def test_empty_check_returns_waiting(self, mock_agent, watched_folder):
         """Test empty folder returns a silent heartbeat Waiting."""
         result = check_folder(mock_agent.stack, watched_folder)
 
@@ -136,27 +128,19 @@ class TestCheckFolder:
             "interval": 3,
         }
 
-    def test_custom_interval_propagates(
-        self, mock_agent, watched_folder
-    ):
+    def test_custom_interval_propagates(self, mock_agent, watched_folder):
         """Test that a custom interval is used in the Waiting."""
-        result = check_folder(
-            mock_agent.stack, watched_folder, interval=10
-        )
+        result = check_folder(mock_agent.stack, watched_folder, interval=10)
 
         waiting = result.response_interaction
         assert isinstance(waiting, Waiting)
         assert waiting.condition.parameters == {"ticks": 10}
         assert waiting.next_tool_args["interval"] == 10
 
-    def test_no_auto_termination(
-        self, mock_agent, watched_folder
-    ):
+    def test_no_auto_termination(self, mock_agent, watched_folder):
         """Test that repeated empty checks keep looping (no auto-stop)."""
         for _ in range(10):
-            result = check_folder(
-                mock_agent.stack, watched_folder
-            )
+            result = check_folder(mock_agent.stack, watched_folder)
             # Every empty check should return a Waiting, never terminate
             assert isinstance(result.response_interaction, Waiting)
 
@@ -182,13 +166,9 @@ class TestCheckFolder:
 class TestSleepUntilNextCheck:
     """Tests for the sleep_until_next_check tool."""
 
-    def test_returns_waiting_with_correct_condition(
-        self, mock_agent
-    ):
+    def test_returns_waiting_with_correct_condition(self, mock_agent):
         """Test returns Waiting with wait_for_ticks condition."""
-        result = sleep_until_next_check(
-            mock_agent.stack, "/tmp/watched"
-        )
+        result = sleep_until_next_check(mock_agent.stack, "/tmp/watched")
 
         assert result.is_error is False
         waiting = result.response_interaction
@@ -196,9 +176,7 @@ class TestSleepUntilNextCheck:
         assert waiting.condition.evaluator == "wait_for_ticks"
         assert waiting.condition.parameters == {"ticks": 3}
 
-    def test_passes_folder_and_interval_to_next_tool(
-        self, mock_agent
-    ):
+    def test_passes_folder_and_interval_to_next_tool(self, mock_agent):
         """Test folder_path and interval are forwarded."""
         result = sleep_until_next_check(
             mock_agent.stack, "/my/folder", interval=7
@@ -214,9 +192,7 @@ class TestSleepUntilNextCheck:
 
     def test_custom_interval_in_condition(self, mock_agent):
         """Test that custom interval flows into the condition."""
-        result = sleep_until_next_check(
-            mock_agent.stack, "/tmp", interval=5
-        )
+        result = sleep_until_next_check(mock_agent.stack, "/tmp", interval=5)
 
         waiting = result.response_interaction
         assert isinstance(waiting, Waiting)
