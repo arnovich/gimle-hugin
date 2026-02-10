@@ -1,5 +1,6 @@
 """Condition class and built-in condition functions for Waiting interactions."""
 
+import logging
 from dataclasses import dataclass
 from typing import (
     TYPE_CHECKING,
@@ -14,13 +15,22 @@ from typing import (
 
 from gimle.hugin.utils.registry import Registry
 
+logger = logging.getLogger(__name__)
+
 if TYPE_CHECKING:
     from gimle.hugin.interaction.stack import Stack
 
 
 @dataclass
 class Condition:
-    """A condition is a function that evalutes the current state of the stack and returns a boolean.
+    """A condition that evaluates the current state of the stack.
+
+    Condition evaluators are called on every step while the agent is
+    waiting.  Most evaluators are pure (read-only), but some — like
+    ``wait_for_ticks`` — mutate shared state as a side effect. Such
+    evaluators must only be called once per step; calling them more
+    than once (e.g. for logging or debugging) will advance their
+    internal counters incorrectly.
 
     Attributes:
         registry: The registry of conditions.
@@ -122,3 +132,52 @@ def all_branches_complete(
             return True
     # All branches complete - done waiting
     return False
+
+
+@Condition.register()
+def wait_for_ticks(stack: "Stack", branch: Optional[str], ticks: int) -> bool:
+    """Wait for a specified number of ticks (session steps).
+
+    Uses the last Waiting interaction's UUID as a unique key in shared
+    state to track how many ticks have elapsed. Returns True (keep
+    waiting) until the counter reaches ``ticks``, then returns False
+    (done waiting) and cleans up the state key.
+
+    .. note::
+
+        This evaluator mutates shared state on every call. It must
+        only be evaluated once per step.
+
+    Args:
+        stack: The stack to evaluate the condition on.
+        branch: The branch to evaluate the condition on.
+        ticks: Number of ticks to wait before proceeding (must be >= 1).
+
+    Returns:
+        True if still waiting (counter < ticks).
+        False if done waiting (counter >= ticks).
+
+    Raises:
+        ValueError: If ``ticks`` < 1 or no interaction on the branch.
+    """
+    if ticks < 1:
+        raise ValueError(f"ticks must be >= 1, got {ticks}")
+    last = stack.get_last_interaction_for_branch(branch)
+    if last is None:
+        raise ValueError(f"No interaction found on branch {branch!r}")
+    key = f"_wait_ticks_{last.uuid}"
+    elapsed = stack.get_shared_state(key, default=0)
+    elapsed += 1
+    stack.set_shared_state(key, elapsed)
+    if elapsed >= ticks:
+        try:
+            stack.delete_shared_state(key)
+        except KeyError:
+            logger.warning(
+                "wait_for_ticks: shared state key %r already "
+                "deleted (possible race condition on branch %r)",
+                key,
+                branch,
+            )
+        return False  # Done waiting
+    return True  # Keep waiting
