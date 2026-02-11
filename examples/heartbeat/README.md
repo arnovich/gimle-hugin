@@ -92,16 +92,3 @@ pattern for your own use case:
    "go back to sleep" tool that the LLM calls after acting.
 4. Update the system prompt to describe what your agent monitors and
    how it should respond to changes.
-
-## Files
-
-```
-examples/heartbeat/
-├── configs/heartbeat.yaml              # Agent config
-├── tasks/monitor_folder.yaml           # Task with configurable interval
-├── templates/heartbeat_system.yaml     # System prompt
-├── tools/
-│   ├── check_folder.py + .yaml         # Sensor (swap this out)
-│   └── sleep_until_next_check.py + .yaml  # Resume heartbeat loop
-└── README.md
-```
