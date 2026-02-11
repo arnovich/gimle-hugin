@@ -1,12 +1,18 @@
 """Tests for Waiting interaction and Condition class."""
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from gimle.hugin.agent.config import Config
+from gimle.hugin.agent.session_state import SessionState
 from gimle.hugin.agent.task import Task
-from gimle.hugin.interaction.conditions import Condition, all_branches_complete
+from gimle.hugin.interaction.conditions import (
+    Condition,
+    all_branches_complete,
+    wait_for_seconds,
+    wait_for_ticks,
+)
 from gimle.hugin.interaction.task_definition import TaskDefinition
 from gimle.hugin.interaction.tool_call import ToolCall
 from gimle.hugin.interaction.waiting import Waiting
@@ -36,6 +42,28 @@ def mock_agent(mock_session):
         tools=[],
     )
     agent = Agent(config=config, session=mock_session)
+    return agent
+
+
+@pytest.fixture
+def mock_session_with_state(mock_session):
+    """Extend mock_session with a real SessionState."""
+    mock_session.state = SessionState()
+    return mock_session
+
+
+@pytest.fixture
+def mock_agent_with_state(mock_session_with_state):
+    """Create a mock agent with real SessionState for shared state tests."""
+    from gimle.hugin.agent.agent import Agent
+
+    config = Config(
+        name="test_config",
+        description="Test config",
+        system_template="test_system",
+        tools=[],
+    )
+    agent = Agent(config=config, session=mock_session_with_state)
     return agent
 
 
@@ -450,3 +478,285 @@ class TestWaitingIntegration:
         finally:
             if "all_branches_complete" in Condition.registry.registered():
                 Condition.registry.remove("all_branches_complete")
+
+
+class TestWaitForTicks:
+    """Tests for the wait_for_ticks condition function."""
+
+    def test_wait_for_ticks_keeps_waiting(self, mock_agent_with_state):
+        """Test returns True for first N-1 evaluations."""
+        stack = mock_agent_with_state.stack
+        waiting = Waiting(stack=stack)
+        stack.add_interaction(waiting)
+
+        # With ticks=3, first two calls should return True
+        assert wait_for_ticks(stack, branch=None, ticks=3) is True
+        assert wait_for_ticks(stack, branch=None, ticks=3) is True
+
+    def test_wait_for_ticks_done_after_n_ticks(self, mock_agent_with_state):
+        """Test returns False on the Nth evaluation."""
+        stack = mock_agent_with_state.stack
+        waiting = Waiting(stack=stack)
+        stack.add_interaction(waiting)
+
+        # With ticks=3, third call should return False
+        assert wait_for_ticks(stack, branch=None, ticks=3) is True
+        assert wait_for_ticks(stack, branch=None, ticks=3) is True
+        assert wait_for_ticks(stack, branch=None, ticks=3) is False
+
+    def test_wait_for_ticks_cleans_up_state(self, mock_agent_with_state):
+        """Test shared state key is removed after done."""
+        stack = mock_agent_with_state.stack
+        waiting = Waiting(stack=stack)
+        stack.add_interaction(waiting)
+        key = f"_wait_ticks_{waiting.uuid}"
+
+        # Run through all ticks
+        wait_for_ticks(stack, branch=None, ticks=1)
+
+        # Key should be cleaned up
+        assert stack.get_shared_state(key) is None
+
+    def test_wait_for_ticks_independent_waitings(self, mock_agent_with_state):
+        """Test two Waiting instances don't interfere."""
+        stack = mock_agent_with_state.stack
+
+        # Create two waitings on different branches
+        waiting_a = Waiting(stack=stack, branch="branch_a")
+        stack.add_interaction(waiting_a, branch="branch_a")
+        waiting_b = Waiting(stack=stack, branch="branch_b")
+        stack.add_interaction(waiting_b, branch="branch_b")
+
+        # Advance branch_a twice (ticks=3)
+        assert wait_for_ticks(stack, branch="branch_a", ticks=3) is True
+        assert wait_for_ticks(stack, branch="branch_a", ticks=3) is True
+
+        # branch_b has not been advanced yet, should be at 1
+        assert wait_for_ticks(stack, branch="branch_b", ticks=3) is True
+
+        # branch_a reaches ticks=3, should be done
+        assert wait_for_ticks(stack, branch="branch_a", ticks=3) is False
+
+        # branch_b still waiting (only at 2)
+        assert wait_for_ticks(stack, branch="branch_b", ticks=3) is True
+
+    def test_wait_for_ticks_raises_on_empty_branch(self, mock_agent_with_state):
+        """Test raises ValueError when branch has no interactions."""
+        stack = mock_agent_with_state.stack
+        with pytest.raises(ValueError, match="No interaction found"):
+            wait_for_ticks(stack, branch="nonexistent", ticks=3)
+
+    def test_wait_for_ticks_raises_on_invalid_ticks(
+        self, mock_agent_with_state
+    ):
+        """Test raises ValueError when ticks < 1."""
+        stack = mock_agent_with_state.stack
+        waiting = Waiting(stack=stack)
+        stack.add_interaction(waiting)
+
+        with pytest.raises(ValueError, match="ticks must be >= 1"):
+            wait_for_ticks(stack, branch=None, ticks=0)
+
+        with pytest.raises(ValueError, match="ticks must be >= 1"):
+            wait_for_ticks(stack, branch=None, ticks=-5)
+
+    def test_wait_for_ticks_one_completes_immediately(
+        self, mock_agent_with_state
+    ):
+        """Test ticks=1 returns False on the very first call."""
+        stack = mock_agent_with_state.stack
+        waiting = Waiting(stack=stack)
+        stack.add_interaction(waiting)
+
+        assert wait_for_ticks(stack, branch=None, ticks=1) is False
+
+    def test_wait_for_ticks_via_condition_evaluate(self, mock_agent_with_state):
+        """Test wait_for_ticks through the Condition.evaluate() path."""
+        stack = mock_agent_with_state.stack
+        waiting = Waiting(stack=stack)
+        stack.add_interaction(waiting)
+
+        condition = Condition(
+            evaluator="wait_for_ticks",
+            parameters={"ticks": 2},
+        )
+
+        assert condition.evaluate(stack, None) is True
+        assert condition.evaluate(stack, None) is False
+
+    def test_wait_for_ticks_via_waiting_step(self, mock_agent_with_state):
+        """Test full integration: Waiting.step() with wait_for_ticks."""
+        stack = mock_agent_with_state.stack
+        condition = Condition(
+            evaluator="wait_for_ticks",
+            parameters={"ticks": 2},
+        )
+        waiting = Waiting(
+            stack=stack,
+            condition=condition,
+            next_tool="check_folder",
+            next_tool_args={"folder_path": "/tmp"},
+        )
+        stack.add_interaction(waiting)
+
+        # First step: still waiting
+        assert waiting.step() is True
+        assert len(stack.interactions) == 1  # No ToolCall added
+
+        # Second step: done, chains to next_tool
+        assert waiting.step() is True
+        assert len(stack.interactions) == 2
+        chained = stack.interactions[1]
+        assert isinstance(chained, ToolCall)
+        assert chained.tool == "check_folder"
+        assert chained.args == {"folder_path": "/tmp"}
+
+
+class TestWaitForSeconds:
+    """Tests for the wait_for_seconds condition function."""
+
+    @patch("gimle.hugin.interaction.conditions.time")
+    def test_wait_for_seconds_keeps_waiting(
+        self, mock_time, mock_agent_with_state
+    ):
+        """Test returns True when not enough time has elapsed."""
+        mock_time.time.side_effect = [100.0, 102.0]  # start, check
+        stack = mock_agent_with_state.stack
+        waiting = Waiting(stack=stack)
+        stack.add_interaction(waiting)
+
+        # First call: records start time, returns True
+        assert wait_for_seconds(stack, branch=None, seconds=5.0) is True
+        # Second call: 2s elapsed < 5s, returns True
+        assert wait_for_seconds(stack, branch=None, seconds=5.0) is True
+
+    @patch("gimle.hugin.interaction.conditions.time")
+    def test_wait_for_seconds_done_after_elapsed(
+        self, mock_time, mock_agent_with_state
+    ):
+        """Test returns False after enough time has elapsed."""
+        mock_time.time.side_effect = [100.0, 106.0]  # start, check
+        stack = mock_agent_with_state.stack
+        waiting = Waiting(stack=stack)
+        stack.add_interaction(waiting)
+
+        # First call: records start time
+        assert wait_for_seconds(stack, branch=None, seconds=5.0) is True
+        # Second call: 6s elapsed >= 5s, returns False
+        assert wait_for_seconds(stack, branch=None, seconds=5.0) is False
+
+    @patch("gimle.hugin.interaction.conditions.time")
+    def test_wait_for_seconds_cleans_up_state(
+        self, mock_time, mock_agent_with_state
+    ):
+        """Test shared state key is removed after done."""
+        mock_time.time.side_effect = [100.0, 110.0]
+        stack = mock_agent_with_state.stack
+        waiting = Waiting(stack=stack)
+        stack.add_interaction(waiting)
+        key = f"_wait_seconds_{waiting.uuid}"
+
+        # Start, then finish
+        wait_for_seconds(stack, branch=None, seconds=5.0)
+        wait_for_seconds(stack, branch=None, seconds=5.0)
+
+        # Key should be cleaned up
+        assert stack.get_shared_state(key) is None
+
+    @patch("gimle.hugin.interaction.conditions.time")
+    def test_wait_for_seconds_independent_waitings(
+        self, mock_time, mock_agent_with_state
+    ):
+        """Test two Waiting instances don't interfere."""
+        mock_time.time.side_effect = [
+            100.0,  # branch_a start
+            100.0,  # branch_b start
+            103.0,  # branch_a check (3s elapsed)
+            101.0,  # branch_b check (1s elapsed)
+        ]
+        stack = mock_agent_with_state.stack
+
+        waiting_a = Waiting(stack=stack, branch="branch_a")
+        stack.add_interaction(waiting_a, branch="branch_a")
+        waiting_b = Waiting(stack=stack, branch="branch_b")
+        stack.add_interaction(waiting_b, branch="branch_b")
+
+        # Start both timers
+        assert wait_for_seconds(stack, branch="branch_a", seconds=2.0) is True
+        assert wait_for_seconds(stack, branch="branch_b", seconds=2.0) is True
+
+        # branch_a: 3s elapsed >= 2s -> done
+        assert wait_for_seconds(stack, branch="branch_a", seconds=2.0) is False
+        # branch_b: 1s elapsed < 2s -> still waiting
+        assert wait_for_seconds(stack, branch="branch_b", seconds=2.0) is True
+
+    def test_wait_for_seconds_raises_on_empty_branch(
+        self, mock_agent_with_state
+    ):
+        """Test raises ValueError when branch has no interactions."""
+        stack = mock_agent_with_state.stack
+        with pytest.raises(ValueError, match="No interaction found"):
+            wait_for_seconds(stack, branch="nonexistent", seconds=5.0)
+
+    def test_wait_for_seconds_raises_on_invalid_seconds(
+        self, mock_agent_with_state
+    ):
+        """Test raises ValueError when seconds <= 0."""
+        stack = mock_agent_with_state.stack
+        waiting = Waiting(stack=stack)
+        stack.add_interaction(waiting)
+
+        with pytest.raises(ValueError, match="seconds must be > 0"):
+            wait_for_seconds(stack, branch=None, seconds=0)
+
+        with pytest.raises(ValueError, match="seconds must be > 0"):
+            wait_for_seconds(stack, branch=None, seconds=-3.0)
+
+    @patch("gimle.hugin.interaction.conditions.time")
+    def test_wait_for_seconds_via_condition_evaluate(
+        self, mock_time, mock_agent_with_state
+    ):
+        """Test wait_for_seconds through Condition.evaluate() path."""
+        mock_time.time.side_effect = [100.0, 106.0]
+        stack = mock_agent_with_state.stack
+        waiting = Waiting(stack=stack)
+        stack.add_interaction(waiting)
+
+        condition = Condition(
+            evaluator="wait_for_seconds",
+            parameters={"seconds": 5.0},
+        )
+
+        assert condition.evaluate(stack, None) is True
+        assert condition.evaluate(stack, None) is False
+
+    @patch("gimle.hugin.interaction.conditions.time")
+    def test_wait_for_seconds_via_waiting_step(
+        self, mock_time, mock_agent_with_state
+    ):
+        """Test full integration: Waiting.step() with wait_for_seconds."""
+        mock_time.time.side_effect = [100.0, 106.0]
+        stack = mock_agent_with_state.stack
+        condition = Condition(
+            evaluator="wait_for_seconds",
+            parameters={"seconds": 5.0},
+        )
+        waiting = Waiting(
+            stack=stack,
+            condition=condition,
+            next_tool="check_folder",
+            next_tool_args={"folder_path": "/tmp"},
+        )
+        stack.add_interaction(waiting)
+
+        # First step: records start time, still waiting
+        assert waiting.step() is True
+        assert len(stack.interactions) == 1  # No ToolCall added
+
+        # Second step: 6s elapsed >= 5s, done, chains to next_tool
+        assert waiting.step() is True
+        assert len(stack.interactions) == 2
+        chained = stack.interactions[1]
+        assert isinstance(chained, ToolCall)
+        assert chained.tool == "check_folder"
+        assert chained.args == {"folder_path": "/tmp"}

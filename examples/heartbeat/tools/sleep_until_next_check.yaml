@@ -1,0 +1,12 @@
+name: sleep_until_next_check
+description: Go back to sleep and resume the heartbeat after a delay
+parameters:
+  folder_path:
+    type: string
+    description: Path to the folder to monitor
+  interval:
+    type: integer
+    description: Ticks to wait before the next check
+implementation_path: sleep_until_next_check:sleep_until_next_check
+options:
+  respond_with_text: true

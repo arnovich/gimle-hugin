@@ -1,0 +1,10 @@
+name: heartbeat
+description: Agent that wakes up periodically to check a sensor
+system_template: heartbeat_system
+llm_model: haiku-latest
+tools:
+  - check_folder:check_folder
+  - sleep_until_next_check:sleep_until_next_check
+  - builtins.finish:finish
+interactive: false
+options: {}

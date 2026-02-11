@@ -252,6 +252,7 @@ def run_steps_with_spinner(
     spinner: Optional[Sequence[str]] = None,
     session: Optional[Any] = None,
     interactive: bool = True,
+    step_delay: float = 0.0,
 ) -> Tuple[int, Optional[Exception]]:
     """Run a step loop with a smoothly animated spinner.
 
@@ -266,6 +267,7 @@ def run_steps_with_spinner(
         spinner: Deprecated, uses AnimatedSpinner frames
         session: Optional Session object for detecting AskHuman interactions
         interactive: Whether to prompt for human input (default True)
+        step_delay: Delay in seconds between steps (default 0.0)
 
     Returns:
         (step_count, last_error)
@@ -309,6 +311,8 @@ def run_steps_with_spinner(
                 step_count += 1
                 animated.increment_step()
                 save_fn()
+                if step_delay > 0:
+                    time.sleep(step_delay)
             except Exception as e:
                 last_error = e
                 break

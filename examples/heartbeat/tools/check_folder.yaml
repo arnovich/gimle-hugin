@@ -1,0 +1,12 @@
+name: check_folder
+description: Check a folder for new files since the last check
+parameters:
+  folder_path:
+    type: string
+    description: Path to the folder to monitor
+  interval:
+    type: integer
+    description: Ticks to wait before the next check
+implementation_path: check_folder:check_folder
+options:
+  respond_with_text: true

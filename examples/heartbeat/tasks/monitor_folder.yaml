@@ -1,0 +1,25 @@
+name: monitor_folder
+description: Periodically check a folder for new files and analyze them
+parameters:
+  folder_path:
+    type: string
+    description: Path to the folder to monitor
+    required: false
+    default: /tmp/watched_folder
+  heartbeat_interval:
+    type: integer
+    description: Number of ticks between each check
+    required: false
+    default: 3
+prompt: |
+  Monitor the folder {{ folder_path.value }} for new files.
+
+  Start by calling check_folder with folder_path="{{ folder_path.value }}"
+  and interval={{ heartbeat_interval.value }}.
+
+  When new files are found, analyze their names and contents briefly.
+  Then call sleep_until_next_check with the same folder_path and interval
+  to resume monitoring.
+
+  Keep monitoring until you decide there is nothing more to observe,
+  then summarize everything you saw and call finish.

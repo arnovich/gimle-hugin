@@ -604,6 +604,7 @@ def run_interactive(
         clear_width=40,
         session=session,
         interactive=True,
+        step_delay=getattr(args, "step_delay", 0.0),
     )
     if last_error:
         logging.error("Error during agent step", exc_info=last_error)
@@ -725,6 +726,13 @@ Examples:
         type=int,
         default=100,
         help="Maximum number of steps to run (default: 100)",
+    )
+
+    parser.add_argument(
+        "--step-delay",
+        type=float,
+        default=0.0,
+        help="Delay in seconds between steps (default: 0)",
     )
 
     parser.add_argument(
@@ -1043,6 +1051,7 @@ Examples:
         clear_width=30,
         session=session,
         interactive=not args.non_interactive,
+        step_delay=args.step_delay,
     )
     if last_error:
         logging.error("Error during agent step", exc_info=last_error)
