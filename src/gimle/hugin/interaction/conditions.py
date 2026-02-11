@@ -1,6 +1,7 @@
 """Condition class and built-in condition functions for Waiting interactions."""
 
 import logging
+import time
 from dataclasses import dataclass
 from typing import (
     TYPE_CHECKING,
@@ -175,6 +176,60 @@ def wait_for_ticks(stack: "Stack", branch: Optional[str], ticks: int) -> bool:
         except KeyError:
             logger.warning(
                 "wait_for_ticks: shared state key %r already "
+                "deleted (possible race condition on branch %r)",
+                key,
+                branch,
+            )
+        return False  # Done waiting
+    return True  # Keep waiting
+
+
+@Condition.register()
+def wait_for_seconds(
+    stack: "Stack", branch: Optional[str], seconds: float
+) -> bool:
+    """Wait for a specified number of wall-clock seconds.
+
+    Records a timestamp on first evaluation, then checks elapsed time
+    on each subsequent call. Returns True (keep waiting) until the
+    elapsed time reaches ``seconds``, then returns False (done waiting)
+    and cleans up the state key.
+
+    .. note::
+
+        This evaluator mutates shared state on every call. It must
+        only be evaluated once per step.
+
+    Args:
+        stack: The stack to evaluate the condition on.
+        branch: The branch to evaluate the condition on.
+        seconds: Wall-clock seconds to wait (must be > 0).
+
+    Returns:
+        True if still waiting (elapsed < seconds).
+        False if done waiting (elapsed >= seconds).
+
+    Raises:
+        ValueError: If ``seconds`` <= 0 or no interaction on the
+            branch.
+    """
+    if seconds <= 0:
+        raise ValueError(f"seconds must be > 0, got {seconds}")
+    last = stack.get_last_interaction_for_branch(branch)
+    if last is None:
+        raise ValueError(f"No interaction found on branch {branch!r}")
+    key = f"_wait_seconds_{last.uuid}"
+    start_time = stack.get_shared_state(key)
+    if start_time is None:
+        stack.set_shared_state(key, time.time())
+        return True  # Just started, keep waiting
+    elapsed = time.time() - start_time
+    if elapsed >= seconds:
+        try:
+            stack.delete_shared_state(key)
+        except KeyError:
+            logger.warning(
+                "wait_for_seconds: shared state key %r already "
                 "deleted (possible race condition on branch %r)",
                 key,
                 branch,
