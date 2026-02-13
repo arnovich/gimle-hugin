@@ -1,12 +1,8 @@
 """Tests for Session functionality and full flow integration."""
 
-from typing import TYPE_CHECKING, Optional
 from unittest.mock import Mock, patch
 
 import pytest
-
-if TYPE_CHECKING:
-    from gimle.hugin.interaction.stack import Stack
 
 from gimle.hugin.agent.agent import Agent
 from gimle.hugin.agent.config import Config
@@ -16,130 +12,12 @@ from gimle.hugin.agent.task import Task
 from gimle.hugin.artifacts.artifact import Artifact
 from gimle.hugin.artifacts.text import Text
 from gimle.hugin.interaction.ask_oracle import AskOracle
-from gimle.hugin.interaction.interaction import Interaction
 from gimle.hugin.interaction.task_definition import TaskDefinition
 from gimle.hugin.interaction.tool_result import ToolResult
 from gimle.hugin.llm.prompt.prompt import Prompt
-from gimle.hugin.storage.storage import Storage
 from gimle.hugin.tools.tool import Tool
 
-
-class MemoryStorage(Storage):
-    """A memory-based storage implementation for testing."""
-
-    def __init__(self) -> None:
-        """Initialize the memory storage."""
-        super().__init__()
-        self._artifacts: dict[str, dict] = {}
-        self._sessions: dict[str, dict] = {}
-        self._agents: dict[str, dict] = {}
-        self._interactions: dict[str, dict] = {}
-        self._files: dict[str, bytes] = {}
-
-    def list_sessions(self) -> list[str]:
-        """List all sessions in the storage."""
-        return list(self._sessions.keys())
-
-    def list_agents(self) -> list[str]:
-        """List all agents in the storage."""
-        return list(self._agents.keys())
-
-    def list_interactions(self) -> list[str]:
-        """List all interactions in the storage."""
-        return list(self._interactions.keys())
-
-    def list_artifacts(self) -> list[str]:
-        """List all artifacts in the storage."""
-        return list(self._artifacts.keys())
-
-    def _load_artifact(
-        self,
-        uuid: str,
-        stack: Optional["Stack"] = None,
-        load_interaction: bool = True,
-    ) -> Artifact:
-        """Load an artifact from memory."""
-        if uuid not in self._artifacts:
-            raise ValueError(f"Artifact {uuid} not found in storage")
-        return Artifact.from_dict(
-            self._artifacts[uuid],
-            storage=self,
-            stack=stack,
-            load_interaction=load_interaction,
-        )
-
-    def _save_artifact(self, artifact: Artifact) -> None:
-        """Save an artifact to memory."""
-        self._artifacts[artifact.uuid] = artifact.to_dict()
-
-    def _load_session(self, uuid: str, environment: "Environment") -> Session:
-        """Load a session from memory."""
-        if uuid not in self._sessions:
-            raise ValueError(f"Session {uuid} not found in storage")
-        return Session.from_dict(self._sessions[uuid], environment=environment)
-
-    def _save_session(self, session: Session) -> None:
-        """Save a session to memory."""
-        self._sessions[session.uuid] = session.to_dict()
-
-    def _load_agent(self, uuid: str, session: "Session") -> Agent:
-        """Load an agent from memory."""
-        if uuid not in self._agents:
-            raise ValueError(f"Agent {uuid} not found in storage")
-        return Agent.from_dict(
-            self._agents[uuid], storage=self, session=session
-        )
-
-    def _save_agent(self, agent: Agent) -> None:
-        """Save an agent to memory."""
-        self._agents[agent.uuid] = agent.to_dict()
-
-    def _load_interaction(self, uuid: str, stack: "Stack") -> Interaction:
-        """Load an interaction from memory."""
-        if uuid not in self._interactions:
-            raise ValueError(f"Interaction {uuid} not found in storage")
-        return Interaction.from_dict(self._interactions[uuid], stack=stack)
-
-    def _save_interaction(self, interaction: Interaction) -> None:
-        """Save an interaction to memory."""
-        self._interactions[interaction.uuid] = interaction.to_dict()
-
-    def _delete_artifact(self, artifact: Artifact) -> None:
-        """Delete an artifact from memory."""
-        if artifact.uuid in self._artifacts:
-            del self._artifacts[artifact.uuid]
-
-    def _delete_session(self, session: Session) -> None:
-        """Delete a session from memory."""
-        if session.uuid in self._sessions:
-            del self._sessions[session.uuid]
-
-    def _delete_agent(self, agent: Agent) -> None:
-        """Delete an agent from memory."""
-        if agent.uuid in self._agents:
-            del self._agents[agent.uuid]
-
-    def _delete_interaction(self, interaction: Interaction) -> None:
-        """Delete an interaction from memory."""
-        if interaction.uuid in self._interactions:
-            del self._interactions[interaction.uuid]
-
-    def save_file(
-        self, artifact_uuid: str, content: bytes, extension: str
-    ) -> str:
-        """Save file content to memory."""
-        filename = artifact_uuid
-        if extension:
-            filename = f"{artifact_uuid}.{extension}"
-        file_path = f"files/{filename}"
-        self._files[file_path] = content
-        return file_path
-
-    def load_file(self, file_path: str) -> bytes:
-        """Load file content from memory."""
-        if file_path not in self._files:
-            raise FileNotFoundError(f"File not found: {file_path}")
-        return self._files[file_path]
+from .memory_storage import MemoryStorage
 
 
 class TestSessionBasic:

@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 from gimle.hugin.agent.agent import Agent
 from gimle.hugin.agent.session import Session
 from gimle.hugin.artifacts.artifact import Artifact
+from gimle.hugin.artifacts.feedback import ArtifactFeedback
 from gimle.hugin.interaction.interaction import Interaction
 from gimle.hugin.storage.storage import Storage
 
@@ -63,6 +64,7 @@ class LocalStorage(Storage):
             (self.base_path / "agents").mkdir(parents=True, exist_ok=True)
             (self.base_path / "interactions").mkdir(parents=True, exist_ok=True)
             (self.base_path / "files").mkdir(parents=True, exist_ok=True)
+            (self.base_path / "feedback").mkdir(parents=True, exist_ok=True)
 
     def _list_uuids(self, dir: Path) -> List[str]:
         """List all uuids in a directory."""
@@ -313,6 +315,49 @@ class LocalStorage(Storage):
             (self.base_path / "interactions" / interaction.uuid).unlink(
                 missing_ok=True
             )
+
+    def _save_feedback(self, feedback: ArtifactFeedback) -> None:
+        """Save feedback to the local filesystem."""
+        if self.base_path:
+            with open(self.base_path / "feedback" / feedback.id, "w") as f:
+                json.dump(feedback.to_dict(), f)
+
+    def _load_feedback(self, uuid: str) -> ArtifactFeedback:
+        """Load feedback from the local filesystem."""
+        if not self.base_path:
+            raise ValueError("Feedback not found in local memory storage")
+        path = self.base_path / "feedback" / uuid
+        if not path.exists():
+            raise ValueError(f"Feedback {uuid} not found in storage")
+        with open(path, "r") as f:
+            return ArtifactFeedback.from_dict(json.load(f))
+
+    def _delete_feedback(self, feedback: ArtifactFeedback) -> None:
+        """Delete feedback from the local filesystem."""
+        if self.base_path:
+            (self.base_path / "feedback" / feedback.id).unlink(missing_ok=True)
+
+    def _list_feedback(self, artifact_id: Optional[str] = None) -> List[str]:
+        """List feedback UUIDs, optionally filtered by artifact."""
+        if not self.base_path:
+            return []
+        feedback_dir = self.base_path / "feedback"
+        if not feedback_dir.exists():
+            return []
+        all_uuids = [f.name for f in feedback_dir.iterdir() if f.is_file()]
+        if artifact_id is None:
+            return all_uuids
+        # Filter by artifact_id
+        result = []
+        for uuid in all_uuids:
+            try:
+                with open(feedback_dir / uuid, "r") as f:
+                    data = json.load(f)
+                if data.get("artifact_id") == artifact_id:
+                    result.append(uuid)
+            except (json.JSONDecodeError, OSError):
+                continue
+        return result
 
     def save_file(
         self, artifact_uuid: str, content: bytes, extension: str

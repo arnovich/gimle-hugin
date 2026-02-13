@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, cast
 from gimle.hugin.agent.agent import Agent
 from gimle.hugin.agent.session import Session
 from gimle.hugin.artifacts.artifact import Artifact
+from gimle.hugin.artifacts.feedback import ArtifactFeedback
 from gimle.hugin.interaction.interaction import Interaction
 
 if TYPE_CHECKING:
@@ -88,7 +89,11 @@ class Storage(ABC):
         raise NotImplementedError("Subclasses must implement this method")
 
     def delete_artifact(self, artifact: Artifact) -> None:
-        """Delete an artifact."""
+        """Delete an artifact and its associated feedback."""
+        # Cascade delete feedback for this artifact
+        for feedback_uuid in self.list_feedback(artifact.id):
+            feedback = self.load_feedback(feedback_uuid)
+            self.delete_feedback(feedback)
         self._delete_artifact(artifact)
         self.store.pop(f"artifact:{artifact.id}", None)
 
@@ -204,6 +209,49 @@ class Storage(ABC):
             self.delete_artifact(artifact)
         self._delete_interaction(interaction)
         self.store.pop(f"interaction:{interaction.id}", None)
+
+    # -- feedback --
+
+    @abstractmethod
+    def _save_feedback(self, feedback: ArtifactFeedback) -> None:
+        raise NotImplementedError("Subclasses must implement this method")
+
+    def save_feedback(self, feedback: ArtifactFeedback) -> None:
+        """Save feedback."""
+        self._save_feedback(feedback)
+        self.store[f"feedback:{feedback.id}"] = feedback
+        if self.callback:
+            self.callback("feedback", feedback.id)
+
+    @abstractmethod
+    def _load_feedback(self, uuid: str) -> ArtifactFeedback:
+        raise NotImplementedError("Subclasses must implement this method")
+
+    def load_feedback(self, uuid: str) -> ArtifactFeedback:
+        """Load feedback by UUID."""
+        cache_key = f"feedback:{uuid}"
+        if cache_key not in self.store:
+            self.store[cache_key] = self._load_feedback(uuid)
+        return cast(ArtifactFeedback, self.store[cache_key])
+
+    @abstractmethod
+    def _delete_feedback(self, feedback: ArtifactFeedback) -> None:
+        raise NotImplementedError("Subclasses must implement this method")
+
+    def delete_feedback(self, feedback: ArtifactFeedback) -> None:
+        """Delete feedback."""
+        self._delete_feedback(feedback)
+        self.store.pop(f"feedback:{feedback.id}", None)
+
+    @abstractmethod
+    def _list_feedback(self, artifact_id: Optional[str] = None) -> List[str]:
+        raise NotImplementedError("Subclasses must implement this method")
+
+    def list_feedback(self, artifact_id: Optional[str] = None) -> List[str]:
+        """List feedback UUIDs, optionally filtered by artifact."""
+        return self._list_feedback(artifact_id)
+
+    # -- file --
 
     @abstractmethod
     def save_file(

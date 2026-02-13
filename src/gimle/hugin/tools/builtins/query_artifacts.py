@@ -83,15 +83,17 @@ def query_artifacts(
         # Format results for agent
         formatted_results = []
         for result in results:
-            formatted_results.append(
-                {
-                    "artifact_id": result.artifact_id,
-                    "type": result.artifact_type,
-                    "preview": result.content_preview,
-                    "relevance_score": result.score,
-                    "created_at": result.metadata.get("created_at"),
-                }
-            )
+            entry = {
+                "artifact_id": result.artifact_id,
+                "type": result.artifact_type,
+                "preview": result.content_preview,
+                "relevance_score": result.score,
+                "created_at": result.metadata.get("created_at"),
+            }
+            if "average_rating" in result.metadata:
+                entry["average_rating"] = result.metadata["average_rating"]
+                entry["rating_count"] = result.metadata["rating_count"]
+            formatted_results.append(entry)
 
         return ToolResponse(
             is_error=False,

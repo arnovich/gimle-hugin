@@ -2,13 +2,19 @@
 
 import logging
 import re
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from collections import defaultdict
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 if TYPE_CHECKING:
     from gimle.hugin.artifacts.artifact import Artifact
     from gimle.hugin.storage.storage import Storage
 
 logger = logging.getLogger(__name__)
+
+# Scoring constants
+PHRASE_MATCH_BONUS = 5.0
+RATING_NEUTRAL = 3.0
+RATING_BOOST_MULTIPLIER = 1.5
 
 
 class ArtifactQueryResult:
@@ -87,6 +93,9 @@ class ArtifactQueryEngine:
         # Get all artifact IDs from storage
         artifact_ids = self.storage.list_artifacts()
 
+        # Pre-load all ratings to avoid N+1 queries
+        ratings_by_artifact = self._load_ratings_map()
+
         results: List[ArtifactQueryResult] = []
 
         # Normalize query for case-insensitive matching
@@ -115,23 +124,34 @@ class ArtifactQueryEngine:
                 score = self._calculate_score(query_terms, content_lower)
 
                 if score > 0:
+                    # Apply rating boost
+                    boost, avg, count = self._get_rating_boost(
+                        artifact_id, ratings_by_artifact
+                    )
+                    score += boost
+
                     # Create preview (first 200 chars with query context)
                     preview = self._create_preview(
                         content, query_terms, max_length=200
                     )
+
+                    metadata: Dict[str, Any] = {
+                        "created_at": (
+                            getattr(artifact, "created_at")
+                            if hasattr(artifact, "created_at")
+                            else None
+                        )
+                    }
+                    if count > 0:
+                        metadata["average_rating"] = avg
+                        metadata["rating_count"] = count
 
                     result = ArtifactQueryResult(
                         artifact_id=artifact_id,
                         artifact_type=artifact.__class__.__name__,
                         content_preview=preview,
                         score=score,
-                        metadata={
-                            "created_at": (
-                                getattr(artifact, "created_at")
-                                if hasattr(artifact, "created_at")
-                                else None
-                            )
-                        },
+                        metadata=metadata,
                     )
                     results.append(result)
 
@@ -276,7 +296,7 @@ class ArtifactQueryEngine:
                 r"\b" + r"\W+".join(re.escape(t) for t in query_terms) + r"\b"
             )
             if re.search(phrase_pattern, content, re.IGNORECASE):
-                score += 5.0  # Bonus for phrase match
+                score += PHRASE_MATCH_BONUS
 
         return score
 
@@ -329,3 +349,42 @@ class ArtifactQueryEngine:
             return content[:max_length] + (
                 "..." if len(content) > max_length else ""
             )
+
+    def _load_ratings_map(
+        self,
+    ) -> Dict[str, List[int]]:
+        """Pre-load all feedback ratings grouped by artifact.
+
+        Returns:
+            Dict mapping artifact_id to list of ratings.
+        """
+        ratings: Dict[str, List[int]] = defaultdict(list)
+        try:
+            for feedback_uuid in self.storage.list_feedback():
+                feedback = self.storage.load_feedback(feedback_uuid)
+                ratings[feedback.artifact_id].append(feedback.rating)
+        except Exception as e:
+            logger.error(f"Failed to load feedback: {e}")
+        return dict(ratings)
+
+    def _get_rating_boost(
+        self,
+        artifact_id: str,
+        ratings_map: Dict[str, List[int]],
+    ) -> Tuple[float, float, int]:
+        """Calculate rating boost for an artifact.
+
+        Args:
+            artifact_id: The artifact to get boost for.
+            ratings_map: Pre-loaded ratings map.
+
+        Returns:
+            Tuple of (boost, average_rating, count).
+            Unrated artifacts return (0.0, 0.0, 0).
+        """
+        ratings = ratings_map.get(artifact_id, [])
+        if not ratings:
+            return 0.0, 0.0, 0
+        avg = sum(ratings) / len(ratings)
+        boost = (avg - RATING_NEUTRAL) * RATING_BOOST_MULTIPLIER
+        return boost, avg, len(ratings)
