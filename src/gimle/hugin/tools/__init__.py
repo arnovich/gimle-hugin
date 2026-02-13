@@ -11,6 +11,7 @@ from gimle.hugin.tools.builtins.query_artifacts import (  # noqa: F401
     get_artifact_content,
     query_artifacts,
 )
+from gimle.hugin.tools.builtins.rate_artifact import rate_artifact  # noqa: F401
 from gimle.hugin.tools.builtins.read_file import read_file  # noqa: F401
 from gimle.hugin.tools.builtins.save_code import save_code  # noqa: F401
 from gimle.hugin.tools.builtins.save_file import save_file  # noqa: F401

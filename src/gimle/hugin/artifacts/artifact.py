@@ -23,8 +23,6 @@ class Artifact:
 
     _registry: ClassVar[Dict[str, Type["Artifact"]]] = {}
     interaction: Optional["Interaction"]
-    # metadata: Dict[str, Any]
-    # feedback: Optional[str] = None # for evaluating artifacts, should be separate object linked to artifact id
 
     @property
     def id(self) -> str:
