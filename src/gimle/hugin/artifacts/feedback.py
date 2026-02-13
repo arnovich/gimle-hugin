@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional
 from gimle.hugin.utils.uuid import with_uuid
 
 VALID_RATINGS = range(1, 6)
+VALID_SOURCES = ("agent", "human")
 
 
 @with_uuid
@@ -18,12 +19,14 @@ class ArtifactFeedback:
         rating: Integer rating from 1 (poor) to 5 (excellent).
         comment: Optional free-text comment.
         agent_id: Optional UUID of the agent giving feedback.
+        source: Who submitted the feedback ("agent" or "human").
     """
 
     artifact_id: str
     rating: int
     comment: Optional[str] = None
     agent_id: Optional[str] = None
+    source: str = "agent"
 
     @property
     def id(self) -> str:
@@ -48,6 +51,11 @@ class ArtifactFeedback:
             raise ValueError(
                 f"Rating must be between 1 and 5, got {self.rating}"
             )
+        if self.source not in VALID_SOURCES:
+            raise ValueError(
+                f"Source must be one of {VALID_SOURCES}, "
+                f"got {self.source!r}"
+            )
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize feedback to a dictionary."""
@@ -55,6 +63,7 @@ class ArtifactFeedback:
             "artifact_id": self.artifact_id,
             "rating": self.rating,
             "uuid": self.uuid,
+            "source": self.source,
         }
         if self.comment is not None:
             data["comment"] = self.comment
@@ -73,6 +82,7 @@ class ArtifactFeedback:
             rating=data["rating"],
             comment=data.get("comment"),
             agent_id=data.get("agent_id"),
+            source=data.get("source", "agent"),
             uuid=data.get("uuid"),  # type: ignore[call-arg]
             created_at=data.get("created_at"),
         )

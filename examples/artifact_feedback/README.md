@@ -104,6 +104,35 @@ Phase 3: query_with_ratings
     finish("Ratings improve search quality")
 ```
 
+## Human Rating
+
+In addition to agent-submitted ratings, humans can rate artifacts via CLI or the web monitor.
+
+### Rate via CLI
+
+```bash
+# Interactive: browse artifacts, pick one, rate it
+uv run hugin rate --storage-path ./storage
+
+# Non-interactive: specify artifact and rating directly
+uv run hugin rate --storage-path ./storage \
+  --artifact-id <UUID> --rating 5 --comment "Excellent insight"
+```
+
+### Rate via Web Monitor
+
+1. Run the monitor: `uv run hugin monitor --storage-path ./storage`
+2. Open an agent, click an artifact to open the modal
+3. Use the star-rating widget to submit a rating (1-5) with an optional comment
+
+### Rate via Interactive TUI
+
+1. Run the TUI: `uv run hugin interactive --storage-path ./storage`
+2. Navigate to an artifact detail screen
+3. Press `r` then a digit (1-5) to rate the artifact
+
+Human and agent ratings are distinguished by a `source` field (`"human"` or `"agent"`). Both contribute equally to the average rating shown in search results.
+
 ## How Ratings Affect Search
 
 When artifacts have ratings:

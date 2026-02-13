@@ -1,11 +1,14 @@
 """Artifacts list screen for the interactive TUI."""
 
 import curses
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional
 
 from gimle.hugin.cli.interactive.colors import COLOR_TOOL
 from gimle.hugin.cli.interactive.screens.base import BaseScreen
-from gimle.hugin.cli.interactive.state import ArtifactInfo
+from gimle.hugin.cli.interactive.state import (
+    ArtifactInfo,
+    load_artifact_rating,
+)
 from gimle.hugin.cli.interactive.widgets.list_view import ListItem, ListView
 
 if TYPE_CHECKING:
@@ -26,15 +29,20 @@ class ArtifactsListScreen(BaseScreen):
     def _refresh_items(self) -> None:
         """Refresh the list items from state."""
         artifacts = self.state.get_all_artifacts_for_agent()
+        rating_map = self._load_ratings(artifacts)
         items = []
 
         for i, artifact in enumerate(artifacts):
             # Build prefix with index
             prefix = f"{i:3d}."
 
-            # Build label with type and format
+            # Build label with type, format, and rating
             format_str = f" ({artifact.format})" if artifact.format else ""
-            label = f"{artifact.type}{format_str}"
+            rating_str = ""
+            avg = rating_map.get(artifact.id)
+            if avg is not None:
+                rating_str = f" [{avg:.1f}/5]"
+            label = f"{artifact.type}{format_str}{rating_str}"
 
             # Build secondary info with preview
             preview = artifact.preview
@@ -59,6 +67,23 @@ class ArtifactsListScreen(BaseScreen):
             )
 
         self.list_view.set_items(items)
+
+    def _load_ratings(self, artifacts: List[ArtifactInfo]) -> Dict[str, float]:
+        """Load average ratings for artifacts.
+
+        Returns:
+            Map of artifact_id to average rating.
+        """
+        result: Dict[str, float] = {}
+        for artifact in artifacts:
+            rating = load_artifact_rating(
+                self.state.storage_path,
+                artifact.id,
+                storage=self.state.storage,
+            )
+            if rating is not None:
+                result[artifact.id] = rating[0]
+        return result
 
     def _on_artifact_select(self, artifact: ArtifactInfo) -> None:
         """Handle artifact selection."""

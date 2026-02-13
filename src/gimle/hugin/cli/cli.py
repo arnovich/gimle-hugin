@@ -221,6 +221,19 @@ def cmd_app(args: argparse.Namespace) -> int:
     return run_main()
 
 
+def cmd_rate(args: argparse.Namespace) -> int:
+    """Rate an artifact as a human reviewer."""
+    from gimle.hugin.cli.rate_artifact import rate_artifact_cli
+
+    return rate_artifact_cli(
+        storage_path=args.storage_path or "./storage",
+        artifact_id=args.artifact_id,
+        rating=args.rating,
+        comment=args.comment,
+        prompt_comment=args.comment is None,
+    )
+
+
 def cmd_install_models(args: argparse.Namespace) -> int:
     """Install Ollama models."""
     from gimle.hugin.cli.install_ollama_models import main as install_main
@@ -366,6 +379,29 @@ Examples:
         help="Logging level (default: INFO)",
     )
     monitor_parser.set_defaults(func=cmd_monitor)
+
+    # rate command
+    rate_parser = subparsers.add_parser(
+        "rate",
+        help="Rate an artifact as a human reviewer",
+        description="Rate an artifact from storage with 1-5 stars",
+    )
+    rate_parser.add_argument(
+        "-s", "--storage-path", help="Path to agent storage"
+    )
+    rate_parser.add_argument(
+        "--artifact-id", help="UUID of the artifact to rate"
+    )
+    rate_parser.add_argument(
+        "--rating",
+        type=int,
+        choices=[1, 2, 3, 4, 5],
+        help="Rating from 1 (poor) to 5 (excellent)",
+    )
+    rate_parser.add_argument(
+        "--comment", help="Optional comment explaining the rating"
+    )
+    rate_parser.set_defaults(func=cmd_rate)
 
     # apps command (list apps)
     apps_parser = subparsers.add_parser(

@@ -2837,6 +2837,142 @@ body {
   border-radius: var(--radius-sm);
 }
 
+/* Rating section in artifact modal */
+.modal-rating {
+  padding: var(--space-3) var(--space-5);
+  border-bottom: 1px solid var(--border-light);
+}
+
+.rating-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.rating-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.rating-summary-stars {
+  color: #f59e0b;
+  font-size: 1rem;
+  letter-spacing: 1px;
+}
+
+.rating-summary-count {
+  color: var(--text-tertiary);
+  font-size: 0.8rem;
+}
+
+.feedback-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.feedback-entry {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 0.8rem;
+  color: var(--text-tertiary);
+}
+
+.feedback-entry-stars {
+  color: #f59e0b;
+}
+
+.feedback-entry-source {
+  font-size: 0.7rem;
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.feedback-entry-comment {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.rating-form {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-light);
+}
+
+.rating-form-label {
+  font-size: 0.8rem;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+.rating-stars {
+  display: flex;
+  gap: 2px;
+}
+
+.rating-star {
+  background: none;
+  border: none;
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 2px;
+  color: var(--text-quaternary, #d1d5db);
+  transition: color 0.1s;
+}
+
+.rating-star:hover,
+.rating-star.active {
+  color: #f59e0b;
+}
+
+.rating-comment-input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  font-size: 0.8rem;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.rating-comment-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.rating-submit-btn {
+  padding: 4px 12px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: white;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.rating-submit-btn:hover {
+  opacity: 0.9;
+}
+
+.rating-submit-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .modal-body {
   flex: 1;
   padding: var(--space-5);

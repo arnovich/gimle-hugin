@@ -1984,6 +1984,9 @@ async function openArtifactModal(artifactId, interactionId) {
     // Show modal
     modal.classList.add('visible');
 
+    // Load feedback/ratings
+    loadArtifactFeedback(artifactId);
+
     // Add keyboard listener for Escape
     document.addEventListener('keydown', handleModalEscape);
 }
@@ -2154,6 +2157,9 @@ async function loadAndOpenArtifact(artifactId, interactionId) {
     // Update modal with loaded artifact
     typeEl.textContent = artifact.type;
     contentEl.innerHTML = `<div class="artifact-content">${artifact.html}</div>`;
+
+    // Load feedback/ratings
+    loadArtifactFeedback(artifactId);
 
     // Update artifact list item if it exists (replace "pending" placeholder)
     updateArtifactListItem(artifactId, interactionId, artifact);
@@ -2370,6 +2376,165 @@ function renderArtifactPill(artifact, interactionId, options = {}) {
 
 function scrollToArtifacts(interactionId) {
     showInteractionDetails(interactionId, true);
+}
+
+// ==========================================================================
+// Artifact Feedback / Ratings
+// ==========================================================================
+
+let selectedRating = 0;
+
+function renderStars(rating, max) {
+    max = max || 5;
+    let html = '';
+    for (let i = 1; i <= max; i++) {
+        html += i <= rating ? '\u2605' : '\u2606';
+    }
+    return html;
+}
+
+async function loadArtifactFeedback(artifactId) {
+    const ratingEl = document.getElementById('modal-artifact-rating');
+    if (!ratingEl) return;
+
+    ratingEl.innerHTML = '<div class="rating-section"><span style="font-size:0.8rem;color:var(--text-tertiary)">Loading ratings...</span></div>';
+
+    try {
+        const resp = await fetch(`/api/feedback?artifact_id=${encodeURIComponent(artifactId)}`);
+        if (!resp.ok) {
+            ratingEl.innerHTML = '';
+            return;
+        }
+        const feedbackList = await resp.json();
+        renderFeedbackSection(artifactId, feedbackList);
+    } catch (e) {
+        ratingEl.innerHTML = '';
+    }
+}
+
+function renderFeedbackSection(artifactId, feedbackList) {
+    const ratingEl = document.getElementById('modal-artifact-rating');
+    if (!ratingEl) return;
+
+    let html = '<div class="rating-section">';
+
+    // Summary
+    if (feedbackList.length > 0) {
+        const avg = feedbackList.reduce((sum, fb) => sum + fb.rating, 0) / feedbackList.length;
+        const roundedAvg = Math.round(avg * 10) / 10;
+
+        html += `<div class="rating-summary">
+            <span class="rating-summary-stars">${renderStars(Math.round(avg))}</span>
+            <span>${roundedAvg}/5</span>
+            <span class="rating-summary-count">(${feedbackList.length} rating${feedbackList.length !== 1 ? 's' : ''})</span>
+        </div>`;
+
+        // Individual entries
+        html += '<div class="feedback-list">';
+        for (const fb of feedbackList) {
+            const source = fb.source || 'agent';
+            const commentHtml = fb.comment
+                ? `<span class="feedback-entry-comment">&mdash; ${escapeHtml(fb.comment)}</span>`
+                : '';
+            html += `<div class="feedback-entry">
+                <span class="feedback-entry-stars">${renderStars(fb.rating)}</span>
+                <span class="feedback-entry-source">${escapeHtml(source)}</span>
+                ${commentHtml}
+            </div>`;
+        }
+        html += '</div>';
+    }
+
+    // Rating form
+    selectedRating = 0;
+    html += `<div class="rating-form">
+        <span class="rating-form-label">Rate:</span>
+        <div class="rating-stars" id="rating-stars">
+            ${[1,2,3,4,5].map(i =>
+                `<button class="rating-star" data-rating="${i}">\u2606</button>`
+            ).join('')}
+        </div>
+        <input type="text" class="rating-comment-input" id="rating-comment"
+            placeholder="Comment (optional)" maxlength="200">
+        <button class="rating-submit-btn" id="rating-submit-btn" disabled>Submit</button>
+    </div>`;
+
+    html += '</div>';
+    ratingEl.innerHTML = html;
+
+    // Bind star button events programmatically (avoids inline handlers)
+    document.querySelectorAll('#rating-stars .rating-star').forEach(btn => {
+        const r = parseInt(btn.dataset.rating, 10);
+        btn.addEventListener('mouseenter', () => previewRating(r));
+        btn.addEventListener('mouseleave', () => previewRating(0));
+        btn.addEventListener('click', () => selectRating(r));
+    });
+
+    // Bind submit button — capture artifactId in closure
+    const submitBtn = document.getElementById('rating-submit-btn');
+    if (submitBtn) {
+        submitBtn.addEventListener('click', () => submitRating(artifactId));
+    }
+}
+
+function previewRating(rating) {
+    const stars = document.querySelectorAll('#rating-stars .rating-star');
+    const effective = rating || selectedRating;
+    stars.forEach((star, i) => {
+        star.textContent = (i + 1) <= effective ? '\u2605' : '\u2606';
+        star.classList.toggle('active', (i + 1) <= effective);
+    });
+}
+
+function selectRating(rating) {
+    selectedRating = rating;
+    previewRating(rating);
+    const btn = document.getElementById('rating-submit-btn');
+    if (btn) btn.disabled = false;
+}
+
+async function submitRating(artifactId) {
+    if (!selectedRating) return;
+
+    const btn = document.getElementById('rating-submit-btn');
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Saving...';
+    }
+
+    const comment = (document.getElementById('rating-comment')?.value || '').trim();
+
+    try {
+        const resp = await fetch('/api/feedback', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                artifact_id: artifactId,
+                rating: selectedRating,
+                comment: comment || null,
+            }),
+        });
+
+        if (resp.ok) {
+            // Reload feedback to show updated list
+            await loadArtifactFeedback(artifactId);
+        } else if (resp.status === 409) {
+            if (btn) {
+                btn.textContent = 'Already rated';
+                btn.disabled = true;
+            }
+        } else {
+            if (btn) {
+                btn.textContent = 'Error';
+                setTimeout(() => { btn.textContent = 'Submit'; btn.disabled = false; }, 2000);
+            }
+        }
+    } catch (e) {
+        if (btn) {
+            btn.textContent = 'Error';
+            setTimeout(() => { btn.textContent = 'Submit'; btn.disabled = false; }, 2000);
+        }
+    }
 }
 
 // Auto-refresh every 30 seconds

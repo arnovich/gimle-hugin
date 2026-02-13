@@ -68,6 +68,41 @@ class ArtifactInfo:
     interaction_id: Optional[str] = None
 
 
+def load_artifact_rating(
+    storage_path: Path,
+    artifact_id: str,
+    storage: Optional[LocalStorage] = None,
+) -> Optional[Tuple[float, int]]:
+    """Load average rating and count for an artifact.
+
+    Args:
+        storage_path: Path to storage directory.
+        artifact_id: UUID of the artifact.
+        storage: Optional pre-existing storage instance.
+
+    Returns:
+        (average_rating, count) or None if no ratings exist.
+    """
+    try:
+        if storage is None:
+            storage = LocalStorage(base_path=str(storage_path))
+        fb_ids = storage.list_feedback(artifact_id=artifact_id)
+        if not fb_ids:
+            return None
+        ratings: List[int] = []
+        for fb_id in fb_ids:
+            try:
+                fb = storage.load_feedback(fb_id)
+                ratings.append(fb.rating)
+            except Exception:
+                continue
+        if not ratings:
+            return None
+        return (sum(ratings) / len(ratings), len(ratings))
+    except Exception:
+        return None
+
+
 @dataclass
 class LogRecord:
     """A single log entry for display in the TUI."""

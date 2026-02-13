@@ -78,6 +78,7 @@ def rate_artifact(
             rating=rating,
             comment=comment or None,
             agent_id=stack.agent.id,
+            source="agent",
         )
     except (ValueError, TypeError) as e:
         return ToolResponse(is_error=True, content={"error": str(e)})
