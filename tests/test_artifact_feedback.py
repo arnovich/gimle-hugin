@@ -29,6 +29,7 @@ class TestArtifactFeedbackModel:
         assert fb.rating == 4
         assert fb.comment is None
         assert fb.agent_id is None
+        assert fb.source == "agent"
         assert fb.id is not None
 
     def test_create_feedback_with_all_fields(self):
@@ -106,6 +107,21 @@ class TestArtifactFeedbackModel:
         assert hasattr(fb, "created_at")
         assert fb.created_at is not None
 
+    def test_source_defaults_to_agent(self):
+        """Test that source defaults to 'agent'."""
+        fb = ArtifactFeedback(artifact_id="a", rating=3)
+        assert fb.source == "agent"
+
+    def test_source_human(self):
+        """Test creating feedback with source='human'."""
+        fb = ArtifactFeedback(artifact_id="a", rating=4, source="human")
+        assert fb.source == "human"
+
+    def test_source_invalid_raises(self):
+        """Test that invalid source raises ValueError."""
+        with pytest.raises(ValueError, match="Source must be one of"):
+            ArtifactFeedback(artifact_id="a", rating=3, source="bot")
+
 
 class TestArtifactFeedbackSerialization:
     """Test feedback serialization round-trips."""
@@ -123,8 +139,19 @@ class TestArtifactFeedbackSerialization:
         assert data["rating"] == 4
         assert data["comment"] == "Good"
         assert data["agent_id"] == "agent-1"
+        assert data["source"] == "agent"
         assert "uuid" in data
         assert "created_at" in data
+
+    def test_to_dict_human_source(self):
+        """Test serialization includes human source."""
+        fb = ArtifactFeedback(
+            artifact_id="art-1",
+            rating=5,
+            source="human",
+        )
+        data = fb.to_dict()
+        assert data["source"] == "human"
 
     def test_to_dict_minimal(self):
         """Test serialization without optional fields."""
@@ -180,6 +207,31 @@ class TestArtifactFeedbackSerialization:
         assert fb.rating == 3
         assert fb.comment is None
         assert fb.agent_id is None
+        assert fb.source == "agent"
+
+    def test_from_dict_without_source_defaults_to_agent(self):
+        """Test backward compat: missing source defaults to 'agent'."""
+        data = {
+            "artifact_id": "art-1",
+            "rating": 4,
+            "uuid": "fb-uuid",
+        }
+        fb = ArtifactFeedback.from_dict(data)
+        assert fb.source == "agent"
+
+    def test_from_dict_human_source_round_trip(self):
+        """Test human source round-trips through from_dict."""
+        data = {
+            "artifact_id": "art-1",
+            "rating": 5,
+            "source": "human",
+            "uuid": "fb-uuid",
+        }
+        fb = ArtifactFeedback.from_dict(data)
+        assert fb.source == "human"
+        # Round-trip
+        restored = ArtifactFeedback.from_dict(fb.to_dict())
+        assert restored.source == "human"
 
 
 class TestFeedbackStorage:

@@ -1,0 +1,12 @@
+name: knowledge_curator
+description: Knowledge curator that saves, rates, and queries research insights
+system_template: curator_system
+llm_model: haiku-latest
+tools:
+  - builtins.save_insight:save_insight
+  - builtins.query_artifacts:query_artifacts
+  - builtins.get_artifact_content:get_artifact_content
+  - builtins.rate_artifact:rate_artifact
+  - builtins.finish:finish
+interactive: false
+options: {}

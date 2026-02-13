@@ -1,0 +1,18 @@
+name: query_with_ratings
+description: Query artifacts and observe how ratings affect search ranking
+parameters:
+  topic:
+    type: string
+    description: The topic to query
+    required: false
+    default: Renewable Energy
+prompt: |
+  Query artifacts for "{{ topic.value }}" and observe how ratings affect
+  the results.
+
+  Steps:
+  1. Use query_artifacts to search for the topic
+  2. Look at the results — rated artifacts include average_rating and
+     rating_count fields, and higher-rated artifacts appear first
+  3. Summarize the ordering: which artifacts ranked highest and why
+  4. Finish with your observations about how feedback improves search quality

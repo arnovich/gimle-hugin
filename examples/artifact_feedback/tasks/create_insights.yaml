@@ -1,0 +1,18 @@
+name: create_insights
+description: Research a topic and save several distinct insights as artifacts
+parameters:
+  topic:
+    type: string
+    description: The research topic to explore
+    required: false
+    default: Renewable Energy
+prompt: |
+  Research the topic "{{ topic.value }}" and save 3 distinct insights,
+  each covering a different aspect of the topic.
+
+  Steps:
+  1. Query existing artifacts to see if we already have research on this topic
+  2. Save 3 separate insights using save_insight, each as a focused markdown
+     document covering a different angle (e.g. current state, challenges,
+     future outlook)
+  3. Finish with a summary of what you saved

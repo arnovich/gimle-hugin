@@ -1,0 +1,18 @@
+name: rate_insights
+description: Review and rate existing artifacts with quality scores
+parameters:
+  topic:
+    type: string
+    description: The topic to find and rate artifacts for
+    required: false
+    default: Renewable Energy
+prompt: |
+  Review and rate the artifacts we have on "{{ topic.value }}".
+
+  Steps:
+  1. Use query_artifacts to find existing insights on the topic
+  2. For each artifact found, use get_artifact_content to read its full text
+  3. Rate each artifact using rate_artifact with a score from 1-5 and a
+     comment explaining your assessment. Vary your scores based on quality —
+     consider depth, accuracy, clarity, and usefulness
+  4. Finish with a summary of your ratings and reasoning

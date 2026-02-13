@@ -35,6 +35,7 @@ from urllib.parse import parse_qs, urlparse
 
 from gimle.hugin.agent.agent import Agent
 from gimle.hugin.agent.environment import Environment
+from gimle.hugin.artifacts.feedback import ArtifactFeedback
 from gimle.hugin.storage.local import LocalStorage
 from gimle.hugin.ui.components import ComponentRegistry
 from gimle.hugin.ui.static import (
@@ -310,6 +311,12 @@ class AgentMonitorHTTPRequestHandler(BaseHTTPRequestHandler):
                 self.serve_artifact_data(artifact_id)
             else:
                 self.send_error(400, "Missing artifact id parameter")
+        elif path == "/api/feedback":
+            artifact_id = query_params.get("artifact_id", [None])[0]
+            if artifact_id:
+                self.serve_feedback_list(artifact_id)
+            else:
+                self.send_error(400, "Missing artifact_id parameter")
         elif path == "/api/artifact-download":
             artifact_id = query_params.get("id", [None])[0]
             if artifact_id:
@@ -348,6 +355,120 @@ class AgentMonitorHTTPRequestHandler(BaseHTTPRequestHandler):
                 self.send_error(400, "Missing session id parameter")
         else:
             self.send_error(404, "Not Found")
+
+    def do_POST(self) -> None:
+        """Handle POST requests."""
+        parsed_path = urlparse(self.path)
+        path = parsed_path.path
+
+        if path == "/api/feedback":
+            self.handle_submit_feedback()
+        else:
+            self.send_error(404, "Not Found")
+
+    def serve_feedback_list(self, artifact_id: str) -> None:
+        """Serve all feedback for an artifact as JSON."""
+        try:
+            storage = LocalStorage(base_path=str(self.storage_path))
+            fb_ids = storage.list_feedback(artifact_id=artifact_id)
+
+            feedback_list = []
+            for fb_id in fb_ids:
+                try:
+                    fb = storage.load_feedback(fb_id)
+                    feedback_list.append(fb.to_dict())
+                except Exception:
+                    continue
+
+            self.send_response(200)
+            self.send_header("Content-type", "application/json; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(json.dumps(feedback_list).encode("utf-8"))
+        except Exception as e:
+            logger.error("Error loading feedback: %s", e)
+            self.send_error(500, "Internal server error")
+
+    def handle_submit_feedback(self) -> None:
+        """Handle POST /api/feedback to submit human rating."""
+        try:
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length)
+            data = json.loads(body)
+
+            artifact_id = data.get("artifact_id")
+            rating = data.get("rating")
+            comment = data.get("comment")
+
+            if not artifact_id or rating is None:
+                self.send_error(400, "Missing artifact_id or rating")
+                return
+
+            # Validate rating type and range
+            if not isinstance(rating, (int, float)):
+                self.send_error(400, "Rating must be a number")
+                return
+            if isinstance(rating, float) and rating != int(rating):
+                self.send_error(400, "Rating must be an integer")
+                return
+            rating = int(rating)
+            if rating < 1 or rating > 5:
+                self.send_error(400, "Rating must be between 1 and 5")
+                return
+
+            # Validate comment length server-side
+            if comment and len(comment) > 200:
+                self.send_error(400, "Comment exceeds 200 characters")
+                return
+
+            storage = LocalStorage(base_path=str(self.storage_path))
+
+            # Verify artifact exists
+            try:
+                storage.load_artifact(artifact_id)
+            except Exception:
+                self.send_error(404, f"Artifact {artifact_id} not found")
+                return
+
+            # Check for existing human feedback on this artifact
+            for fb_id in storage.list_feedback(artifact_id):
+                try:
+                    existing = storage.load_feedback(fb_id)
+                    if existing.source == "human":
+                        self.send_error(409, "Already rated this artifact")
+                        return
+                except (ValueError, OSError):
+                    continue
+
+            feedback = ArtifactFeedback(
+                artifact_id=artifact_id,
+                rating=rating,
+                comment=comment or None,
+                agent_id=None,
+                source="human",
+            )
+            storage.save_feedback(feedback)
+
+            response = {
+                "success": True,
+                "feedback_id": feedback.id,
+            }
+            self.send_response(200)
+            self.send_header("Content-type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps(response).encode("utf-8"))
+
+            logger.info(
+                "Saved human feedback %s for artifact %s " "(rating=%d)",
+                feedback.id,
+                artifact_id,
+                rating,
+            )
+        except (ValueError, TypeError) as e:
+            self.send_error(400, f"Invalid feedback: {e}")
+        except Exception as e:
+            logger.error("Error saving feedback: %s", e)
+            self.send_error(500, "Internal server error")
 
     def serve_static(self, path: str) -> None:
         """Serve a static file."""
