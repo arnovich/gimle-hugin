@@ -130,6 +130,10 @@ class ArtifactQueryEngine:
                     )
                     score += boost
 
+                    # Skip results where boost made score non-positive
+                    if score <= 0:
+                        continue
+
                     # Create preview (first 200 chars with query context)
                     preview = self._create_preview(
                         content, query_terms, max_length=200
@@ -195,6 +199,7 @@ class ArtifactQueryEngine:
             A list of ArtifactQueryResult objects, sorted by creation time.
         """
         artifact_ids = self.storage.list_artifacts()
+        ratings_by_artifact = self._load_ratings_map()
         results: List[ArtifactQueryResult] = []
 
         for artifact_id in artifact_ids:
@@ -214,18 +219,26 @@ class ArtifactQueryEngine:
 
                 preview = content[:200] + ("..." if len(content) > 200 else "")
 
+                metadata: Dict[str, Any] = {
+                    "created_at": (
+                        getattr(artifact, "created_at")
+                        if hasattr(artifact, "created_at")
+                        else None
+                    )
+                }
+                _, avg, count = self._get_rating_boost(
+                    artifact_id, ratings_by_artifact
+                )
+                if count > 0:
+                    metadata["average_rating"] = avg
+                    metadata["rating_count"] = count
+
                 result = ArtifactQueryResult(
                     artifact_id=artifact_id,
                     artifact_type=artifact.__class__.__name__,
                     content_preview=preview,
                     score=0.0,
-                    metadata={
-                        "created_at": (
-                            getattr(artifact, "created_at")
-                            if hasattr(artifact, "created_at")
-                            else None
-                        )
-                    },
+                    metadata=metadata,
                 )
                 results.append(result)
 
@@ -359,12 +372,12 @@ class ArtifactQueryEngine:
             Dict mapping artifact_id to list of ratings.
         """
         ratings: Dict[str, List[int]] = defaultdict(list)
-        try:
-            for feedback_uuid in self.storage.list_feedback():
+        for feedback_uuid in self.storage.list_feedback():
+            try:
                 feedback = self.storage.load_feedback(feedback_uuid)
                 ratings[feedback.artifact_id].append(feedback.rating)
-        except Exception as e:
-            logger.error(f"Failed to load feedback: {e}")
+            except (ValueError, OSError) as e:
+                logger.warning("Skipping feedback %s: %s", feedback_uuid, e)
         return dict(ratings)
 
     def _get_rating_boost(

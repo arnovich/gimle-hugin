@@ -164,6 +164,16 @@ class MemoryStorage(Storage):
         """Delete feedback from memory."""
         self._feedback.pop(feedback.id, None)
 
+    def _delete_feedback_for_artifact(self, artifact_id: str) -> None:
+        """Delete all feedback for an artifact."""
+        to_delete = [
+            k
+            for k, v in self._feedback.items()
+            if v.get("artifact_id") == artifact_id
+        ]
+        for k in to_delete:
+            del self._feedback[k]
+
     def _list_feedback(self, artifact_id: Optional[str] = None) -> List[str]:
         """List feedback UUIDs, optionally by artifact."""
         if artifact_id is None:

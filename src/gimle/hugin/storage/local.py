@@ -316,26 +316,43 @@ class LocalStorage(Storage):
                 missing_ok=True
             )
 
+    def _feedback_filename(self, feedback: ArtifactFeedback) -> str:
+        """Build feedback filename: {artifact_id}_{feedback_uuid}."""
+        return f"{feedback.artifact_id}_{feedback.id}"
+
     def _save_feedback(self, feedback: ArtifactFeedback) -> None:
         """Save feedback to the local filesystem."""
         if self.base_path:
-            with open(self.base_path / "feedback" / feedback.id, "w") as f:
+            name = self._feedback_filename(feedback)
+            path = self.base_path / "feedback" / name
+            with open(path, "w") as f:
                 json.dump(feedback.to_dict(), f)
 
     def _load_feedback(self, uuid: str) -> ArtifactFeedback:
         """Load feedback from the local filesystem."""
         if not self.base_path:
             raise ValueError("Feedback not found in local memory storage")
-        path = self.base_path / "feedback" / uuid
-        if not path.exists():
+        feedback_dir = self.base_path / "feedback"
+        matches = list(feedback_dir.glob(f"*_{uuid}"))
+        if not matches:
             raise ValueError(f"Feedback {uuid} not found in storage")
-        with open(path, "r") as f:
+        with open(matches[0], "r") as f:
             return ArtifactFeedback.from_dict(json.load(f))
 
     def _delete_feedback(self, feedback: ArtifactFeedback) -> None:
         """Delete feedback from the local filesystem."""
         if self.base_path:
-            (self.base_path / "feedback" / feedback.id).unlink(missing_ok=True)
+            name = self._feedback_filename(feedback)
+            (self.base_path / "feedback" / name).unlink(missing_ok=True)
+
+    def _delete_feedback_for_artifact(self, artifact_id: str) -> None:
+        """Delete all feedback for an artifact."""
+        if self.base_path:
+            feedback_dir = self.base_path / "feedback"
+            prefix = f"{artifact_id}_"
+            for f in feedback_dir.iterdir():
+                if f.is_file() and f.name.startswith(prefix):
+                    f.unlink()
 
     def _list_feedback(self, artifact_id: Optional[str] = None) -> List[str]:
         """List feedback UUIDs, optionally filtered by artifact."""
@@ -344,20 +361,18 @@ class LocalStorage(Storage):
         feedback_dir = self.base_path / "feedback"
         if not feedback_dir.exists():
             return []
-        all_uuids = [f.name for f in feedback_dir.iterdir() if f.is_file()]
-        if artifact_id is None:
-            return all_uuids
-        # Filter by artifact_id
-        result = []
-        for uuid in all_uuids:
-            try:
-                with open(feedback_dir / uuid, "r") as f:
-                    data = json.load(f)
-                if data.get("artifact_id") == artifact_id:
-                    result.append(uuid)
-            except (json.JSONDecodeError, OSError):
-                continue
-        return result
+        if artifact_id is not None:
+            prefix = f"{artifact_id}_"
+            return [
+                f.name.split("_", 1)[1]
+                for f in feedback_dir.iterdir()
+                if f.is_file() and f.name.startswith(prefix)
+            ]
+        return [
+            f.name.split("_", 1)[1]
+            for f in feedback_dir.iterdir()
+            if f.is_file() and "_" in f.name
+        ]
 
     def save_file(
         self, artifact_uuid: str, content: bytes, extension: str

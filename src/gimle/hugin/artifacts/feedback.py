@@ -28,8 +28,6 @@ class ArtifactFeedback:
     @property
     def id(self) -> str:
         """Get the uuid of the feedback."""
-        if not hasattr(self, "uuid"):
-            raise ValueError("Feedback uuid not set")
         return str(self.uuid)
 
     @id.setter

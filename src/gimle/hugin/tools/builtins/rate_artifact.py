@@ -9,6 +9,8 @@ from gimle.hugin.tools.tool import Tool, ToolResponse
 if TYPE_CHECKING:
     from gimle.hugin.interaction.stack import Stack
 
+logger = logging.getLogger(__name__)
+
 
 @Tool.register(
     name="builtins.rate_artifact",
@@ -80,11 +82,27 @@ def rate_artifact(
     except (ValueError, TypeError) as e:
         return ToolResponse(is_error=True, content={"error": str(e)})
 
+    # Check for existing rating from this agent
+    for fb_uuid in storage.list_feedback(artifact_id):
+        try:
+            existing = storage.load_feedback(fb_uuid)
+            if existing.agent_id == stack.agent.id:
+                return ToolResponse(
+                    is_error=True,
+                    content={
+                        "error": (f"Already rated artifact {artifact_id}")
+                    },
+                )
+        except (ValueError, OSError):
+            continue
+
     storage.save_feedback(feedback)
 
-    logging.info(
-        f"Saved feedback {feedback.id} for artifact "
-        f"{artifact_id} (rating={rating})"
+    logger.info(
+        "Saved feedback %s for artifact %s (rating=%d)",
+        feedback.id,
+        artifact_id,
+        rating,
     )
 
     return ToolResponse(

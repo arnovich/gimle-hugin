@@ -1,5 +1,7 @@
 """Comprehensive tests for ArtifactFeedback feature."""
 
+import json
+
 import pytest
 
 from gimle.hugin.agent.task import Task
@@ -12,6 +14,7 @@ from gimle.hugin.artifacts.query_engine import (
 )
 from gimle.hugin.artifacts.text import Text
 from gimle.hugin.interaction.task_definition import TaskDefinition
+from gimle.hugin.storage.local import LocalStorage
 
 from .memory_storage import MemoryStorage
 
@@ -340,8 +343,8 @@ class TestQueryEngineRatingBoost:
         # Base score is 1.0 (one match of "test"), boost adds 3.0
         assert results[0].score == 1.0 + expected_boost
 
-    def test_low_rated_artifact_penalized(self, mock_stack):
-        """Test that poorly rated artifacts get negative boost."""
+    def test_low_rated_artifact_excluded(self, mock_stack):
+        """Test that poorly rated artifacts are excluded."""
         storage = MemoryStorage()
         artifact = self._setup_artifact(storage, mock_stack, "test content")
 
@@ -351,11 +354,8 @@ class TestQueryEngineRatingBoost:
         engine = ArtifactQueryEngine(storage)
         results = engine.query("test")
 
-        assert len(results) == 1
-        assert results[0].metadata["average_rating"] == 1.0
-        # (1-3)*1.5 = -3.0, base 1.0, total = -2.0
-        expected_boost = (1 - RATING_NEUTRAL) * RATING_BOOST_MULTIPLIER
-        assert results[0].score == 1.0 + expected_boost
+        # (1-3)*1.5 = -3.0, base 1.0, total = -2.0 -> excluded
+        assert len(results) == 0
 
     def test_average_rating_across_multiple(self, mock_stack):
         """Test average rating calculation with multiple ratings."""
@@ -383,22 +383,20 @@ class TestQueryEngineRatingBoost:
         art_good = self._setup_artifact(
             storage, mock_stack, "test artifact good"
         )
-        art_bad = self._setup_artifact(storage, mock_stack, "test artifact bad")
+        art_ok = self._setup_artifact(storage, mock_stack, "test artifact ok")
 
-        # Rate good one high, bad one low
+        # Rate good one high, ok one neutral
         storage.save_feedback(
             ArtifactFeedback(artifact_id=art_good.id, rating=5)
         )
-        storage.save_feedback(
-            ArtifactFeedback(artifact_id=art_bad.id, rating=1)
-        )
+        storage.save_feedback(ArtifactFeedback(artifact_id=art_ok.id, rating=3))
 
         engine = ArtifactQueryEngine(storage)
         results = engine.query("test")
 
         assert len(results) == 2
         assert results[0].artifact_id == art_good.id
-        assert results[1].artifact_id == art_bad.id
+        assert results[1].artifact_id == art_ok.id
 
     def test_neutral_rating_no_boost(self, mock_stack):
         """Test that neutral (3) rating gives zero boost."""
@@ -637,9 +635,9 @@ class TestEndToEnd:
         storage.save_artifact(good)
         storage.save_artifact(bad)
 
-        # Rate them
+        # Rate them (good=5, bad=3 so both still appear)
         storage.save_feedback(ArtifactFeedback(artifact_id=good.id, rating=5))
-        storage.save_feedback(ArtifactFeedback(artifact_id=bad.id, rating=1))
+        storage.save_feedback(ArtifactFeedback(artifact_id=bad.id, rating=3))
 
         # Query
         engine = ArtifactQueryEngine(storage)
@@ -650,4 +648,221 @@ class TestEndToEnd:
         assert results[0].artifact_id == good.id
         assert results[0].metadata["average_rating"] == 5.0
         assert results[1].artifact_id == bad.id
-        assert results[1].metadata["average_rating"] == 1.0
+        assert results[1].metadata["average_rating"] == 3.0
+
+
+class TestLocalStorageFeedback:
+    """Test feedback operations on LocalStorage."""
+
+    def test_save_and_load(self, tmp_path):
+        """Test saving and loading feedback via LocalStorage."""
+        storage = LocalStorage(base_path=str(tmp_path))
+        fb = ArtifactFeedback(artifact_id="art-1", rating=4, comment="Good")
+        storage.save_feedback(fb)
+        loaded = storage.load_feedback(fb.id)
+
+        assert loaded.id == fb.id
+        assert loaded.artifact_id == "art-1"
+        assert loaded.rating == 4
+        assert loaded.comment == "Good"
+
+    def test_filename_uses_prefix(self, tmp_path):
+        """Test that feedback files use artifact_id prefix."""
+        storage = LocalStorage(base_path=str(tmp_path))
+        fb = ArtifactFeedback(artifact_id="art-1", rating=3)
+        storage.save_feedback(fb)
+
+        feedback_dir = tmp_path / "feedback"
+        files = list(feedback_dir.iterdir())
+        assert len(files) == 1
+        assert files[0].name == f"art-1_{fb.id}"
+
+    def test_list_by_artifact(self, tmp_path):
+        """Test listing feedback filtered by artifact."""
+        storage = LocalStorage(base_path=str(tmp_path))
+        fb1 = ArtifactFeedback(artifact_id="art-1", rating=4)
+        fb2 = ArtifactFeedback(artifact_id="art-1", rating=3)
+        fb3 = ArtifactFeedback(artifact_id="art-2", rating=5)
+        storage.save_feedback(fb1)
+        storage.save_feedback(fb2)
+        storage.save_feedback(fb3)
+
+        art1_ids = storage.list_feedback(artifact_id="art-1")
+        assert len(art1_ids) == 2
+        assert fb1.id in art1_ids
+        assert fb2.id in art1_ids
+
+        art2_ids = storage.list_feedback(artifact_id="art-2")
+        assert len(art2_ids) == 1
+        assert fb3.id in art2_ids
+
+    def test_list_all(self, tmp_path):
+        """Test listing all feedback without filter."""
+        storage = LocalStorage(base_path=str(tmp_path))
+        fb1 = ArtifactFeedback(artifact_id="art-1", rating=4)
+        fb2 = ArtifactFeedback(artifact_id="art-2", rating=3)
+        storage.save_feedback(fb1)
+        storage.save_feedback(fb2)
+
+        all_ids = storage.list_feedback()
+        assert len(all_ids) == 2
+        assert fb1.id in all_ids
+        assert fb2.id in all_ids
+
+    def test_delete_feedback(self, tmp_path):
+        """Test deleting feedback."""
+        storage = LocalStorage(base_path=str(tmp_path))
+        fb = ArtifactFeedback(artifact_id="art-1", rating=4)
+        storage.save_feedback(fb)
+        assert len(storage.list_feedback()) == 1
+
+        storage.delete_feedback(fb)
+        assert len(storage.list_feedback()) == 0
+
+    def test_delete_feedback_for_artifact(self, tmp_path):
+        """Test bulk deletion of feedback by artifact."""
+        storage = LocalStorage(base_path=str(tmp_path))
+        fb1 = ArtifactFeedback(artifact_id="art-1", rating=4)
+        fb2 = ArtifactFeedback(artifact_id="art-1", rating=3)
+        fb3 = ArtifactFeedback(artifact_id="art-2", rating=5)
+        storage.save_feedback(fb1)
+        storage.save_feedback(fb2)
+        storage.save_feedback(fb3)
+
+        storage._delete_feedback_for_artifact("art-1")
+
+        assert len(storage.list_feedback(artifact_id="art-1")) == 0
+        assert len(storage.list_feedback(artifact_id="art-2")) == 1
+
+    def test_round_trip_json(self, tmp_path):
+        """Test feedback JSON round-trip on disk."""
+        storage = LocalStorage(base_path=str(tmp_path))
+        fb = ArtifactFeedback(
+            artifact_id="art-1",
+            rating=5,
+            comment="Excellent",
+            agent_id="agent-1",
+        )
+        storage.save_feedback(fb)
+
+        # Read raw JSON from disk
+        feedback_dir = tmp_path / "feedback"
+        files = list(feedback_dir.iterdir())
+        with open(files[0], "r") as f:
+            data = json.load(f)
+
+        assert data["artifact_id"] == "art-1"
+        assert data["rating"] == 5
+        assert data["comment"] == "Excellent"
+        assert data["agent_id"] == "agent-1"
+
+    def test_load_nonexistent_raises(self, tmp_path):
+        """Test loading nonexistent feedback raises error."""
+        storage = LocalStorage(base_path=str(tmp_path))
+        with pytest.raises(ValueError, match="not found"):
+            storage.load_feedback("nonexistent")
+
+
+class TestDuplicateRatingPrevention:
+    """Test that agents cannot rate the same artifact twice."""
+
+    def test_duplicate_rating_rejected(self, mock_stack):
+        """Test that duplicate rating from same agent is rejected."""
+        storage = MemoryStorage()
+        mock_stack.agent.environment.storage = storage
+
+        task = Task(
+            name="t",
+            description="T",
+            parameters={},
+            prompt="p",
+            tools=[],
+        )
+        task_def = TaskDefinition(stack=mock_stack, task=task)
+        storage.save_interaction(task_def)
+        artifact = Text(
+            interaction=task_def,
+            content="Content",
+            format="plain",
+        )
+        storage.save_artifact(artifact)
+
+        from gimle.hugin.tools.builtins.rate_artifact import (
+            rate_artifact,
+        )
+
+        # First rating succeeds
+        result1 = rate_artifact(
+            artifact_id=artifact.id,
+            rating=4,
+            stack=mock_stack,
+        )
+        assert not result1.is_error
+
+        # Second rating from same agent is rejected
+        result2 = rate_artifact(
+            artifact_id=artifact.id,
+            rating=5,
+            stack=mock_stack,
+        )
+        assert result2.is_error
+        assert "Already rated" in result2.content["error"]
+
+
+class TestListRecentArtifactsRatings:
+    """Test that list_recent_artifacts includes rating metadata."""
+
+    def test_includes_rating_metadata(self, mock_stack):
+        """Test that rated artifacts have rating in metadata."""
+        storage = MemoryStorage()
+        task = Task(
+            name="t",
+            description="T",
+            parameters={},
+            prompt="p",
+            tools=[],
+        )
+        task_def = TaskDefinition(stack=mock_stack, task=task)
+        storage.save_interaction(task_def)
+        artifact = Text(
+            interaction=task_def,
+            content="Some content",
+            format="plain",
+        )
+        storage.save_artifact(artifact)
+
+        storage.save_feedback(
+            ArtifactFeedback(artifact_id=artifact.id, rating=4)
+        )
+
+        engine = ArtifactQueryEngine(storage)
+        results = engine.list_recent_artifacts()
+
+        assert len(results) == 1
+        assert results[0].metadata["average_rating"] == 4.0
+        assert results[0].metadata["rating_count"] == 1
+
+    def test_unrated_has_no_rating_metadata(self, mock_stack):
+        """Test that unrated artifacts have no rating in metadata."""
+        storage = MemoryStorage()
+        task = Task(
+            name="t",
+            description="T",
+            parameters={},
+            prompt="p",
+            tools=[],
+        )
+        task_def = TaskDefinition(stack=mock_stack, task=task)
+        storage.save_interaction(task_def)
+        artifact = Text(
+            interaction=task_def,
+            content="Some content",
+            format="plain",
+        )
+        storage.save_artifact(artifact)
+
+        engine = ArtifactQueryEngine(storage)
+        results = engine.list_recent_artifacts()
+
+        assert len(results) == 1
+        assert "average_rating" not in results[0].metadata

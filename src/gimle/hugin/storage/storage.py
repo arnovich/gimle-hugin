@@ -90,10 +90,10 @@ class Storage(ABC):
 
     def delete_artifact(self, artifact: Artifact) -> None:
         """Delete an artifact and its associated feedback."""
-        # Cascade delete feedback for this artifact
+        # Cascade delete feedback — clear cache, then bulk-delete
         for feedback_uuid in self.list_feedback(artifact.id):
-            feedback = self.load_feedback(feedback_uuid)
-            self.delete_feedback(feedback)
+            self.store.pop(f"feedback:{feedback_uuid}", None)
+        self._delete_feedback_for_artifact(artifact.id)
         self._delete_artifact(artifact)
         self.store.pop(f"artifact:{artifact.id}", None)
 
@@ -242,6 +242,10 @@ class Storage(ABC):
         """Delete feedback."""
         self._delete_feedback(feedback)
         self.store.pop(f"feedback:{feedback.id}", None)
+
+    @abstractmethod
+    def _delete_feedback_for_artifact(self, artifact_id: str) -> None:
+        raise NotImplementedError("Subclasses must implement this method")
 
     @abstractmethod
     def _list_feedback(self, artifact_id: Optional[str] = None) -> List[str]:
