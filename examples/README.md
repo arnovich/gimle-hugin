@@ -57,6 +57,12 @@ We highly recommend either running the examples in interactive mode (`hugin run 
 | [self_reflection](self_reflection/) | Self-critique via task chaining | `task_sequence` with `chain_config` for model switching |
 | [reflexion](reflexion/) | Multi-agent critique (Reflexion pattern) | `launch_agent` to spawn critic sub-agent |
 
+### Agent Patterns
+
+| Example | Description | Key Concept |
+|---------|-------------|-------------|
+| [heartbeat](heartbeat/) | Periodic monitoring agent | `wait_for_ticks`, sensor pattern |
+
 ### Advanced Patterns
 
 | Example | Description | Key Concept |
@@ -65,6 +71,7 @@ We highly recommend either running the examples in interactive mode (`hugin run 
 | [branching](branching/) | Parallel exploration | Stack branches for multiple approaches |
 | [simple_branching](simple_branching/) | Basic stack branching | `create_branch` tool, parallel execution |
 | [custom_artifacts](custom_artifacts/) | Custom artifact types | `@Artifact.register`, `@ComponentRegistry.register` |
+| [artifact_feedback](artifact_feedback/) | Artifact rating and feedback | `rate_artifact`, feedback-driven ranking |
 
 ## Learning Path
 
@@ -83,12 +90,14 @@ We highly recommend either running the examples in interactive mode (`hugin run 
 8. **[agent_messaging](agent_messaging/)** - Direct agent-to-agent communication
 9. **[shared_state](shared_state/)** - Sharing data between agents
 
-### Advanced Patterns
-10. **[plan_execute_agent](plan_execute_agent/)** - Config state machines for complex workflows
-11. **[artifacts](artifacts/)** - Long-term memory through persistent artifacts
-12. **[branching](branching/)** - Parallel exploration of multiple approaches
-13. **[simple_branching](simple_branching/)** - Basic branching with artifact output
-14. **[custom_artifacts](custom_artifacts/)** - Create custom artifact types and UI components
+### Agent & Advanced Patterns
+10. **[heartbeat](heartbeat/)** - Periodic monitoring with tick-based scheduling
+11. **[plan_execute_agent](plan_execute_agent/)** - Config state machines for complex workflows
+12. **[artifacts](artifacts/)** - Long-term memory through persistent artifacts
+13. **[branching](branching/)** - Parallel exploration of multiple approaches
+14. **[simple_branching](simple_branching/)** - Basic branching with artifact output
+15. **[custom_artifacts](custom_artifacts/)** - Create custom artifact types and UI components
+16. **[artifact_feedback](artifact_feedback/)** - Artifact rating and feedback-driven ranking
 
 ## Running Examples
 

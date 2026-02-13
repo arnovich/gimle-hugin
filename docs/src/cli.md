@@ -117,6 +117,33 @@ Features:
 - Agent state browsing
 - Session/agent selection
 
+## hugin rate
+
+Rate an artifact as a human reviewer.
+
+```bash
+hugin rate [options]
+```
+
+| Option | Description |
+|--------|-------------|
+| `-s, --storage-path` | Path to agent storage |
+| `--artifact-id` | UUID of the artifact to rate |
+| `--rating` | Rating from 1 (poor) to 5 (excellent) |
+| `--comment` | Optional comment explaining the rating |
+
+When run without flags, enters interactive mode: lists available artifacts, prompts for selection, rating, and optional comment. Provide all flags for non-interactive/scripted usage.
+
+**Examples:**
+
+```bash
+# Interactive mode - browse and rate artifacts
+hugin rate -s ./storage
+
+# Non-interactive mode
+hugin rate -s ./storage --artifact-id abc123 --rating 4 --comment "Very useful"
+```
+
 ## Interactive TUI
 
 Terminal UI for browsing and managing agents. Access it via `hugin interactive` (browse only) or `hugin run -i` (run agent inside TUI).

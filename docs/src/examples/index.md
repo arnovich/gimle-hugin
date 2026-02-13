@@ -22,8 +22,16 @@ Start here to understand the basic structure.
 | [tool_chaining](https://github.com/gimlelabs/gimle-hugin/tree/main/examples/tool_chaining) | Deterministic tool pipelines | `next_tool` parameter |
 | [task_chaining](https://github.com/gimlelabs/gimle-hugin/tree/main/examples/task_chaining) | Sequential task execution | `next_task` parameter |
 | [task_sequences](https://github.com/gimlelabs/gimle-hugin/tree/main/examples/task_sequences) | Multi-stage pipelines | `task_sequence`, `pass_result_as` |
+| [self_reflection](https://github.com/gimlelabs/gimle-hugin/tree/main/examples/self_reflection) | Self-reflection via task chaining | `task_sequence`, `chain_config`, model switching |
 | [plan_execute_agent](https://github.com/gimlelabs/gimle-hugin/tree/main/examples/plan_execute_agent) | Config-based state machines | State transitions, mode switching |
 | [human_interaction](https://github.com/gimlelabs/gimle-hugin/tree/main/examples/human_interaction) | Human-in-the-loop | `AskHuman`, approval workflows |
+
+## Agent Patterns
+
+| Example | Description | Key Concepts |
+|---------|-------------|--------------|
+| [reflexion](https://github.com/gimlelabs/gimle-hugin/tree/main/examples/reflexion) | Multi-agent reflection with critic | `launch_agent`, sub-agent feedback |
+| [heartbeat](https://github.com/gimlelabs/gimle-hugin/tree/main/examples/heartbeat) | Periodic monitoring agent | `wait_for_ticks`, sensor pattern |
 
 ## Advanced Features
 
@@ -33,6 +41,7 @@ Start here to understand the basic structure.
 | [simple_branching](https://github.com/gimlelabs/gimle-hugin/tree/main/examples/simple_branching) | Basic stack branching | `create_branch` tool, artifact output |
 | [artifacts](https://github.com/gimlelabs/gimle-hugin/tree/main/examples/artifacts) | Long-term memory | `save_insight`, `query_artifacts` |
 | [custom_artifacts](https://github.com/gimlelabs/gimle-hugin/tree/main/examples/custom_artifacts) | Custom artifact types | `@Artifact.register`, UI components |
+| [artifact_feedback](https://github.com/gimlelabs/gimle-hugin/tree/main/examples/artifact_feedback) | Artifact rating and feedback | `rate_artifact`, feedback-driven ranking |
 
 ## Multi-Agent
 
