@@ -993,10 +993,12 @@ class AgentMonitorHTTPRequestHandler(BaseHTTPRequestHandler):
             # Config transition badge
             transition_badge = ""
             if config_transitions and int_id in config_transitions:
-                new_state = config_transitions[int_id]
+                import html as html_module
+
+                escaped = html_module.escape(config_transitions[int_id])
                 transition_badge = (
                     '<span class="config-transition-badge">'
-                    f"\u2192 {new_state}</span>"
+                    f"\u2192 {escaped}</span>"
                 )
 
             html_parts.append(
@@ -1184,11 +1186,13 @@ class AgentMonitorHTTPRequestHandler(BaseHTTPRequestHandler):
 
         # Config transition marker after this interaction
         if config_transitions and int_id in config_transitions:
-            new_state = config_transitions[int_id]
+            import html as html_module
+
+            escaped = html_module.escape(config_transitions[int_id])
             box_html += (
                 '<div class="config-transition-marker">'
                 '<span class="config-transition-label">'
-                f"\u2192 {new_state}</span></div>"
+                f"\u2192 {escaped}</span></div>"
             )
 
         if index < total - 1:

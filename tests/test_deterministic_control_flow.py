@@ -1467,3 +1467,79 @@ class TestConfigHistory:
         agent = Agent(session=mock_session, config=config)
 
         assert agent.config_history == []
+
+    def test_config_history_trimmed_on_rewind(self, state_machine_session):
+        """rewind_to trims history entries referencing removed interactions."""
+        sm = ConfigStateMachine(
+            initial_state="planning_mode",
+            transitions=[
+                ConfigTransition(
+                    name="to_exec",
+                    from_state="planning_mode",
+                    to_state="execution_mode",
+                    trigger=TransitionTrigger(
+                        type="tool_call", tool_name="approve"
+                    ),
+                ),
+            ],
+        )
+        main_config = Config(
+            name="main",
+            description="Main config",
+            llm_model="test-model",
+            system_template="system",
+            state_machine=sm,
+        )
+
+        agent = Agent(session=state_machine_session, config=main_config)
+
+        # Add interactions and trigger transition
+        tc = ToolCall(
+            stack=agent.stack,
+            tool="approve",
+            args={},
+            tool_call_id="c1",
+        )
+        agent.stack.add_interaction(tc)
+        tr = ToolResult(
+            stack=agent.stack,
+            result={},
+            tool_call_id="c1",
+            tool_name="approve",
+            is_error=False,
+        )
+        agent.stack.add_interaction(tr)
+        with patch.object(agent.stack, "step", return_value=True):
+            agent.step()
+
+        assert agent.current_state == "execution_mode"
+        assert len(agent.config_history) == 2
+
+        # Rewind past the transition (keep only index 0)
+        agent.rewind_to(0)
+
+        # History should be trimmed to just the initial entry
+        assert len(agent.config_history) == 1
+        assert agent.config_history[0]["state"] == "planning_mode"
+        assert agent.current_state == "planning_mode"
+
+    def test_config_history_property_returns_copy(self, state_machine_session):
+        """config_history property returns a copy, not the internal list."""
+        sm = ConfigStateMachine(
+            initial_state="planning_mode",
+            transitions=[],
+        )
+        main_config = Config(
+            name="main",
+            description="Main config",
+            llm_model="test-model",
+            system_template="system",
+            state_machine=sm,
+        )
+
+        agent = Agent(session=state_machine_session, config=main_config)
+
+        history = agent.config_history
+        history.append({"state": "injected", "interaction_id": None})
+        # Internal list should be unaffected
+        assert len(agent.config_history) == 1
