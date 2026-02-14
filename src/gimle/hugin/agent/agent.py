@@ -1,7 +1,8 @@
 """Agent module."""
 
 import logging
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from gimle.hugin.agent.config import Config
 from gimle.hugin.agent.config_state_machine import ConfigStateMachine
@@ -44,13 +45,17 @@ class Agent:
         # State machine tracking
         self._current_state: Optional[str] = None
         self._state_machine: Optional[ConfigStateMachine] = None
+        self._config_history: List[Dict[str, Any]] = []
 
         # Initialize state machine if configured
         if config.state_machine:
             self._state_machine = config.state_machine
-            self._current_state = config.state_machine.initial_state
-            # Load the initial state config
-            self._transition_to(self._current_state)
+            initial = config.state_machine.initial_state
+            # Load the initial state config (_transition_to sets
+            # _current_state; old_state=None skips history append)
+            self._transition_to(initial)
+            # Record initial state (before stack has interactions)
+            self._record_config_history(initial, None)
 
     @staticmethod
     def create_from_task(
@@ -110,6 +115,11 @@ class Agent:
         """Get the current config state name."""
         return self._current_state
 
+    @property
+    def config_history(self) -> List[Dict[str, Any]]:
+        """Get the config state transition history."""
+        return [dict(entry) for entry in self._config_history]
+
     def step(self) -> bool:
         """Step the agent.
 
@@ -135,7 +145,8 @@ class Agent:
         """Rewind the agent's stack to a specific interaction index.
 
         Removes all interactions after the given index and deletes them from
-        storage. The agent can then continue execution from that point.
+        storage. Also trims config history entries that reference removed
+        interactions and restores the current state accordingly.
 
         Args:
             index: The index to rewind to (0-based). Interactions at this
@@ -149,6 +160,29 @@ class Agent:
         """
         storage = self.session.environment.storage
         removed = self.stack.rewind_to(index, storage=storage)
+
+        # Trim config history entries referencing removed interactions
+        if removed and self._config_history:
+            removed_ids = {str(r.uuid) for r in removed}
+            self._config_history = [
+                entry
+                for entry in self._config_history
+                if entry["interaction_id"] is None
+                or entry["interaction_id"] not in removed_ids
+            ]
+            # Restore current state to last history entry
+            if self._config_history:
+                last_state = self._config_history[-1]["state"]
+                if last_state != self._current_state:
+                    # Load the config for the restored state
+                    # without recording a new history entry
+                    registry = self.environment.config_registry
+                    if last_state in registry.registered():
+                        sm = self._state_machine
+                        self.config = registry.get(last_state)
+                        self._current_state = last_state
+                        if self._state_machine is None:
+                            self._state_machine = sm
 
         logger.info(
             f"Agent {self.id} rewound to interaction {index}, "
@@ -267,6 +301,26 @@ class Agent:
             logger.warning(f"Error matching pattern: {e}")
             return False
 
+    def _record_config_history(
+        self,
+        state: str,
+        interaction_id: Optional[str],
+    ) -> None:
+        """Append a config history entry.
+
+        Args:
+            state: The config state name.
+            interaction_id: UUID of the triggering interaction,
+                or None for the initial state.
+        """
+        self._config_history.append(
+            {
+                "state": state,
+                "interaction_id": interaction_id,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+
     def _transition_to(self, state_name: str) -> None:
         """Transition to a new config state.
 
@@ -291,6 +345,13 @@ class Agent:
         # Restore state machine if the new config doesn't have one
         if self._state_machine is None:
             self._state_machine = state_machine
+
+        # Record transition in history (skip initial setup)
+        if old_state is not None:
+            interaction_id = None
+            if self.stack.interactions:
+                interaction_id = str(self.stack.interactions[-1].uuid)
+            self._record_config_history(state_name, interaction_id)
 
         agent_id = self.uuid if hasattr(self, "uuid") else "initializing"
         logger.info(
@@ -326,6 +387,7 @@ class Agent:
 
         # Serialize state machine tracking
         result["_current_state"] = self._current_state
+        result["_config_history"] = self._config_history
         if self._state_machine:
             result["_state_machine"] = self._state_machine.to_dict()
 
@@ -364,6 +426,7 @@ class Agent:
 
         # Restore state machine tracking
         agent._current_state = data.get("_current_state")
+        agent._config_history = data.get("_config_history", [])
         if "_state_machine" in data:
             agent._state_machine = ConfigStateMachine.from_dict(
                 data["_state_machine"]

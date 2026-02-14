@@ -813,6 +813,7 @@ class AgentMonitorHTTPRequestHandler(BaseHTTPRequestHandler):
             return {
                 "id": agent_id,
                 "config": agent_data.get("config", {}),
+                "config_history": agent_data.get("_config_history", []),
                 "interactions": interaction_summaries,
                 "created_at": agent_data.get("created_at"),
                 "stack": {
@@ -852,6 +853,14 @@ class AgentMonitorHTTPRequestHandler(BaseHTTPRequestHandler):
         interactions = agent_data.get("interactions", [])
         config = agent_data.get("config", {})
 
+        # Build interaction_id -> new state lookup from config history
+        config_history = agent_data.get("config_history", [])
+        config_transitions: Dict[str, str] = {}
+        for entry in config_history:
+            iid = entry.get("interaction_id")
+            if iid:
+                config_transitions[iid] = entry["state"]
+
         # Generate compact config header
         config_html = ""
         if config:
@@ -878,10 +887,14 @@ class AgentMonitorHTTPRequestHandler(BaseHTTPRequestHandler):
             )
 
         # Build timeline HTML
-        timeline_html = self._render_timeline_lightweight(interactions)
+        timeline_html = self._render_timeline_lightweight(
+            interactions, config_transitions
+        )
 
         # Build flowchart HTML
-        flowchart_html = self._render_flowchart_lightweight(interactions)
+        flowchart_html = self._render_flowchart_lightweight(
+            interactions, config_transitions
+        )
 
         # Build artifacts list HTML (placeholders for lazy loading)
         artifacts_list_html = self._render_artifacts_list_lightweight(
@@ -918,7 +931,9 @@ class AgentMonitorHTTPRequestHandler(BaseHTTPRequestHandler):
         )
 
     def _render_timeline_lightweight(
-        self, interactions: List[Dict[str, Any]]
+        self,
+        interactions: List[Dict[str, Any]],
+        config_transitions: Optional[Dict[str, str]] = None,
     ) -> str:
         """Render timeline from interaction metadata."""
         from datetime import datetime as dt
@@ -975,6 +990,17 @@ class AgentMonitorHTTPRequestHandler(BaseHTTPRequestHandler):
             color_class = self._get_color_class(int_type)
             detail_html = self._get_timeline_detail_lightweight(interaction)
 
+            # Config transition badge
+            transition_badge = ""
+            if config_transitions and int_id in config_transitions:
+                import html as html_module
+
+                escaped = html_module.escape(config_transitions[int_id])
+                transition_badge = (
+                    '<span class="config-transition-badge">'
+                    f"\u2192 {escaped}</span>"
+                )
+
             html_parts.append(
                 f"""
                 <div class="timeline-item {color_class}"
@@ -985,6 +1011,7 @@ class AgentMonitorHTTPRequestHandler(BaseHTTPRequestHandler):
                     {gap_html}
                     <span class="timeline-type">{int_type}</span>
                     {detail_html}
+                    {transition_badge}
                     <span class="timeline-branch {branch_class}">{branch_display}</span>
                 </div>
                 """
@@ -994,7 +1021,9 @@ class AgentMonitorHTTPRequestHandler(BaseHTTPRequestHandler):
         return "\n".join(html_parts)
 
     def _render_flowchart_lightweight(
-        self, interactions: List[Dict[str, Any]]
+        self,
+        interactions: List[Dict[str, Any]],
+        config_transitions: Optional[Dict[str, str]] = None,
     ) -> str:
         """Render flowchart from interaction metadata."""
         html_parts = []
@@ -1038,7 +1067,10 @@ class AgentMonitorHTTPRequestHandler(BaseHTTPRequestHandler):
         for i, interaction in enumerate(main_branch):
             html_parts.append(
                 self._render_interaction_box_lightweight(
-                    interaction, i, len(main_branch)
+                    interaction,
+                    i,
+                    len(main_branch),
+                    config_transitions=config_transitions,
                 )
             )
         html_parts.append("</div></div>")
@@ -1061,7 +1093,11 @@ class AgentMonitorHTTPRequestHandler(BaseHTTPRequestHandler):
             for i, interaction in enumerate(branch_ints):
                 html_parts.append(
                     self._render_interaction_box_lightweight(
-                        interaction, i, len(branch_ints), branch_name
+                        interaction,
+                        i,
+                        len(branch_ints),
+                        branch_name,
+                        config_transitions=config_transitions,
                     )
                 )
             html_parts.append("</div></div>")
@@ -1075,6 +1111,7 @@ class AgentMonitorHTTPRequestHandler(BaseHTTPRequestHandler):
         index: int,
         total: int,
         branch: Optional[str] = None,
+        config_transitions: Optional[Dict[str, str]] = None,
     ) -> str:
         """Render a single interaction box from metadata."""
         int_type = interaction.get("type", "Unknown")
@@ -1147,8 +1184,19 @@ class AgentMonitorHTTPRequestHandler(BaseHTTPRequestHandler):
         </div>
         """
 
+        # Config transition marker after this interaction
+        if config_transitions and int_id in config_transitions:
+            import html as html_module
+
+            escaped = html_module.escape(config_transitions[int_id])
+            box_html += (
+                '<div class="config-transition-marker">'
+                '<span class="config-transition-label">'
+                f"\u2192 {escaped}</span></div>"
+            )
+
         if index < total - 1:
-            box_html += '<div class="flowchart-arrow">↓</div>'
+            box_html += '<div class="flowchart-arrow">\u2193</div>'
 
         return box_html
 
