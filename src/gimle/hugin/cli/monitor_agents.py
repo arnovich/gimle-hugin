@@ -1170,8 +1170,22 @@ class AgentMonitorHTTPRequestHandler(BaseHTTPRequestHandler):
         if details:
             details_html = f'<div class="flowchart-box-details">{details}</div>'
 
+        # Build data attributes for inter-agent linking
+        import html as html_module
+
+        link_attrs = ""
+        if interaction.get("agent_id"):
+            escaped_aid = html_module.escape(interaction["agent_id"])
+            link_attrs += f' data-agent-id="{escaped_aid}"'
+        if interaction.get("caller_id"):
+            escaped_cid = html_module.escape(interaction["caller_id"])
+            link_attrs += f' data-caller-id="{escaped_cid}"'
+        if interaction.get("task_result_id"):
+            escaped_trid = html_module.escape(interaction["task_result_id"])
+            link_attrs += f' data-task-result-id="{escaped_trid}"'
+
         box_html = f"""
-        <div class="flowchart-item {color_class}" data-interaction-id="{int_id}">
+        <div class="flowchart-item {color_class}" data-interaction-id="{int_id}"{link_attrs}>
             <div class="flowchart-box {clickable_class}" data-has-artifacts="{str(has_artifacts).lower()}">
                 <div class="flowchart-box-header">
                     <span class="flowchart-box-type" onclick="showInteractionDetails('{int_id}')" style="cursor: pointer;">{int_type}</span>
