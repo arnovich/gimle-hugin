@@ -73,29 +73,7 @@ EOF
 
 ## GitHub CLI Patterns
 
-### Working with Issues
-
-```bash
-# List all issues
-gh issue list --repo gimlelabs/gimle-hugin --state all
-
-# Get issue details as JSON
-gh issue list --state open --json number,title,body,labels
-
-# Close an issue with comment
-gh issue close 123 --comment "Fixed in PR #456"
-
-# Create a new issue
-gh issue create --title "Bug: description" --body "Details..."
-```
-
-### Syncing Issues to Local Tasks
-
-```bash
-# Fetch all issues and create local task files
-gh issue list --state all --limit 100 --json number,title,state,body,labels,createdAt |
-  jq -r '.[] | "tasks/\(if .state == "OPEN" then "open" else "closed" end)/\(.number)-\(.title | gsub(" "; "-") | ascii_downcase).md"'
-```
+**Note:** GitHub Issues are no longer used for task tracking. Tasks are tracked exclusively via task files in `tasks/open/` and `tasks/closed/`. Do not create or reference GitHub issues.
 
 ### Working with PRs
 
@@ -580,7 +558,6 @@ Each task file should have YAML frontmatter:
 
 ```markdown
 ---
-github_issue: 6           # Optional: linked GitHub issue
 title: Support parallel tool calls
 state: OPEN
 labels: [enhancement]
