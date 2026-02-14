@@ -1,7 +1,8 @@
 """Agent module."""
 
 import logging
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from gimle.hugin.agent.config import Config
 from gimle.hugin.agent.config_state_machine import ConfigStateMachine
@@ -44,13 +45,23 @@ class Agent:
         # State machine tracking
         self._current_state: Optional[str] = None
         self._state_machine: Optional[ConfigStateMachine] = None
+        self._config_history: List[Dict[str, Any]] = []
 
         # Initialize state machine if configured
         if config.state_machine:
             self._state_machine = config.state_machine
-            self._current_state = config.state_machine.initial_state
-            # Load the initial state config
-            self._transition_to(self._current_state)
+            initial = config.state_machine.initial_state
+            # Load the initial state config (_transition_to sets
+            # _current_state; old_state=None skips history append)
+            self._transition_to(initial)
+            # Record initial state (before stack has interactions)
+            self._config_history.append(
+                {
+                    "state": self._current_state,
+                    "interaction_id": None,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            )
 
     @staticmethod
     def create_from_task(
@@ -109,6 +120,11 @@ class Agent:
     def current_state(self) -> Optional[str]:
         """Get the current config state name."""
         return self._current_state
+
+    @property
+    def config_history(self) -> List[Dict[str, Any]]:
+        """Get the config state transition history."""
+        return self._config_history
 
     def step(self) -> bool:
         """Step the agent.
@@ -292,6 +308,19 @@ class Agent:
         if self._state_machine is None:
             self._state_machine = state_machine
 
+        # Record transition in history (skip initial setup)
+        if old_state is not None:
+            interaction_id = None
+            if self.stack.interactions:
+                interaction_id = str(self.stack.interactions[-1].uuid)
+            self._config_history.append(
+                {
+                    "state": state_name,
+                    "interaction_id": interaction_id,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+
         agent_id = self.uuid if hasattr(self, "uuid") else "initializing"
         logger.info(
             f"Agent {agent_id} transitioned: {old_state} -> {state_name}"
@@ -326,6 +355,7 @@ class Agent:
 
         # Serialize state machine tracking
         result["_current_state"] = self._current_state
+        result["_config_history"] = self._config_history
         if self._state_machine:
             result["_state_machine"] = self._state_machine.to_dict()
 
@@ -364,6 +394,7 @@ class Agent:
 
         # Restore state machine tracking
         agent._current_state = data.get("_current_state")
+        agent._config_history = data.get("_config_history", [])
         if "_state_machine" in data:
             agent._state_machine = ConfigStateMachine.from_dict(
                 data["_state_machine"]

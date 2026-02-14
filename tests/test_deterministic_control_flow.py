@@ -1207,3 +1207,263 @@ class TestAgentStateMachineSerialization:
             assert agent._state_machine.initial_state == "mode_a"
         finally:
             mock_session.environment.config_registry.remove("mode_b")
+
+
+class TestConfigHistory:
+    """Test config state machine history tracking."""
+
+    @pytest.fixture
+    def state_machine_session(self, mock_session):
+        """Create a session with state configs."""
+        planning_config = Config(
+            name="planning_mode",
+            description="Planning mode",
+            llm_model="test-model",
+            system_template="planning_template",
+            tools=["analyze", "create_plan", "approve_plan"],
+        )
+
+        execution_config = Config(
+            name="execution_mode",
+            description="Execution mode",
+            llm_model="test-model",
+            system_template="execution_template",
+            tools=["execute", "complete"],
+        )
+
+        mock_session.environment.config_registry.register(planning_config)
+        mock_session.environment.config_registry.register(execution_config)
+
+        yield mock_session
+
+        mock_session.environment.config_registry.remove("planning_mode")
+        mock_session.environment.config_registry.remove("execution_mode")
+
+    def test_config_history_initial_state(self, state_machine_session):
+        """Agent with state machine has one history entry after init."""
+        sm = ConfigStateMachine(
+            initial_state="planning_mode",
+            transitions=[],
+        )
+        main_config = Config(
+            name="main",
+            description="Main config",
+            llm_model="test-model",
+            system_template="system",
+            state_machine=sm,
+        )
+
+        agent = Agent(session=state_machine_session, config=main_config)
+
+        assert len(agent.config_history) == 1
+        entry = agent.config_history[0]
+        assert entry["state"] == "planning_mode"
+        assert entry["interaction_id"] is None
+        assert "timestamp" in entry
+
+    def test_config_history_after_transition(self, state_machine_session):
+        """After a transition, history has 2 entries with correct IDs."""
+        sm = ConfigStateMachine(
+            initial_state="planning_mode",
+            transitions=[
+                ConfigTransition(
+                    name="start_execution",
+                    from_state="planning_mode",
+                    to_state="execution_mode",
+                    trigger=TransitionTrigger(
+                        type="tool_call", tool_name="approve"
+                    ),
+                ),
+            ],
+        )
+        main_config = Config(
+            name="main",
+            description="Main config",
+            llm_model="test-model",
+            system_template="system",
+            state_machine=sm,
+        )
+
+        agent = Agent(session=state_machine_session, config=main_config)
+
+        # Add tool call and result for "approve"
+        tool_call = ToolCall(
+            stack=agent.stack,
+            tool="approve",
+            args={},
+            tool_call_id="call_1",
+        )
+        agent.stack.add_interaction(tool_call)
+
+        tool_result = ToolResult(
+            stack=agent.stack,
+            result={"status": "approved"},
+            tool_call_id="call_1",
+            tool_name="approve",
+            is_error=False,
+        )
+        agent.stack.add_interaction(tool_result)
+
+        with patch.object(agent.stack, "step", return_value=True):
+            agent.step()
+
+        assert len(agent.config_history) == 2
+        assert agent.config_history[0]["state"] == "planning_mode"
+        assert agent.config_history[0]["interaction_id"] is None
+        assert agent.config_history[1]["state"] == "execution_mode"
+        # The triggering interaction is the ToolResult (last on stack)
+        assert agent.config_history[1]["interaction_id"] == str(
+            tool_result.uuid
+        )
+
+    def test_config_history_multiple_transitions(self, state_machine_session):
+        """After multiple transitions, history has correct sequence."""
+        sm = ConfigStateMachine(
+            initial_state="planning_mode",
+            transitions=[
+                ConfigTransition(
+                    name="to_execution",
+                    from_state="planning_mode",
+                    to_state="execution_mode",
+                    trigger=TransitionTrigger(
+                        type="tool_call", tool_name="approve"
+                    ),
+                ),
+                ConfigTransition(
+                    name="back_to_planning",
+                    from_state="execution_mode",
+                    to_state="planning_mode",
+                    trigger=TransitionTrigger(
+                        type="tool_call", tool_name="replan"
+                    ),
+                ),
+            ],
+        )
+        main_config = Config(
+            name="main",
+            description="Main config",
+            llm_model="test-model",
+            system_template="system",
+            state_machine=sm,
+        )
+
+        agent = Agent(session=state_machine_session, config=main_config)
+        assert len(agent.config_history) == 1
+
+        # First transition: planning -> execution
+        tc1 = ToolCall(
+            stack=agent.stack,
+            tool="approve",
+            args={},
+        )
+        agent.stack.add_interaction(tc1)
+        tr1 = ToolResult(
+            stack=agent.stack,
+            result={},
+            tool_call_id="c1",
+            tool_name="approve",
+            is_error=False,
+        )
+        agent.stack.add_interaction(tr1)
+        with patch.object(agent.stack, "step", return_value=True):
+            agent.step()
+
+        assert len(agent.config_history) == 2
+
+        # Second transition: execution -> planning
+        tc2 = ToolCall(
+            stack=agent.stack,
+            tool="replan",
+            args={},
+        )
+        agent.stack.add_interaction(tc2)
+        tr2 = ToolResult(
+            stack=agent.stack,
+            result={},
+            tool_call_id="c2",
+            tool_name="replan",
+            is_error=False,
+        )
+        agent.stack.add_interaction(tr2)
+        with patch.object(agent.stack, "step", return_value=True):
+            agent.step()
+
+        assert len(agent.config_history) == 3
+        states = [e["state"] for e in agent.config_history]
+        assert states == [
+            "planning_mode",
+            "execution_mode",
+            "planning_mode",
+        ]
+
+    def test_config_history_serialization(self, state_machine_session):
+        """to_dict/from_dict round-trips config history."""
+        sm = ConfigStateMachine(
+            initial_state="planning_mode",
+            transitions=[
+                ConfigTransition(
+                    name="to_exec",
+                    from_state="planning_mode",
+                    to_state="execution_mode",
+                    trigger=TransitionTrigger(
+                        type="tool_call", tool_name="approve"
+                    ),
+                ),
+            ],
+        )
+        main_config = Config(
+            name="main",
+            description="Main config",
+            llm_model="test-model",
+            system_template="system",
+            state_machine=sm,
+        )
+
+        agent = Agent(session=state_machine_session, config=main_config)
+
+        # Trigger a transition
+        tc = ToolCall(
+            stack=agent.stack,
+            tool="approve",
+            args={},
+            tool_call_id="c1",
+        )
+        agent.stack.add_interaction(tc)
+        tr = ToolResult(
+            stack=agent.stack,
+            result={},
+            tool_call_id="c1",
+            tool_name="approve",
+            is_error=False,
+        )
+        agent.stack.add_interaction(tr)
+        with patch.object(agent.stack, "step", return_value=True):
+            agent.step()
+
+        # Serialize
+        data = agent.to_dict()
+        assert "_config_history" in data
+        assert len(data["_config_history"]) == 2
+
+        # Deserialize
+        restored = Agent.from_dict(
+            data,
+            storage=state_machine_session.storage,
+            session=state_machine_session,
+        )
+        assert restored.config_history == agent.config_history
+        assert len(restored.config_history) == 2
+        assert restored.config_history[0]["state"] == "planning_mode"
+        assert restored.config_history[1]["state"] == "execution_mode"
+
+    def test_config_history_empty_without_state_machine(self, mock_session):
+        """Agent without state machine has empty config history."""
+        config = Config(
+            name="simple",
+            description="No state machine",
+            llm_model="test-model",
+            system_template="system",
+        )
+        agent = Agent(session=mock_session, config=config)
+
+        assert agent.config_history == []
