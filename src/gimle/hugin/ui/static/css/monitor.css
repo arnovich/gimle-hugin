@@ -1197,6 +1197,182 @@ body {
 }
 
 /* ==========================================================================
+   Zoom & Pan Controls
+   ========================================================================== */
+
+.session-stacks-container {
+  overflow: hidden;
+  position: relative;
+}
+
+.session-stacks-canvas {
+  transform-origin: 0 0;
+  cursor: grab;
+}
+
+.session-stacks-canvas.panning {
+  cursor: grabbing;
+}
+
+.zoom-controls {
+  display: flex;
+  gap: 4px;
+}
+
+.zoom-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-light);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  line-height: 1;
+}
+
+.zoom-btn:hover {
+  background: var(--bg-hover);
+}
+
+/* ==========================================================================
+   Inter-Agent Arrow Overlay
+   ========================================================================== */
+
+.inter-agent-svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 10;
+  overflow: visible;
+}
+
+/* ==========================================================================
+   Global Canvas View
+   ========================================================================== */
+
+.global-canvas-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.global-canvas {
+  position: relative;
+  width: 4000px;
+  height: 4000px;
+  transform-origin: 0 0;
+  cursor: grab;
+}
+
+.global-canvas.panning {
+  cursor: grabbing;
+}
+
+.global-session-card {
+  position: absolute;
+  width: 380px;
+  min-height: 200px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+  transition: box-shadow 0.2s;
+}
+
+.global-session-card.dragging {
+  box-shadow: var(--shadow-lg);
+  z-index: 100;
+  opacity: 0.9;
+}
+
+.global-session-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-light);
+  cursor: move;
+  user-select: none;
+}
+
+.global-session-card-title {
+  font-weight: 600;
+  font-size: 0.9em;
+  color: var(--text-primary);
+}
+
+.global-session-card-meta {
+  font-size: 0.75em;
+  color: var(--text-secondary);
+}
+
+.global-session-card-body {
+  padding: var(--space-2);
+  cursor: pointer;
+  max-height: 300px;
+  overflow: hidden;
+}
+
+.global-session-card-body:hover {
+  background: var(--bg-hover);
+}
+
+.global-session-card-agents {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: 0.75em;
+}
+
+.global-agent-chip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+}
+
+.global-agent-chip-name {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.global-agent-chip-meta {
+  color: var(--text-secondary);
+  font-size: 0.85em;
+}
+
+.global-agent-chip-status {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.global-agent-chip-status.active {
+  background: var(--accent-success);
+}
+
+#canvas-view-btn.active {
+  background: var(--bg-active);
+  color: var(--accent-primary);
+}
+
+/* ==========================================================================
    Reverse Order Mode
    ========================================================================== */
 

@@ -22,6 +22,176 @@ let interactionDetailCache = {};
 let currentArtifactId = null;
 let currentInteractionId = null;
 
+// Zoom/pan controller for flowchart views
+let currentZoomPan = null;
+
+// Global canvas state
+let globalCanvasActive = false;
+
+// ==========================================================================
+// Zoom & Pan Controller
+// ==========================================================================
+
+class ZoomPanController {
+    constructor(container, canvas) {
+        this.container = container;
+        this.canvas = canvas;
+        this.scale = 1;
+        this.translateX = 0;
+        this.translateY = 0;
+        this.isPanning = false;
+        this.startX = 0;
+        this.startY = 0;
+        this.minScale = 0.1;
+        this.maxScale = 3;
+        this._onWheel = this._onWheel.bind(this);
+        this._onMouseDown = this._onMouseDown.bind(this);
+        this._onMouseMove = this._onMouseMove.bind(this);
+        this._onMouseUp = this._onMouseUp.bind(this);
+        this._attachListeners();
+    }
+
+    _attachListeners() {
+        this.container.addEventListener(
+            'wheel', this._onWheel, { passive: false }
+        );
+        this.canvas.addEventListener('mousedown', this._onMouseDown);
+        document.addEventListener('mousemove', this._onMouseMove);
+        document.addEventListener('mouseup', this._onMouseUp);
+    }
+
+    destroy() {
+        this.container.removeEventListener('wheel', this._onWheel);
+        this.canvas.removeEventListener(
+            'mousedown', this._onMouseDown
+        );
+        document.removeEventListener(
+            'mousemove', this._onMouseMove
+        );
+        document.removeEventListener('mouseup', this._onMouseUp);
+    }
+
+    _onWheel(e) {
+        e.preventDefault();
+        const rect = this.container.getBoundingClientRect();
+        const cursorX = e.clientX - rect.left;
+        const cursorY = e.clientY - rect.top;
+
+        const oldScale = this.scale;
+        const delta = e.deltaY > 0 ? -0.1 : 0.1;
+        this.scale = Math.min(
+            this.maxScale,
+            Math.max(this.minScale, this.scale + delta)
+        );
+
+        // Zoom toward cursor position
+        const scaleRatio = this.scale / oldScale;
+        this.translateX =
+            cursorX - scaleRatio * (cursorX - this.translateX);
+        this.translateY =
+            cursorY - scaleRatio * (cursorY - this.translateY);
+
+        this._applyTransform();
+    }
+
+    _onMouseDown(e) {
+        // Only pan on background, not on interactive elements
+        if (e.target.closest(
+            '.flowchart-box, a, button, input, select'
+        )) {
+            return;
+        }
+        this.isPanning = true;
+        this.startX = e.clientX - this.translateX;
+        this.startY = e.clientY - this.translateY;
+        this.canvas.classList.add('panning');
+        e.preventDefault();
+    }
+
+    _onMouseMove(e) {
+        if (!this.isPanning) return;
+        this.translateX = e.clientX - this.startX;
+        this.translateY = e.clientY - this.startY;
+        this._applyTransform();
+    }
+
+    _onMouseUp() {
+        if (!this.isPanning) return;
+        this.isPanning = false;
+        this.canvas.classList.remove('panning');
+    }
+
+    _applyTransform() {
+        this.canvas.style.transform =
+            `translate(${this.translateX}px, ${this.translateY}px) `
+            + `scale(${this.scale})`;
+        this.canvas.style.transformOrigin = '0 0';
+    }
+
+    fitToView() {
+        const containerRect =
+            this.container.getBoundingClientRect();
+        const canvasRect = this.canvas.getBoundingClientRect();
+        // Get unscaled canvas size
+        const w = this.canvas.scrollWidth;
+        const h = this.canvas.scrollHeight;
+        if (w === 0 || h === 0) return;
+
+        const scaleX = containerRect.width / w;
+        const scaleY = containerRect.height / h;
+        this.scale = Math.min(
+            scaleX, scaleY, this.maxScale
+        ) * 0.95;
+        this.scale = Math.max(this.scale, this.minScale);
+
+        // Center the content
+        const scaledW = w * this.scale;
+        const scaledH = h * this.scale;
+        this.translateX =
+            (containerRect.width - scaledW) / 2;
+        this.translateY =
+            (containerRect.height - scaledH) / 2;
+        this._applyTransform();
+    }
+
+    resetView() {
+        this.scale = 1;
+        this.translateX = 0;
+        this.translateY = 0;
+        this._applyTransform();
+    }
+
+    zoomIn() {
+        this.scale = Math.min(
+            this.maxScale, this.scale + 0.2
+        );
+        this._applyTransform();
+    }
+
+    zoomOut() {
+        this.scale = Math.max(
+            this.minScale, this.scale - 0.2
+        );
+        this._applyTransform();
+    }
+}
+
+function zoomIn() {
+    if (currentZoomPan) currentZoomPan.zoomIn();
+}
+
+function zoomOut() {
+    if (currentZoomPan) currentZoomPan.zoomOut();
+}
+
+function fitToView() {
+    if (currentZoomPan) currentZoomPan.fitToView();
+}
+
+function resetZoom() {
+    if (currentZoomPan) currentZoomPan.resetView();
+}
+
 // ==========================================================================
 // Initialization
 // ==========================================================================
@@ -555,7 +725,9 @@ async function refreshAgents() {
         renderAgentsList(agents);
 
         // Refresh current view if one is selected
-        if (currentAgentId && agentsData[currentAgentId]) {
+        if (globalCanvasActive) {
+            updateGlobalCanvasCards(agents);
+        } else if (currentAgentId && agentsData[currentAgentId]) {
             // Clear cache so we get fresh data
             interactionDetailCache = {};
             // Reload the current agent view
@@ -815,7 +987,16 @@ async function deleteSession(sessionId, event) {
 // Agent Loading
 // ==========================================================================
 
+function deactivateCanvasView() {
+    if (globalCanvasActive) {
+        globalCanvasActive = false;
+        const btn = document.getElementById('canvas-view-btn');
+        if (btn) btn.classList.remove('active');
+    }
+}
+
 async function loadAgent(agentId) {
+    deactivateCanvasView();
     currentSessionId = null;
     currentAgentId = agentId;
 
@@ -907,6 +1088,7 @@ async function loadAgent(agentId) {
 
 async function loadSession(sessionId, event) {
     if (event) event.stopPropagation();
+    deactivateCanvasView();
 
     currentAgentId = null;
     currentSessionId = sessionId;
@@ -1048,6 +1230,12 @@ async function renderSessionStacksView(session) {
                     <span class="session-stacks-subtitle">${updated ? `Updated ${escapeHtml(updated)}` : ''}</span>
                 </div>
                 <div style="display: flex; align-items: center; gap: 8px;">
+                    <div class="zoom-controls">
+                        <button class="zoom-btn" onclick="zoomIn()" title="Zoom in">+</button>
+                        <button class="zoom-btn" onclick="zoomOut()" title="Zoom out">&minus;</button>
+                        <button class="zoom-btn" onclick="fitToView()" title="Fit to view">&squarf;</button>
+                        <button class="zoom-btn" onclick="resetZoom()" title="Reset zoom">1:1</button>
+                    </div>
                     <label class="auto-scroll-toggle" title="Show newest interactions at top">
                         <input type="checkbox" id="session-reverse-order" ${reverseOrderEnabled ? 'checked' : ''} onchange="toggleSessionReverseOrder()">
                         Newest first
@@ -1197,11 +1385,157 @@ async function renderSessionStacksView(session) {
             });
         });
 
+        // Initialize zoom/pan on stacks canvas
+        if (currentZoomPan) currentZoomPan.destroy();
+        const zoomContainer = document.getElementById(
+            'session-stacks-container'
+        );
+        const zoomCanvas = zoomContainer
+            ? zoomContainer.querySelector('.session-stacks-canvas')
+            : null;
+        if (zoomContainer && zoomCanvas) {
+            currentZoomPan = new ZoomPanController(
+                zoomContainer, zoomCanvas
+            );
+        }
+
+        // Draw inter-agent communication arrows
+        drawInterAgentArrows();
+
     } catch (error) {
         console.error('Error loading session stacks:', error);
         document.getElementById('session-stacks-container').innerHTML =
             `<div class="loading">Error loading stacks: ${escapeHtml(error.message)}</div>`;
     }
+}
+
+// ==========================================================================
+// Inter-Agent Communication Arrows
+// ==========================================================================
+
+function drawInterAgentArrows() {
+    const canvas = document.querySelector('.session-stacks-canvas');
+    if (!canvas) return;
+
+    // Remove existing overlay
+    const existing = canvas.querySelector('.inter-agent-svg');
+    if (existing) existing.remove();
+
+    const svg = document.createElementNS(
+        'http://www.w3.org/2000/svg', 'svg'
+    );
+    svg.classList.add('inter-agent-svg');
+    svg.style.cssText =
+        'position:absolute;top:0;left:0;'
+        + 'width:100%;height:100%;'
+        + 'pointer-events:none;z-index:10;overflow:visible;';
+
+    // Arrow marker definitions
+    const defs = document.createElementNS(
+        'http://www.w3.org/2000/svg', 'defs'
+    );
+    [
+        ['call', 'var(--accent-primary, #3b82f6)'],
+        ['return', 'var(--accent-success, #10b981)'],
+    ].forEach(([type, color]) => {
+        const marker = document.createElementNS(
+            'http://www.w3.org/2000/svg', 'marker'
+        );
+        marker.setAttribute('id', `arrow-${type}`);
+        marker.setAttribute('viewBox', '0 0 10 10');
+        marker.setAttribute('refX', '10');
+        marker.setAttribute('refY', '5');
+        marker.setAttribute('markerWidth', '8');
+        marker.setAttribute('markerHeight', '8');
+        marker.setAttribute('orient', 'auto-start-reverse');
+        const polygon = document.createElementNS(
+            'http://www.w3.org/2000/svg', 'polygon'
+        );
+        polygon.setAttribute('points', '0,0 10,5 0,10');
+        polygon.setAttribute('fill', color);
+        marker.appendChild(polygon);
+        defs.appendChild(marker);
+    });
+    svg.appendChild(defs);
+
+    // Find AgentCall items and draw arrows to child stacks
+    canvas.querySelectorAll(
+        '.flowchart-item[data-agent-id]'
+    ).forEach(item => {
+        const childAgentId = item.dataset.agentId;
+        const childStack = canvas.querySelector(
+            `.session-agent-stack[data-agent-id="${childAgentId}"]`
+        );
+        if (!childStack) return;
+        const childFirst =
+            childStack.querySelector('.flowchart-item');
+        if (!childFirst) return;
+        drawArrow(svg, item, childFirst, canvas, 'call');
+    });
+
+    // Find AgentResult items with task_result_id
+    canvas.querySelectorAll(
+        '.flowchart-item[data-task-result-id]'
+    ).forEach(item => {
+        const resultId = item.dataset.taskResultId;
+        const childResult = canvas.querySelector(
+            `.flowchart-item[data-interaction-id="${resultId}"]`
+        );
+        if (childResult) {
+            drawArrow(svg, childResult, item, canvas, 'return');
+        }
+    });
+
+    canvas.style.position = 'relative';
+    canvas.appendChild(svg);
+}
+
+function drawArrow(svg, fromEl, toEl, container, type) {
+    const fromRect = fromEl.getBoundingClientRect();
+    const toRect = toEl.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+
+    // Positions relative to the canvas (unscaled)
+    const scale = (currentZoomPan && currentZoomPan.scale > 0)
+        ? currentZoomPan.scale : 1;
+    const tx = currentZoomPan ? currentZoomPan.translateX : 0;
+    const ty = currentZoomPan ? currentZoomPan.translateY : 0;
+
+    const x1 = (fromRect.right - containerRect.left - tx)
+        / scale;
+    const y1 = (fromRect.top + fromRect.height / 2
+        - containerRect.top - ty) / scale;
+    const x2 = (toRect.left - containerRect.left - tx)
+        / scale;
+    const y2 = (toRect.top + toRect.height / 2
+        - containerRect.top - ty) / scale;
+
+    const midX = (x1 + x2) / 2;
+    const path = document.createElementNS(
+        'http://www.w3.org/2000/svg', 'path'
+    );
+    path.setAttribute(
+        'd',
+        `M${x1},${y1} C${midX},${y1} ${midX},${y2} ${x2},${y2}`
+    );
+
+    const isCall = type === 'call';
+    path.setAttribute(
+        'stroke',
+        isCall
+            ? 'var(--accent-primary, #3b82f6)'
+            : 'var(--accent-success, #10b981)'
+    );
+    path.setAttribute('stroke-width', '2');
+    path.setAttribute('fill', 'none');
+    path.setAttribute(
+        'stroke-dasharray', isCall ? '6,3' : '4,4'
+    );
+    path.setAttribute(
+        'marker-end', `url(#arrow-${type})`
+    );
+
+    svg.appendChild(path);
 }
 
 function setSessionViewMode(mode) {
@@ -2535,6 +2869,305 @@ async function submitRating(artifactId) {
             setTimeout(() => { btn.textContent = 'Submit'; btn.disabled = false; }, 2000);
         }
     }
+}
+
+// ==========================================================================
+// Global Canvas View
+// ==========================================================================
+
+function toggleCanvasView() {
+    globalCanvasActive = !globalCanvasActive;
+    const btn = document.getElementById('canvas-view-btn');
+    if (btn) btn.classList.toggle('active', globalCanvasActive);
+
+    if (globalCanvasActive) {
+        // Clear current selection context
+        currentAgentId = null;
+        currentSessionId = null;
+        const detailsSection = document.getElementById(
+            'agent-details-section'
+        );
+        const filterBar = document.getElementById(
+            'filter-bar'
+        );
+        const mainTitle = document.getElementById(
+            'main-title'
+        );
+        if (detailsSection) detailsSection.style.display = 'none';
+        if (filterBar) filterBar.style.display = 'none';
+        if (mainTitle) mainTitle.textContent = 'Global Canvas';
+        renderGlobalCanvas();
+    } else {
+        const mainTitle = document.getElementById(
+            'main-title'
+        );
+        if (mainTitle) mainTitle.textContent = 'Agent Monitor';
+        refreshAgents();
+    }
+}
+
+async function renderGlobalCanvas() {
+    const mainBody = document.getElementById('main-content-body');
+    mainBody.innerHTML =
+        '<div class="loading">'
+        + '<span class="loading-spinner"></span>'
+        + 'Loading global canvas...</div>';
+
+    try {
+        const response = await fetch('/api/agents');
+        if (!response.ok) {
+            throw new Error(
+                `Server returned ${response.status}`
+            );
+        }
+        const agents = await response.json();
+
+        // Group agents by session
+        const sessionMap = {};
+        agents.forEach(agent => {
+            const sid = agent.session_id || 'unknown';
+            if (!sessionMap[sid]) {
+                sessionMap[sid] = {
+                    id: sid,
+                    agents: [],
+                    last_modified: agent.last_modified,
+                    config_name: agent.config_name,
+                };
+            }
+            sessionMap[sid].agents.push(agent);
+            if (agent.last_modified
+                > sessionMap[sid].last_modified) {
+                sessionMap[sid].last_modified =
+                    agent.last_modified;
+            }
+        });
+
+        const sessions = Object.values(sessionMap);
+        let savedPositions = {};
+        try {
+            const raw = localStorage.getItem(
+                'global-canvas-positions'
+            );
+            if (raw) savedPositions = JSON.parse(raw);
+        } catch (e) {
+            console.warn(
+                'Corrupted canvas positions, resetting:', e
+            );
+            localStorage.removeItem(
+                'global-canvas-positions'
+            );
+        }
+
+        const cardsHtml = sessions.map((session, i) => {
+            const pos = savedPositions[session.id] || {
+                x: (i % 3) * 420,
+                y: Math.floor(i / 3) * 320,
+            };
+            const count = session.agents.length;
+            const label = session.config_name
+                || session.id.substring(0, 8);
+            const agentChips = session.agents.map(a => {
+                const name = escapeHtml(
+                    a.config_name || 'Unknown'
+                );
+                const meta = escapeHtml(
+                    a.id.substring(0, 8)
+                );
+                const statusClass =
+                    a.status === 'running' ? 'active' : '';
+                return `<div class="global-agent-chip">
+                    <span class="global-agent-chip-status ${statusClass}"></span>
+                    <span class="global-agent-chip-name">${name}</span>
+                    <span class="global-agent-chip-meta">${meta}</span>
+                </div>`;
+            }).join('');
+
+            return `
+                <div class="global-session-card"
+                     data-session-id="${escapeHtml(session.id)}"
+                     style="left:${pos.x}px; top:${pos.y}px;">
+                    <div class="global-session-card-header"
+                         onmousedown="startDragSession(event, '${escapeHtml(session.id)}')">
+                        <span class="global-session-card-title">${escapeHtml(label)}</span>
+                        <span class="global-session-card-meta">${count} agent${count !== 1 ? 's' : ''}</span>
+                    </div>
+                    <div class="global-session-card-body"
+                         onclick="exitCanvasAndLoadSession('${escapeHtml(session.id)}')">
+                        <div class="global-session-card-agents">
+                            ${agentChips}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        mainBody.innerHTML = `
+            <div class="global-canvas-container"
+                 id="global-canvas-container">
+                <div class="global-canvas"
+                     id="global-canvas">
+                    ${cardsHtml}
+                </div>
+            </div>
+        `;
+
+        // Initialize zoom/pan on global canvas
+        if (currentZoomPan) currentZoomPan.destroy();
+        const container = document.getElementById(
+            'global-canvas-container'
+        );
+        const canvas = document.getElementById(
+            'global-canvas'
+        );
+        if (container && canvas) {
+            currentZoomPan = new ZoomPanController(
+                container, canvas
+            );
+        }
+    } catch (error) {
+        const msg = (error && error.message)
+            || 'An unknown error occurred';
+        mainBody.innerHTML =
+            '<div class="main-content-empty">'
+            + '<p>Error loading canvas: '
+            + escapeHtml(msg) + '</p></div>';
+    }
+}
+
+function exitCanvasAndLoadSession(sessionId) {
+    // deactivateCanvasView() is called inside loadSession
+    const mainTitle = document.getElementById('main-title');
+    if (mainTitle) mainTitle.textContent = 'Agent Monitor';
+    loadSession(sessionId);
+}
+
+function updateGlobalCanvasCards(agents) {
+    // Update agent counts and statuses in existing cards
+    // without resetting positions
+    if (!agents) return;
+
+    const sessionMap = {};
+    agents.forEach(agent => {
+        const sid = agent.session_id || 'unknown';
+        if (!sessionMap[sid]) {
+            sessionMap[sid] = { agents: [] };
+        }
+        sessionMap[sid].agents.push(agent);
+    });
+
+    document.querySelectorAll(
+        '.global-session-card'
+    ).forEach(card => {
+        const sid = card.dataset.sessionId;
+        const session = sessionMap[sid];
+        if (!session) return;
+
+        const meta = card.querySelector(
+            '.global-session-card-meta'
+        );
+        if (meta) {
+            const count = session.agents.length;
+            meta.textContent =
+                `${count} agent${count !== 1 ? 's' : ''}`;
+        }
+
+        const agentsEl = card.querySelector(
+            '.global-session-card-agents'
+        );
+        if (agentsEl) {
+            agentsEl.innerHTML = session.agents.map(a => {
+                const name = escapeHtml(
+                    a.config_name || 'Unknown'
+                );
+                const id = escapeHtml(
+                    a.id.substring(0, 8)
+                );
+                const sc =
+                    a.status === 'running' ? 'active' : '';
+                return `<div class="global-agent-chip">
+                    <span class="global-agent-chip-status ${sc}"></span>
+                    <span class="global-agent-chip-name">${name}</span>
+                    <span class="global-agent-chip-meta">${id}</span>
+                </div>`;
+            }).join('');
+        }
+    });
+}
+
+// ==========================================================================
+// Session Card Dragging (Global Canvas)
+// ==========================================================================
+
+let dragState = null;
+
+function startDragSession(event, sessionId) {
+    event.stopPropagation();
+    const card = event.target.closest(
+        '.global-session-card'
+    );
+    if (!card) return;
+    const rect = card.getBoundingClientRect();
+    dragState = {
+        sessionId,
+        card,
+        offsetX: event.clientX - rect.left,
+        offsetY: event.clientY - rect.top,
+    };
+    card.classList.add('dragging');
+    document.addEventListener('mousemove', dragSession);
+    document.addEventListener('mouseup', stopDragSession);
+}
+
+function dragSession(event) {
+    if (!dragState) return;
+    const container = document.getElementById(
+        'global-canvas'
+    );
+    if (!container) return;
+    const containerRect = container.getBoundingClientRect();
+    const scale = currentZoomPan
+        ? currentZoomPan.scale : 1;
+    const x = (event.clientX - containerRect.left) / scale
+        - dragState.offsetX / scale;
+    const y = (event.clientY - containerRect.top) / scale
+        - dragState.offsetY / scale;
+    dragState.card.style.left = `${x}px`;
+    dragState.card.style.top = `${y}px`;
+}
+
+function stopDragSession() {
+    if (!dragState) return;
+    dragState.card.classList.remove('dragging');
+
+    // Save position, guarding against NaN
+    const x = parseInt(dragState.card.style.left);
+    const y = parseInt(dragState.card.style.top);
+    if (!isNaN(x) && !isNaN(y)) {
+        let positions = {};
+        try {
+            const raw = localStorage.getItem(
+                'global-canvas-positions'
+            );
+            if (raw) positions = JSON.parse(raw);
+        } catch (e) {
+            console.warn(
+                'Corrupted canvas positions, resetting:', e
+            );
+        }
+        positions[dragState.sessionId] = { x, y };
+        localStorage.setItem(
+            'global-canvas-positions',
+            JSON.stringify(positions)
+        );
+    }
+
+    dragState = null;
+    document.removeEventListener(
+        'mousemove', dragSession
+    );
+    document.removeEventListener(
+        'mouseup', stopDragSession
+    );
 }
 
 // Auto-refresh every 30 seconds
