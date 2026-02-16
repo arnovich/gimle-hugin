@@ -31,6 +31,20 @@ MODEL_PROVIDERS: Dict[str, str] = {
 }
 
 
+def _normalize_model_name(name: str) -> str:
+    """Normalize a model name for registry lookup.
+
+    Remote Ollama models are registered with colons and dots replaced
+    by dashes (e.g. ``kimi-k2.5`` becomes ``remote/kimi-k2-5``).
+    This function applies the same transformation so that user-supplied
+    names like ``remote/kimi-k2.5`` resolve correctly.
+    """
+    if name.startswith("remote/"):
+        suffix = name[len("remote/") :]
+        return "remote/" + suffix.replace(":", "-").replace(".", "-")
+    return name
+
+
 class ModelRegistry:
     """Registry for LLM models."""
 
@@ -44,6 +58,7 @@ class ModelRegistry:
 
     def get_model(self, model_name: str) -> Model:
         """Get a model by name."""
+        model_name = _normalize_model_name(model_name)
         if model_name not in self.models:
             raise ValueError(f"Model {model_name} not found")
         return self.models[model_name]
@@ -58,7 +73,7 @@ class ModelRegistry:
 
     def get_provider(self, model_name: str) -> Optional[str]:
         """Get the provider for a model name."""
-        return MODEL_PROVIDERS.get(model_name)
+        return MODEL_PROVIDERS.get(_normalize_model_name(model_name))
 
 
 @lru_cache(maxsize=1)
@@ -244,9 +259,7 @@ def register_remote_ollama_models(
             return
 
     for model_name in models:
-        registry_name = "remote/" + model_name.replace(":", "-").replace(
-            ".", "-"
-        )
+        registry_name = _normalize_model_name("remote/" + model_name)
         registry.register_model(
             registry_name,
             OllamaModel(
