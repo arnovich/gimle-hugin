@@ -136,7 +136,7 @@ class Agent:
         # Check for state machine transitions after step
         if self._state_machine:
             next_state = self._check_transitions()
-            if next_state:
+            if next_state and next_state != self._current_state:
                 self._transition_to(next_state)
 
         return result
