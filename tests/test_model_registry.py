@@ -4,6 +4,7 @@ import pytest
 
 from gimle.hugin.llm.models.model_registry import (
     ModelRegistry,
+    _normalize_model_name,
     get_model_registry,
 )
 
@@ -52,6 +53,45 @@ class TestModelRegistry:
         """Test getting a model from empty registry."""
         with pytest.raises(ValueError, match="Model test not found"):
             model_registry.get_model("test")
+
+
+class TestNormalizeModelName:
+    """Test _normalize_model_name helper."""
+
+    def test_non_remote_name_unchanged(self):
+        """Non-remote names pass through unchanged."""
+        assert _normalize_model_name("haiku-latest") == "haiku-latest"
+        assert _normalize_model_name("qwen3:8b") == "qwen3:8b"
+
+    def test_remote_dots_replaced(self):
+        """Dots in remote model names are replaced with dashes."""
+        assert _normalize_model_name("remote/kimi-k2.5") == "remote/kimi-k2-5"
+
+    def test_remote_colons_replaced(self):
+        """Colons in remote model names are replaced with dashes."""
+        assert _normalize_model_name("remote/qwen3:8b") == "remote/qwen3-8b"
+
+    def test_remote_already_normalized(self):
+        """Already-normalized remote names are unchanged."""
+        assert _normalize_model_name("remote/kimi-k2-5") == "remote/kimi-k2-5"
+
+
+class TestModelRegistryLookupNormalization:
+    """Test that get_model normalizes remote model names."""
+
+    def test_get_model_with_dot_in_remote_name(
+        self, model_registry, mock_model
+    ):
+        """Lookup with dots resolves to the dash-registered model."""
+        model_registry.register_model("remote/kimi-k2-5", mock_model)
+        assert model_registry.get_model("remote/kimi-k2.5") == mock_model
+
+    def test_get_model_with_colon_in_remote_name(
+        self, model_registry, mock_model
+    ):
+        """Lookup with colons resolves to the dash-registered model."""
+        model_registry.register_model("remote/qwen3-8b", mock_model)
+        assert model_registry.get_model("remote/qwen3:8b") == mock_model
 
 
 class TestGetModelRegistry:
