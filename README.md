@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/gimlelabs/gimle-hugin/actions/workflows/ci.yml/badge.svg)](https://github.com/gimlelabs/gimle-hugin/actions/workflows/ci.yml)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/gimlelabs/gimle-hugin/main/hugin.gif" alt="Hugin demo" width="900" />
