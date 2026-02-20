@@ -519,7 +519,7 @@ title: Home
   <div class="feature">
     <h3>Short- and Long-term Memory</h3>
     <p>
-      Long-term memory across sessions through artifacts, short-term memory through the stack and dynamic context rendering.
+      Long-term memory across sessions through artifacts with quality ratings and feedback. Short-term memory through the stack and dynamic context rendering.
     </p>
   </div>
   <div class="feature">
@@ -536,15 +536,27 @@ title: Home
   </div>
   <div class="feature">
     <h3>Visual Debugging</h3>
-    <p>Real-time monitoring of agent flows, tool calls, and decision trees. Understand exactly what your agent is doing.</p>
+    <p>Real-time web monitor with inter-agent communication arrows, zoom and pan on flowcharts, config transition history, and full rewind capability.</p>
+  </div>
+  <div class="feature">
+    <h3>Dynamic Configuration</h3>
+    <p>Agents change behavior mid-execution. Config state machines swap tools, templates, and models based on triggers like tool calls, patterns, or step counts.</p>
   </div>
   <div class="feature">
     <h3>Simple Configuration</h3>
     <p>YAML-based configs for agents, tasks, and tools. Python for custom tool implementations.</p>
   </div>
   <div class="feature">
+    <h3>Task Pipelines</h3>
+    <p>Chain tasks together into multi-stage pipelines. Each stage passes its results to the next, enabling complex workflows from simple building blocks.</p>
+  </div>
+  <div class="feature">
+    <h3>Structured Parameters</h3>
+    <p>Typed, validated task parameters with descriptions, defaults, and required flags. The CLI auto-generates prompts with type hints from your parameter definitions.</p>
+  </div>
+  <div class="feature">
     <h3>Batteries Included</h3>
-    <p>Built-in tools, multiple LLM providers (Anthropic, OpenAI, Ollama), and an interactive CLI to create agents in seconds.</p>
+    <p>Built-in tools, multiple LLM providers (Anthropic, OpenAI, Ollama with remote support), wait conditions for paced execution, and an interactive CLI to create agents in seconds.</p>
   </div>
 </div>
 
