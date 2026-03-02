@@ -7,6 +7,7 @@ agents
 /storage
 reports
 data
+.claude
 
 _site/
 node_modules/

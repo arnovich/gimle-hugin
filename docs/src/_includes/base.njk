@@ -27,7 +27,13 @@
     {% set conceptsActive = '/concepts/' in page.url %}
     {% set howToActive = '/how-to/' in page.url %}
     <div class="container header-main">
-      <a href="/" class="logo">Hugin</a>
+      <div class="logo-group">
+        <a href="/" class="logo">Hugin</a>
+        <span class="logo-byline">by <a href="https://gimlelabs.com">Gimle Labs</a></span>
+      </div>
+      <button class="nav-toggle" aria-label="Toggle navigation" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
       <nav>
         <a href="/getting-started/"{% if page.url == '/getting-started/' %} class="active"{% endif %}>Getting Started</a>
         <a href="/how-to/"{% if howToActive %} class="active"{% endif %}>How-To</a>
@@ -73,5 +79,13 @@
   </footer>
 
   <script type="module" src="/assets/js/animator/state-machine-animator.js"></script>
+  <script>
+    document.querySelector('.nav-toggle').addEventListener('click', function() {
+      var nav = document.querySelector('header nav');
+      var expanded = this.getAttribute('aria-expanded') === 'true';
+      this.setAttribute('aria-expanded', !expanded);
+      nav.classList.toggle('open');
+    });
+  </script>
 </body>
 </html>
