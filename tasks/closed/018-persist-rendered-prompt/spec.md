@@ -2,7 +2,7 @@
 
 Date: 2026-05-11
 Task: 018
-Status: approved (brainstorming) — pending implementation plan
+Status: implemented in PR #45
 
 ## Goal
 
