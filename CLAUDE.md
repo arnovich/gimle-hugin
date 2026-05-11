@@ -227,6 +227,20 @@ uv run hugin interactive --storage-path ./storage/worlds
 uv run hugin interactive --task-path examples/basic_agent
 ```
 
+### Capturing rendered prompts
+
+Set `HUGIN_CAPTURE_RENDERED_PROMPTS=1` to have each `OracleResponse` record
+the system prompt and the user message that were actually rendered and sent to
+the LLM for that turn (`rendered_system_prompt` / `rendered_user_message`).
+Off by default. Useful for diagnosing prompt-rendering issues (e.g. a template
+reference that didn't resolve) — the values show up in the `OracleResponse`
+detail in `hugin monitor` and `hugin interactive`, and in the persisted
+interaction JSON under `storage/interactions/`.
+
+```bash
+HUGIN_CAPTURE_RENDERED_PROMPTS=1 uv run hugin run --task hello_world --task-path examples/basic_agent
+```
+
 ## Architecture Overview
 
 Hugin is an agent framework built around a state machine architecture with the following key components:
