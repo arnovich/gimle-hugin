@@ -480,30 +480,22 @@ class TestEnvironment:
         monkeypatch.setenv("HUGIN_CAPTURE_RENDERED_PROMPTS", value)
         assert Environment().capture_rendered_prompts is True
 
-    @pytest.mark.parametrize(
-        "value", ["0", "false", "no", "off", "", "maybe"]
-    )
+    @pytest.mark.parametrize("value", ["0", "false", "no", "off", "", "maybe"])
     def test_capture_rendered_prompts_env_falsy(self, monkeypatch, value):
         """Non-truthy env-var values leave capture off."""
         monkeypatch.setenv("HUGIN_CAPTURE_RENDERED_PROMPTS", value)
         assert Environment().capture_rendered_prompts is False
 
-    def test_capture_rendered_prompts_explicit_overrides_env(
-        self, monkeypatch
-    ):
+    def test_capture_rendered_prompts_explicit_overrides_env(self, monkeypatch):
         """An explicit constructor arg overrides the env var either way."""
         monkeypatch.setenv("HUGIN_CAPTURE_RENDERED_PROMPTS", "1")
         assert (
-            Environment(
-                capture_rendered_prompts=False
-            ).capture_rendered_prompts
+            Environment(capture_rendered_prompts=False).capture_rendered_prompts
             is False
         )
         monkeypatch.delenv("HUGIN_CAPTURE_RENDERED_PROMPTS", raising=False)
         assert (
-            Environment(
-                capture_rendered_prompts=True
-            ).capture_rendered_prompts
+            Environment(capture_rendered_prompts=True).capture_rendered_prompts
             is True
         )
 

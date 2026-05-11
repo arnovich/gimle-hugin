@@ -332,9 +332,7 @@ class TestOracleResponse:
 
         restored = Interaction.from_dict(data, mock_stack)
         assert isinstance(restored, OracleResponse)
-        assert (
-            restored.rendered_system_prompt == "You are a helpful assistant."
-        )
+        assert restored.rendered_system_prompt == "You are a helpful assistant."
         assert restored.rendered_user_message == [
             {"type": "text", "text": "Hello there"}
         ]

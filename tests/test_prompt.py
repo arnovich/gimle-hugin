@@ -710,9 +710,7 @@ class TestSystemPromptReachesModel:
                     break
 
         oracle_responses = [
-            i
-            for i in agent.stack.interactions
-            if isinstance(i, OracleResponse)
+            i for i in agent.stack.interactions if isinstance(i, OracleResponse)
         ]
         assert oracle_responses, "no OracleResponse was created"
         assert (
