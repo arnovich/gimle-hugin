@@ -27,9 +27,13 @@ class Task:
         name: Unique identifier for this task.
         description: Human-readable description of the task.
         parameters: Template parameters for the prompt.
-        prompt: The prompt template (Jinja2).
+        prompt: Task prompt. May be a registered template name, an inline
+                Jinja2 string, or "{{ name.template }}". See CLAUDE.md ->
+                Prompt Templates.
         tools: Optional list of tool names for this task.
-        system_template: Optional system prompt template name.
+        system_template: Optional system prompt override (same forms as
+                         ``prompt``); falls back to the config's
+                         system_template.
         llm_model: Optional LLM model override.
         next_task: Name of task to chain to after completion.
         task_sequence: Ordered list of tasks to execute in sequence.
