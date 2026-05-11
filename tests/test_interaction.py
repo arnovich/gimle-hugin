@@ -206,6 +206,58 @@ class TestAskOracle:
                 == "What is your name?"
             )
 
+    @patch("gimle.hugin.llm.completion.chat_completion")
+    def test_ask_oracle_step_captures_rendered_prompt_when_enabled(
+        self, mock_chat_completion, mock_agent, mock_stack
+    ):
+        """With capture enabled, the OracleResponse records the rendered prompt."""
+        mock_chat_completion.return_value = {
+            "role": "assistant",
+            "content": "Hello, world!",
+            "tool_call": None,
+        }
+        mock_agent.session.environment.capture_rendered_prompts = True
+
+        ask_oracle = AskOracle(
+            stack=mock_stack,
+            prompt=Prompt(type="text", text="Hello"),
+            template_inputs={},
+        )
+        ask_oracle.step()
+
+        oracle_response = mock_stack.interactions[0]
+        assert isinstance(oracle_response, OracleResponse)
+        # mock_agent's config.system_template is "system", which is not a
+        # registered template, so it renders to itself.
+        assert oracle_response.rendered_system_prompt == "system"
+        assert oracle_response.rendered_user_message == [
+            {"type": "text", "text": "Hello"}
+        ]
+
+    @patch("gimle.hugin.llm.completion.chat_completion")
+    def test_ask_oracle_step_does_not_capture_when_disabled(
+        self, mock_chat_completion, mock_agent, mock_stack
+    ):
+        """With capture disabled (default), the rendered_* fields stay None."""
+        mock_chat_completion.return_value = {
+            "role": "assistant",
+            "content": "Hello, world!",
+            "tool_call": None,
+        }
+        assert mock_agent.session.environment.capture_rendered_prompts is False
+
+        ask_oracle = AskOracle(
+            stack=mock_stack,
+            prompt=Prompt(type="text", text="Hello"),
+            template_inputs={},
+        )
+        ask_oracle.step()
+
+        oracle_response = mock_stack.interactions[0]
+        assert isinstance(oracle_response, OracleResponse)
+        assert oracle_response.rendered_system_prompt is None
+        assert oracle_response.rendered_user_message is None
+
 
 class TestOracleResponse:
     """Test OracleResponse interaction."""
