@@ -253,6 +253,53 @@ class TestOracleResponse:
 
         assert result is False  # No tool call, returns False
 
+    def test_oracle_response_rendered_fields_default_none(self, mock_stack):
+        """The new rendered_* fields default to None."""
+        oracle_response = OracleResponse(
+            stack=mock_stack, response={"role": "assistant", "content": "hi"}
+        )
+        assert oracle_response.rendered_system_prompt is None
+        assert oracle_response.rendered_user_message is None
+
+    def test_oracle_response_rendered_fields_round_trip(self, mock_stack):
+        """rendered_* survive to_dict() -> from_dict()."""
+        oracle_response = OracleResponse(
+            stack=mock_stack,
+            response={"role": "assistant", "content": "hi"},
+            rendered_system_prompt="You are a helpful assistant.",
+            rendered_user_message=[{"type": "text", "text": "Hello there"}],
+        )
+        data = oracle_response.to_dict()
+        assert (
+            data["data"]["rendered_system_prompt"]
+            == "You are a helpful assistant."
+        )
+        assert data["data"]["rendered_user_message"] == [
+            {"type": "text", "text": "Hello there"}
+        ]
+
+        restored = Interaction.from_dict(data, mock_stack)
+        assert isinstance(restored, OracleResponse)
+        assert (
+            restored.rendered_system_prompt == "You are a helpful assistant."
+        )
+        assert restored.rendered_user_message == [
+            {"type": "text", "text": "Hello there"}
+        ]
+
+    def test_oracle_response_from_dict_without_rendered_fields(
+        self, mock_stack
+    ):
+        """A session saved before this change deserializes with None."""
+        data = {
+            "type": "OracleResponse",
+            "data": {"response": {"role": "assistant", "content": "hi"}},
+        }
+        restored = Interaction.from_dict(data, mock_stack)
+        assert isinstance(restored, OracleResponse)
+        assert restored.rendered_system_prompt is None
+        assert restored.rendered_user_message is None
+
 
 class TestToolCall:
     """Test ToolCall interaction."""
