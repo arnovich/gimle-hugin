@@ -114,3 +114,63 @@ the rendered system+user prompt that was actually sent. When the bug
 above triggers, nothing in the persisted session reveals it; you have
 to monkey-patch `chat_completion`. Worth logging the rendered prompt
 on `AskOracle.step()` (gated by debug flag if it's verbose).
+
+## Resolution
+
+Implemented **suggested fix 1**: `PromptRenderer.render_prompt()` now
+expands a bare `prompt_text` to the registered template's body when the
+string contains no Jinja syntax and matches a template name exactly.
+This covers both call paths (`render_system_prompt` and
+`render_task_prompt`) at their single chokepoint, so all bundled YAML
+that uses the bare-name form (every shipped config) now works
+unchanged. `Prompt(type="template", template_name=...)` already
+resolved correctly and is untouched.
+
+Also documented the two equivalent reference forms (bare name vs.
+`{{ X.template }}`), the shadowing escape hatch, and the one-shot nature
+of bare-name expansion in `CLAUDE.md` -> Prompt Templates, and
+reconciled the now-accurate docstrings on `Config.system_template`,
+`Task.prompt`, and `Task.system_template`.
+
+Fixed one template that had been relying on the broken behavior:
+`apps/agent_builder/templates/builder_system.yaml` contained literal
+example Jinja (`{{ param.value }}`) in its body as documentation. The
+body was never rendered before, so it never blew up; now that it is
+rendered the `param.value` attribute access on an undefined `param`
+raises. Reworded it to prose (the recursive renderer cannot emit literal
+`{{ }}` in its output — even `{% raw %}` gets re-rendered on the next
+pass — so the example had to go). A smoke test renders every bundled
+config's system prompt and every bare-name task prompt; all pass. (Note:
+`apps/data_analyst`, `apps/financial_newspaper`, `apps/rap_machine`,
+`apps/the_hugins` fail to load via `Environment.load(<relative path>)`
+from an arbitrary cwd — a pre-existing tool-import path issue,
+reproducible on `main`, unrelated to this change; their templates were
+audited statically and contain only bare-variable interpolation, which
+renders to empty strings rather than erroring.)
+
+Tests added in `tests/test_prompt.py`:
+`test_render_prompt_with_bare_template_name`,
+`test_render_prompt_literal_text_not_a_template_name`,
+`test_render_task_prompt_with_bare_template_name`,
+`test_render_system_prompt_with_bare_template_name`, and
+`TestSystemPromptReachesModel::test_bare_system_template_reaches_model`
+(end-to-end: builds a session, runs a step with a patched
+`chat_completion`, asserts the rendered body — not the literal name —
+reaches the model).
+
+### Out of scope / follow-ups
+
+- The `OracleResponse` observation above (persist the rendered prompt
+  for debuggability) — should become its own task; it's what turned
+  this into a half-day debug in heimdall.
+- Suggested fix 2 (load-time validation) is *not* implemented and is
+  still worthwhile: a *misspelled* bare name (`system_template:
+  basci_system`) still silently sends the typo to the LLM, because it
+  matches no template and isn't Jinja. Worth a warning at
+  `Environment.load`.
+- `render_jinja_recursive` renders to a fixpoint of "no Jinja syntax
+  left", so a template can never emit literal `{{ }}`/`{% %}` in its
+  output (even `{% raw %}` only survives one pass). Fine today, but if a
+  prompt ever legitimately needs to show Jinja syntax to the model,
+  the recursive renderer needs a real escape mechanism (or a fixpoint /
+  depth guard).
