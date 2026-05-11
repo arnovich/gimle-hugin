@@ -1,7 +1,7 @@
 """Oracle response interaction module."""
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from gimle.hugin.interaction.interaction import Interaction
 from gimle.hugin.interaction.task_result import TaskResult
@@ -17,9 +17,17 @@ class OracleResponse(Interaction):
 
     Attributes:
         response: The response from the oracle.
+        rendered_system_prompt: The system prompt actually sent to the LLM for
+            this turn. Populated only when capture is enabled
+            (Environment.capture_rendered_prompts); otherwise None.
+        rendered_user_message: The rendered content blocks this turn's
+            AskOracle contributed to the LLM (task / tool-result / text).
+            Populated only when capture is enabled; otherwise None.
     """
 
     response: Optional[Dict[str, Any]] = None
+    rendered_system_prompt: Optional[str] = None
+    rendered_user_message: Optional[List[Dict[str, Any]]] = None
 
     @property
     def tool_call_id(self) -> Optional[str]:

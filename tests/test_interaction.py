@@ -206,6 +206,58 @@ class TestAskOracle:
                 == "What is your name?"
             )
 
+    @patch("gimle.hugin.llm.completion.chat_completion")
+    def test_ask_oracle_step_captures_rendered_prompt_when_enabled(
+        self, mock_chat_completion, mock_agent, mock_stack
+    ):
+        """With capture enabled, the OracleResponse records the rendered prompt."""
+        mock_chat_completion.return_value = {
+            "role": "assistant",
+            "content": "Hello, world!",
+            "tool_call": None,
+        }
+        mock_agent.session.environment.capture_rendered_prompts = True
+
+        ask_oracle = AskOracle(
+            stack=mock_stack,
+            prompt=Prompt(type="text", text="Hello"),
+            template_inputs={},
+        )
+        ask_oracle.step()
+
+        oracle_response = mock_stack.interactions[0]
+        assert isinstance(oracle_response, OracleResponse)
+        # mock_agent's config.system_template is "system", which is not a
+        # registered template, so it renders to itself.
+        assert oracle_response.rendered_system_prompt == "system"
+        assert oracle_response.rendered_user_message == [
+            {"type": "text", "text": "Hello"}
+        ]
+
+    @patch("gimle.hugin.llm.completion.chat_completion")
+    def test_ask_oracle_step_does_not_capture_when_disabled(
+        self, mock_chat_completion, mock_agent, mock_stack
+    ):
+        """With capture disabled (default), the rendered_* fields stay None."""
+        mock_chat_completion.return_value = {
+            "role": "assistant",
+            "content": "Hello, world!",
+            "tool_call": None,
+        }
+        assert mock_agent.session.environment.capture_rendered_prompts is False
+
+        ask_oracle = AskOracle(
+            stack=mock_stack,
+            prompt=Prompt(type="text", text="Hello"),
+            template_inputs={},
+        )
+        ask_oracle.step()
+
+        oracle_response = mock_stack.interactions[0]
+        assert isinstance(oracle_response, OracleResponse)
+        assert oracle_response.rendered_system_prompt is None
+        assert oracle_response.rendered_user_message is None
+
 
 class TestOracleResponse:
     """Test OracleResponse interaction."""
@@ -252,6 +304,51 @@ class TestOracleResponse:
         result = oracle_response.step()
 
         assert result is False  # No tool call, returns False
+
+    def test_oracle_response_rendered_fields_default_none(self, mock_stack):
+        """The new rendered_* fields default to None."""
+        oracle_response = OracleResponse(
+            stack=mock_stack, response={"role": "assistant", "content": "hi"}
+        )
+        assert oracle_response.rendered_system_prompt is None
+        assert oracle_response.rendered_user_message is None
+
+    def test_oracle_response_rendered_fields_round_trip(self, mock_stack):
+        """rendered_* survive to_dict() -> from_dict()."""
+        oracle_response = OracleResponse(
+            stack=mock_stack,
+            response={"role": "assistant", "content": "hi"},
+            rendered_system_prompt="You are a helpful assistant.",
+            rendered_user_message=[{"type": "text", "text": "Hello there"}],
+        )
+        data = oracle_response.to_dict()
+        assert (
+            data["data"]["rendered_system_prompt"]
+            == "You are a helpful assistant."
+        )
+        assert data["data"]["rendered_user_message"] == [
+            {"type": "text", "text": "Hello there"}
+        ]
+
+        restored = Interaction.from_dict(data, mock_stack)
+        assert isinstance(restored, OracleResponse)
+        assert restored.rendered_system_prompt == "You are a helpful assistant."
+        assert restored.rendered_user_message == [
+            {"type": "text", "text": "Hello there"}
+        ]
+
+    def test_oracle_response_from_dict_without_rendered_fields(
+        self, mock_stack
+    ):
+        """A session saved before this change deserializes with None."""
+        data = {
+            "type": "OracleResponse",
+            "data": {"response": {"role": "assistant", "content": "hi"}},
+        }
+        restored = Interaction.from_dict(data, mock_stack)
+        assert isinstance(restored, OracleResponse)
+        assert restored.rendered_system_prompt is None
+        assert restored.rendered_user_message is None
 
 
 class TestToolCall:

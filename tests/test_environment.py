@@ -466,3 +466,43 @@ class TestEnvironment:
         assert tool.name == "no_path_tool"
         assert tool.implementation_path is None
         assert tool.func is None  # No implementation loaded
+
+    def test_capture_rendered_prompts_default_false(self, monkeypatch):
+        """Defaults to False when the env var is unset."""
+        monkeypatch.delenv("HUGIN_CAPTURE_RENDERED_PROMPTS", raising=False)
+        assert Environment().capture_rendered_prompts is False
+
+    @pytest.mark.parametrize(
+        "value", ["1", "true", "True", "yes", "on", " ON "]
+    )
+    def test_capture_rendered_prompts_env_truthy(self, monkeypatch, value):
+        """Truthy env-var values enable capture."""
+        monkeypatch.setenv("HUGIN_CAPTURE_RENDERED_PROMPTS", value)
+        assert Environment().capture_rendered_prompts is True
+
+    @pytest.mark.parametrize("value", ["0", "false", "no", "off", "", "maybe"])
+    def test_capture_rendered_prompts_env_falsy(self, monkeypatch, value):
+        """Non-truthy env-var values leave capture off."""
+        monkeypatch.setenv("HUGIN_CAPTURE_RENDERED_PROMPTS", value)
+        assert Environment().capture_rendered_prompts is False
+
+    def test_capture_rendered_prompts_explicit_overrides_env(self, monkeypatch):
+        """An explicit constructor arg overrides the env var either way."""
+        monkeypatch.setenv("HUGIN_CAPTURE_RENDERED_PROMPTS", "1")
+        assert (
+            Environment(capture_rendered_prompts=False).capture_rendered_prompts
+            is False
+        )
+        monkeypatch.delenv("HUGIN_CAPTURE_RENDERED_PROMPTS", raising=False)
+        assert (
+            Environment(capture_rendered_prompts=True).capture_rendered_prompts
+            is True
+        )
+
+    def test_load_forwards_capture_rendered_prompts(
+        self, tmp_path, monkeypatch
+    ):
+        """Environment.load forwards the flag to the constructed Environment."""
+        monkeypatch.delenv("HUGIN_CAPTURE_RENDERED_PROMPTS", raising=False)
+        env = Environment.load(str(tmp_path), capture_rendered_prompts=True)
+        assert env.capture_rendered_prompts is True

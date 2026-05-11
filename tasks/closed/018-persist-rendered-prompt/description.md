@@ -1,10 +1,12 @@
 ---
 github_issue: null
 title: Persist the rendered system + user prompt that was actually sent to the LLM
-state: OPEN
+state: CLOSED
 labels: [enhancement, observability]
 author: erikarne
 created: 2026-05-11
+closed: 2026-05-11
+resolution: Implemented in PR #45 (branch task/018_persist_rendered_prompt) — see spec.md / plan.md in this folder.
 ---
 
 # Persist the rendered prompt sent to the LLM

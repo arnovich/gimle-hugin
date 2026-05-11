@@ -22,6 +22,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _env_truthy(name: str) -> bool:
+    """Return True if the environment variable is set to a truthy value."""
+    return os.getenv(name, "").strip().lower() in ("1", "true", "yes", "on")
+
+
 class Environment:
     """An environment is a collection of configurations and their registries."""
 
@@ -39,6 +44,7 @@ class Environment:
         storage: Optional["Storage"] = None,
         env_vars: Optional[Dict[str, Any]] = None,
         package_path: Optional[str] = None,
+        capture_rendered_prompts: Optional[bool] = None,
     ) -> None:
         """Initialize an environment with empty registries.
 
@@ -46,6 +52,9 @@ class Environment:
             storage: Optional storage instance
             env_vars: Optional dictionary of environment variables accessible to tools
             package_path: Optional path to the package directory this env was loaded from
+            capture_rendered_prompts: If set, overrides the
+                HUGIN_CAPTURE_RENDERED_PROMPTS env var; when truthy, each
+                OracleResponse records the rendered system + user prompt.
         """
         self.config_registry: Registry[Config] = Registry()
         self.task_registry: Registry[Task] = Registry()
@@ -54,6 +63,11 @@ class Environment:
         self.env_vars: Dict[str, Any] = env_vars or {}
         self._query_engine: Optional[ArtifactQueryEngine] = None
         self.package_path: Optional[str] = package_path
+        self.capture_rendered_prompts: bool = (
+            capture_rendered_prompts
+            if capture_rendered_prompts is not None
+            else _env_truthy("HUGIN_CAPTURE_RENDERED_PROMPTS")
+        )
 
     @property
     def tool_registry(self) -> Registry[Tool]:
@@ -171,6 +185,7 @@ class Environment:
         package_path: str,
         storage: Optional["Storage"] = None,
         env_vars: Optional[Dict[str, Any]] = None,
+        capture_rendered_prompts: Optional[bool] = None,
     ) -> "Environment":
         """Load the environment from a path.
 
@@ -178,6 +193,8 @@ class Environment:
             package_path: Path to the package directory
             storage: Optional storage instance
             env_vars: Optional dictionary of environment variables accessible to tools
+            capture_rendered_prompts: Forwarded to the Environment constructor
+                (see Environment.__init__).
 
         Returns:
             The environment.
@@ -194,6 +211,7 @@ class Environment:
             storage=storage,
             env_vars=env_vars,
             package_path=str(package_path_obj),
+            capture_rendered_prompts=capture_rendered_prompts,
         )
 
         project_root = package_path_obj.parent

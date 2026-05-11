@@ -12,6 +12,7 @@ from gimle.hugin.agent.agent import Agent
 from gimle.hugin.agent.config import Config
 from gimle.hugin.agent.environment import Environment
 from gimle.hugin.agent.task import Task
+from gimle.hugin.interaction.oracle_response import OracleResponse
 from gimle.hugin.interaction.task_definition import TaskDefinition
 from gimle.hugin.llm.prompt.jinja import (
     contains_jinja,
@@ -650,6 +651,70 @@ class TestSystemPromptReachesModel:
 
         assert (
             captured.get("system_prompt")
+            == "You are the e2e system for e2e-agent."
+        )
+
+    def test_bare_system_template_captured_in_oracle_response(
+        self, mock_session
+    ):
+        """With capture on, the OracleResponse records the rendered system body.
+
+        This is the check that would have surfaced the #42 silent failure:
+        before that fix the recorded value would have been the literal name
+        'e2e_system'.
+        """
+        mock_session.environment.capture_rendered_prompts = True
+        mock_session.environment.template_registry.register(
+            Template(
+                name="e2e_system",
+                template="You are the e2e system for {{ agent.config.name }}.",
+            )
+        )
+        config = Config(
+            name="e2e-agent",
+            description="agent under e2e test",
+            system_template="e2e_system",
+            tools=[],
+        )
+        task = Task(
+            name="e2e_task",
+            description="task under e2e test",
+            prompt="Do the e2e thing.",
+            tools=[],
+        )
+        mock_session.create_agent_from_task(config, task)
+        agent = mock_session.agents[0]
+
+        def fake_chat_completion(system_prompt, messages, tools, llm_model):
+            return {
+                "role": "assistant",
+                "content": "ok",
+                "tool_call": None,
+                "tool_call_id": None,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "extra_content": [],
+            }
+
+        with patch(
+            "gimle.hugin.llm.completion.chat_completion",
+            side_effect=fake_chat_completion,
+        ):
+            for _ in range(5):
+                if any(
+                    isinstance(i, OracleResponse)
+                    for i in agent.stack.interactions
+                ):
+                    break
+                if not agent.step():
+                    break
+
+        oracle_responses = [
+            i for i in agent.stack.interactions if isinstance(i, OracleResponse)
+        ]
+        assert oracle_responses, "no OracleResponse was created"
+        assert (
+            oracle_responses[0].rendered_system_prompt
             == "You are the e2e system for e2e-agent."
         )
 

@@ -262,6 +262,14 @@ class AskOracle(Interaction):
         system_prompt = renderer.render_system_prompt(self.template_inputs)
         llm_model = self.stack.agent.config.llm_model
 
+        rendered_system_prompt = None
+        rendered_user_message = None
+        if self.stack.agent.environment.capture_rendered_prompts:
+            from gimle.hugin.llm.prompt.message import render_user_message
+
+            rendered_system_prompt = system_prompt
+            rendered_user_message = render_user_message(self, reduced=False)
+
         assistant_response = chat_completion(
             system_prompt=system_prompt,
             messages=interaction_messages,
@@ -274,6 +282,8 @@ class AskOracle(Interaction):
                 stack=self.stack,
                 branch=self.branch,
                 response=assistant_response,
+                rendered_system_prompt=rendered_system_prompt,
+                rendered_user_message=rendered_user_message,
             )
         )
         return True
