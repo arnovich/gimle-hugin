@@ -1951,6 +1951,21 @@ function renderInteractionTypeDetails(interaction) {
         } else {
             html += `<div style="margin-top: 8px; color: var(--text-secondary);"><em>No response data</em></div>`;
         }
+        if (interaction.rendered_system_prompt) {
+            html += `<div style="margin-top: 8px;">
+                <strong>System prompt (rendered):</strong>
+                <pre class="detail-code" style="margin-top: 4px; max-height: 200px; overflow-y: auto;">${escapeHtml(interaction.rendered_system_prompt)}</pre>
+            </div>`;
+        }
+        if (interaction.rendered_user_message) {
+            const userMsgStr = typeof interaction.rendered_user_message === 'string'
+                ? interaction.rendered_user_message
+                : JSON.stringify(interaction.rendered_user_message, null, 2);
+            html += `<div style="margin-top: 8px;">
+                <strong>User message (rendered):</strong>
+                <pre class="detail-code" style="margin-top: 4px; max-height: 200px; overflow-y: auto;">${escapeHtml(userMsgStr)}</pre>
+            </div>`;
+        }
         html += `</div>`;
     }
 
