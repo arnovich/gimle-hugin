@@ -1,10 +1,12 @@
 ---
 github_issue: null
 title: Bare template-name references in task.prompt and config.system_template silently send the literal name to the LLM
-state: OPEN
+state: CLOSED
 labels: [bug, prompts]
 author: erikarne
 created: 2026-05-09
+closed: 2026-05-11
+resolution: Fixed in PR #42 (commit 7e116df) — see the Resolution section below.
 ---
 
 # Bare template-name references silently send the literal name to the LLM
