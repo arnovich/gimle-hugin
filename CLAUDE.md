@@ -298,6 +298,28 @@ agent_directory/
 - Agent configs specify `system_template`, `llm_model`, and available `tools`
 - Tasks define the initial prompt and parameters for an agent
 
+### Prompt Templates
+
+Reusable prompt bodies live in `templates/*.yaml` (each file has `name:` and
+`template:`). They can be referenced from a config's `system_template`, a
+task's `system_template`, or a task's `prompt` in two equivalent ways:
+
+- **Bare name** — `system_template: my_template` / `prompt: my_prompt`. The
+  renderer expands a bare string that exactly matches a registered template
+  name to that template's body before rendering. (Expansion happens once, at
+  the top level only — it does not chain through a body that is itself a bare
+  name.)
+- **Explicit Jinja** — `system_template: "{{ my_template.template }}"`. Useful
+  when you want to compose a template with other text or inputs in the same
+  string.
+
+Either way, the resolved body is then rendered recursively against the task
+parameters and template inputs, so the body can itself contain `{{ ... }}`.
+Inline prompts (a string containing `{{ ... }}` that isn't just a template
+name) are rendered as-is — no template lookup happens. To send a literal
+string that happens to collide with a template name, force Jinja, e.g.
+`prompt: "{{ 'summary' }}"`.
+
 ### Tool Development
 - Tools must accept `stack` parameter (auto-injected)
 - Access agent context via `stack.agent.environment.env_vars`
