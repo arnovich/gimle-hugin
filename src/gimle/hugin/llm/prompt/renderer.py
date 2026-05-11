@@ -6,7 +6,10 @@ from typing import TYPE_CHECKING, Any, Dict, Optional, Union
 
 from pandas import DataFrame, read_parquet
 
-from gimle.hugin.llm.prompt.jinja import render_jinja_recursive
+from gimle.hugin.llm.prompt.jinja import (
+    contains_jinja,
+    render_jinja_recursive,
+)
 
 if TYPE_CHECKING:
     from gimle.hugin.agent.agent import Agent
@@ -105,13 +108,30 @@ class PromptRenderer:
         template_inputs: Dict[str, Any],
         reduced: Optional[bool] = False,
     ) -> str:
-        """Render a prompt with template inputs."""
+        """Render a prompt with template inputs.
+
+        If ``prompt_text`` is a bare reference to a registered template (i.e.
+        it contains no Jinja syntax and matches a template name exactly), it is
+        expanded to that template's body before rendering. This makes the
+        documented YAML form ``system_template: my_template`` / ``prompt:
+        my_prompt`` work as written, instead of sending the literal name to the
+        LLM.
+        """
+        registered_templates = (
+            self.agent.environment.template_registry.registered()
+        )
+        if (
+            isinstance(prompt_text, str)
+            and not contains_jinja(prompt_text)
+            and prompt_text in registered_templates
+        ):
+            logger.debug(
+                f"Expanding bare template reference '{prompt_text}' to its body"
+            )
+            prompt_text = registered_templates[prompt_text].template
         template_inputs = {
             **template_inputs,
-            **{
-                k: v
-                for k, v in self.agent.environment.template_registry.registered().items()
-            },
+            **registered_templates,
             **PromptRenderer.render_template_inputs(template_inputs, reduced),
             **{
                 "agent": self,

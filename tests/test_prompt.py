@@ -1,7 +1,7 @@
 """Tests for prompt rendering, templates, and Jinja utilities."""
 
 from io import BytesIO
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -337,6 +337,23 @@ class TestPromptRenderer:
         result = renderer.render_prompt(template_str, inputs)
         assert result == "Hello World"
 
+    def test_render_prompt_with_bare_template_name(self, mock_agent):
+        """A bare template name resolves to and renders the template body."""
+        template = Template(
+            name="greeting_template", template="Hello {{ name }}"
+        )
+        mock_agent.environment.template_registry.register(template)
+
+        renderer = PromptRenderer(mock_agent)
+        result = renderer.render_prompt("greeting_template", {"name": "World"})
+        assert result == "Hello World"
+
+    def test_render_prompt_literal_text_not_a_template_name(self, mock_agent):
+        """Plain text that matches no registered template is returned as-is."""
+        renderer = PromptRenderer(mock_agent)
+        result = renderer.render_prompt("not a registered template", {})
+        assert result == "not a registered template"
+
     def test_render_prompt_with_dataframe(self, mock_agent):
         """Test prompt rendering with DataFrame."""
         renderer = PromptRenderer(mock_agent)
@@ -435,6 +452,26 @@ class TestPromptRenderer:
         result = renderer.render_task_prompt(inputs)
         assert result == "Task: test_task"
 
+    def test_render_task_prompt_with_bare_template_name(self, mock_agent):
+        """A task whose prompt is a bare template name renders the body."""
+        template = Template(
+            name="do_the_thing_prompt", template="Please {{ action }}."
+        )
+        mock_agent.environment.template_registry.register(template)
+        task = Task(
+            name="do_the_thing",
+            description="Do the thing",
+            parameters={},
+            prompt="do_the_thing_prompt",
+            tools=[],
+        )
+        task_definition = TaskDefinition(stack=mock_agent.stack, task=task)
+        mock_agent.stack.interactions = [task_definition]
+
+        renderer = PromptRenderer(mock_agent)
+        result = renderer.render_task_prompt({"action": "save the file"})
+        assert result == "Please save the file."
+
     def test_render_system_prompt(self, mock_agent):
         """Test rendering system prompt."""
         renderer = PromptRenderer(mock_agent)
@@ -468,6 +505,21 @@ class TestPromptRenderer:
 
         result = renderer.render_system_prompt()
         assert "System:" in result
+
+    def test_render_system_prompt_with_bare_template_name(self, mock_agent):
+        """A config whose system_template is a bare name renders the body."""
+        template = Template(name="bare_system", template="You are {{ role }}.")
+        mock_agent.environment.template_registry.register(template)
+        config = Config(
+            name="bare-agent",
+            description="Agent with a bare system_template reference",
+            system_template="bare_system",
+        )
+        agent = Agent(session=mock_agent.session, config=config)
+
+        renderer = PromptRenderer(agent)
+        result = renderer.render_system_prompt({"role": "a helpful assistant"})
+        assert result == "You are a helpful assistant."
 
     def test_prompt_renderer_interactions_attribute(
         self, mock_agent, mock_interaction
@@ -539,6 +591,67 @@ class TestPromptRenderer:
         result = PromptRenderer.render_template_inputs(inputs)
         assert result["name"] == "test"
         assert result["count"] == 42
+
+
+class TestSystemPromptReachesModel:
+    """End-to-end: the rendered system prompt actually reaches the model."""
+
+    def test_bare_system_template_reaches_model(self, mock_session):
+        """A config's bare ``system_template`` name reaches the model rendered.
+
+        Regression test for the silent-failure bug: ``system_template: name``
+        used to send the literal string ``"name"`` to the LLM instead of the
+        rendered template body.
+        """
+        mock_session.environment.template_registry.register(
+            Template(
+                name="e2e_system",
+                template="You are the e2e system for {{ agent.config.name }}.",
+            )
+        )
+        config = Config(
+            name="e2e-agent",
+            description="agent under e2e test",
+            system_template="e2e_system",
+            tools=[],
+        )
+        task = Task(
+            name="e2e_task",
+            description="task under e2e test",
+            prompt="Do the e2e thing.",
+            tools=[],
+        )
+        mock_session.create_agent_from_task(config, task)
+        agent = mock_session.agents[0]
+
+        captured: dict = {}
+
+        def fake_chat_completion(system_prompt, messages, tools, llm_model):
+            captured.setdefault("system_prompt", system_prompt)
+            return {
+                "role": "assistant",
+                "content": "ok",
+                "tool_call": None,
+                "tool_call_id": None,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "extra_content": [],
+            }
+
+        with patch(
+            "gimle.hugin.llm.completion.chat_completion",
+            side_effect=fake_chat_completion,
+        ):
+            for _ in range(5):
+                if "system_prompt" in captured:
+                    break
+                if not agent.step():
+                    break
+
+        assert (
+            captured.get("system_prompt")
+            == "You are the e2e system for e2e-agent."
+        )
 
 
 class TestPrompt:
