@@ -153,11 +153,14 @@ def render_assistant_message(
             }
         ]
     else:
-        return [
-            {
-                "type": "tool_use",
-                "id": interaction.tool_call_id,
-                "name": interaction.response["tool_call"],
-                "input": content,
-            }
-        ]
+        result: Dict[str, Any] = {
+            "type": "tool_use",
+            "id": interaction.tool_call_id,
+            "name": interaction.response["tool_call"],
+            "input": content,
+        }
+        # Preserve reasoning_content for models that require it (e.g. MiMo)
+        reasoning = interaction.response.get("reasoning_content")
+        if reasoning:
+            result["reasoning_content"] = reasoning
+        return [result]

@@ -20,10 +20,11 @@ class ModelResponse:
     input_tokens: Optional[int] = None
     output_tokens: Optional[int] = None
     extra_content: Optional[List[str]] = None
+    reasoning_content: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert the model response to a dictionary."""
-        return {
+        result = {
             "role": self.role,
             "content": self.content,
             "tool_call": self.tool_call,
@@ -32,6 +33,9 @@ class ModelResponse:
             "output_tokens": self.output_tokens,
             "extra_content": self.extra_content,
         }
+        if self.reasoning_content is not None:
+            result["reasoning_content"] = self.reasoning_content
+        return result
 
 
 class Model:
