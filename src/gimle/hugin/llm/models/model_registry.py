@@ -19,6 +19,9 @@ MODEL_PROVIDERS: Dict[str, str] = {
     "gpt-4.1-mini": "openai",
     "gpt-5-nano": "openai",
     "gpt-5.2": "openai",
+    # Xiaomi MiMo models (OpenAI-compatible)
+    "mimo-v2.5-pro": "openai",
+    "mimo-v2.5": "openai",
     # Ollama models
     "qwen3:8b": "ollama",
     "llama3.1-8b": "ollama",
@@ -143,6 +146,20 @@ def get_model_registry() -> ModelRegistry:
         OpenAIModel(
             model_name="gpt-5.2",
             temperature=None,
+        ),
+    )
+
+    # Xiaomi MiMo models (OpenAI-compatible, uses OPENAI_BASE_URL)
+    model_registry.register_model(
+        "mimo-v2.5-pro",
+        OpenAIModel(
+            model_name="mimo-v2.5-pro",
+        ),
+    )
+    model_registry.register_model(
+        "mimo-v2.5",
+        OpenAIModel(
+            model_name="mimo-v2.5",
         ),
     )
 
