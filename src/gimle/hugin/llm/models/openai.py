@@ -128,6 +128,12 @@ class OpenAIModel(Model):
             f"Token usage {input_tokens=} {output_tokens=} for {response.id=}"
         )
 
+        # Extract reasoning_content if present (MiMo thinking mode)
+        # Only MiMo models return this field; other models don't have it
+        reasoning_content = None
+        if "mimo" in self.model_name.lower():
+            reasoning_content = getattr(message, "reasoning_content", None)
+
         # Check for tool calls
         if message.tool_calls:
             tool_call = message.tool_calls[0]  # Handle first tool call
@@ -146,6 +152,7 @@ class OpenAIModel(Model):
                 extra_content=[message.content] if message.content else [],
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
+                reasoning_content=reasoning_content,
             )
 
         # Text response
@@ -155,6 +162,7 @@ class OpenAIModel(Model):
             content=text_content.replace("\n", " "),
             input_tokens=input_tokens,
             output_tokens=output_tokens,
+            reasoning_content=reasoning_content,
         )
 
     def _build_param_schema(self, params: ParameterSchema) -> Dict[str, Any]:
@@ -207,24 +215,24 @@ class OpenAIModel(Model):
                 # Assistant made a tool call
                 import json
 
-                result.append(
-                    {
-                        "role": "assistant",
-                        "content": None,
-                        "tool_calls": [
-                            {
-                                "id": item.get("id", ""),
-                                "type": "function",
-                                "function": {
-                                    "name": item.get("name", ""),
-                                    "arguments": json.dumps(
-                                        item.get("input", {})
-                                    ),
-                                },
-                            }
-                        ],
-                    }
-                )
+                msg: Dict[str, Any] = {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": item.get("id", ""),
+                            "type": "function",
+                            "function": {
+                                "name": item.get("name", ""),
+                                "arguments": json.dumps(item.get("input", {})),
+                            },
+                        }
+                    ],
+                }
+                # Preserve reasoning_content for models that require it (e.g. MiMo)
+                if item.get("reasoning_content"):
+                    msg["reasoning_content"] = item["reasoning_content"]
+                result.append(msg)
 
             elif item_type == "tool_result":
                 # Result from a tool call
