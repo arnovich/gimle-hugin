@@ -6,6 +6,9 @@ from gimle.hugin.tools.builtins.finish import finish_tool  # noqa: F401
 from gimle.hugin.tools.builtins.launch_agent import launch_agent  # noqa: F401
 from gimle.hugin.tools.builtins.list_agents import list_agents  # noqa: F401
 from gimle.hugin.tools.builtins.list_files import list_files  # noqa: F401
+from gimle.hugin.tools.builtins.list_running_agents import (  # noqa: F401
+    list_running_agents,
+)
 from gimle.hugin.tools.builtins.open_file import open_file  # noqa: F401
 from gimle.hugin.tools.builtins.query_artifacts import (  # noqa: F401
     get_artifact_content,
