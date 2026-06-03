@@ -414,6 +414,41 @@ class TestOllamaModelHost:
             mock_client_cls.assert_called_once()
 
 
+class TestOllamaAdapterPreservesNewlines:
+    """The Ollama adapter must not collapse newlines in text responses."""
+
+    def test_multiline_text_roundtrips_verbatim(self):
+        """Multi-line model text comes back verbatim (newlines preserved)."""
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+
+        from gimle.hugin.llm.models.ollama import OllamaModel
+
+        multiline = "line one\nline two\nline three"
+        fake_response = SimpleNamespace(
+            message=SimpleNamespace(content=multiline, tool_calls=None),
+            prompt_eval_count=3,
+            eval_count=5,
+        )
+
+        # "test-model" avoids the qwen/llama/... resource-delay and option
+        # tweaks, keeping the no-tools path minimal.
+        model = OllamaModel(model_name="test-model")
+        model._client = MagicMock()
+        model._client.chat.return_value = fake_response
+
+        response = model.chat_completion(
+            system_prompt="sys",
+            messages=[{"role": "user", "content": "hi"}],
+            tools=None,
+        )
+
+        assert response.role == "assistant"
+        assert response.tool_call is None
+        assert response.content == multiline
+        assert "\n" in response.content
+
+
 if __name__ == "__main__":
     # Allow running this test file directly
     pytest.main([__file__, "-v"])
