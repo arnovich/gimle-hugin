@@ -1,7 +1,7 @@
 ---
 github_issue: null
 title: "Dreaming: offline memory consolidation that feeds learnings back into prompts"
-state: OPEN
+state: CLOSED
 labels: [enhancement, memory, prompts, agents]
 author: erikarne
 created: 2026-05-21
@@ -197,23 +197,34 @@ These were decided up front; the rest of the task builds on them:
 - **Cost shape:** a naive dream re-reads the whole artifact store; consider
   incremental ("only artifacts since last dream") via a watermark.
 
+## v1 + v2 scope (decided, implemented)
+
+Built in one PR after task 020 (the literal-input-value escape this depends on):
+
+- **Provenance = forward scan** (retroactive over the existing corpus), with
+  per-interaction config attribution via `_config_history` (handles
+  state-machine agents). No write-path change.
+- **Scope = per-config**, with optional `scope_task` narrowing and a `scope_app`
+  key. Selector matches `scope_config`/`scope_task`/`scope_app`.
+- **Autonomy:** the dream self-rates (`source="agent"`); feedback-collapse
+  correction is intentionally **deferred** — get the loop working first.
+- **Injection budget:** top-N (default 5). Char/token budget deferred.
+
 ## Success criteria
 
-- [ ] `Learning` artifact type exists, serialises/deserialises, and is
-      registered.
-- [ ] New artifacts (insights + learnings) record producing config + task;
-      verified by a test that reads the provenance back from storage.
-- [ ] `hugin dream --storage-path …` runs end-to-end, reads episodic artifacts,
-      and writes scoped `Learning` artifacts.
-- [ ] A config/task whose template references `{{ learnings }}` receives its
-      scoped learnings at render time; one that doesn't is byte-for-byte
-      unchanged. Verified via `HUGIN_CAPTURE_RENDERED_PROMPTS`.
-- [ ] The dream's input excludes prior `Learning` artifacts (no
+- [x] `Learning` artifact type exists, serialises/deserialises, and is
+      registered. (`artifacts/learning.py`)
+- [x] Episodic artifacts are attributed to producing config + task; verified by
+      a test that reads provenance back from storage. (`dreaming/provenance.py`)
+- [x] `hugin dream --storage-path …` runs end-to-end, reads episodic artifacts,
+      and writes scoped `Learning` artifacts. (`dreaming/consolidate.py`, CLI)
+- [x] A template referencing `{{ learnings }}` receives its scoped learnings at
+      render time; one that doesn't is byte-for-byte unchanged. (`renderer.py`)
+- [x] The dream's input excludes prior `Learning` artifacts (no
       dreams-eating-dreams), with a test.
-- [ ] Injection respects a budget (top-N / char cap), with a test.
-- [ ] An end-to-end loop test: run agent → dream → re-render shows the learning
-      present in the prompt.
-- [ ] Existing artifact / prompt-rendering tests still pass.
+- [x] Injection respects a top-N budget, with a test.
+- [x] End-to-end loop test: run -> dream -> re-render shows the learning.
+- [x] Existing artifact / prompt-rendering tests still pass (665 passed).
 
 ## Context
 

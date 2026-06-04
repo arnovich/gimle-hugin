@@ -8,6 +8,7 @@ from pandas import DataFrame, read_parquet
 
 from gimle.hugin.llm.prompt.jinja import (
     contains_jinja,
+    literal,
     render_jinja_recursive,
 )
 
@@ -15,6 +16,9 @@ if TYPE_CHECKING:
     from gimle.hugin.agent.agent import Agent
 
 logger = logging.getLogger(__name__)
+
+# Template variable carrying consolidated "dreaming" learnings (task 021).
+LEARNINGS_KEY = "learnings"
 
 
 def format_df_to_string(
@@ -141,7 +145,64 @@ class PromptRenderer:
         template_inputs = {
             k: v for k, v in template_inputs.items() if v is not None
         }
+        template_inputs = self._inject_learnings(prompt_text, template_inputs)
         return render_jinja_recursive(prompt_text, template_inputs)
+
+    def _inject_learnings(
+        self, prompt_text: str, template_inputs: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Inject consolidated learnings for the current config/task scope.
+
+        Opt-in and non-destructive: only templates that reference
+        ``{{ learnings }}`` pay any cost, and a caller-provided ``learnings``
+        value is never overridden. The injected text is wrapped with
+        :func:`literal` so any Jinja-looking content in a learning reaches the
+        model verbatim instead of being re-evaluated (task 020).
+        """
+        if LEARNINGS_KEY in template_inputs:
+            return template_inputs
+        if LEARNINGS_KEY not in prompt_text:
+            return template_inputs
+        try:
+            block = self._learnings_for_scope()
+        except Exception as error:  # never let injection break rendering
+            logger.warning("Failed to inject learnings: %s", error)
+            return template_inputs
+        template_inputs[LEARNINGS_KEY] = literal(block)
+        return template_inputs
+
+    def _learnings_for_scope(self) -> str:
+        """Select + format learnings for the agent's current config/task.
+
+        Cached per (config, task) on the agent so each run scans storage once.
+        """
+        storage = getattr(self.agent.environment, "storage", None)
+        if storage is None:
+            return ""
+        config = self.agent.config.name
+        task: Optional[str] = None
+        try:
+            task_obj = self.agent.stack.get_task_definition(
+                current_interaction_uuid=self.interaction_uuid,
+                branch=self.branch,
+            )
+            if task_obj is not None:
+                task = task_obj.name
+        except Exception:
+            task = None
+
+        cache = self.agent.__dict__.setdefault("_dream_learnings_cache", {})
+        key = (config, task)
+        if key not in cache:
+            from gimle.hugin.dreaming.selector import (
+                render_learnings_block,
+                select_learnings,
+            )
+
+            cache[key] = render_learnings_block(
+                select_learnings(storage, config=config, task=task)
+            )
+        return str(cache[key])
 
     def render_task_prompt(
         self, template_inputs: Dict[str, Any], reduced: Optional[bool] = False

@@ -1,0 +1,13 @@
+name: dreamer
+description: >-
+  Offline dream worker that consolidates a config's episodic artifacts into
+  scoped Learning artifacts (memory consolidation, task 021).
+system_template: dreamer_system
+llm_model: sonnet-latest
+tools:
+  - dreaming.save_learning:save_learning
+  - builtins.query_artifacts:query_artifacts
+  - builtins.get_artifact_content:get_artifact_content
+  - builtins.finish:finish
+interactive: false
+options: {}
