@@ -1,6 +1,6 @@
 ---
 title: Model adapters collapse newlines in assistant text content
-state: OPEN
+state: CLOSED
 labels: [bug, llm]
 author: arnovich
 created: 2026-05-25
