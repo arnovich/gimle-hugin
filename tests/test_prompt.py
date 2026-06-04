@@ -16,6 +16,7 @@ from gimle.hugin.interaction.oracle_response import OracleResponse
 from gimle.hugin.interaction.task_definition import TaskDefinition
 from gimle.hugin.llm.prompt.jinja import (
     contains_jinja,
+    literal,
     render_jinja,
     render_jinja_recursive,
 )
@@ -221,6 +222,82 @@ class TestJinja:
         result = render_jinja(template, inputs)
         # Note: render_jinja uses .strip() so trailing spaces are removed
         assert result == "Hello"
+
+
+class TestJinjaLiteralEscape:
+    """Literal Jinja must survive the recursive renderer.
+
+    Covers both the author-facing ``{% raw %}`` mechanism and the
+    programmatic ``literal()`` helper used to inject untrusted text as a
+    template-input value (the case task 021 "dreaming" depends on).
+    """
+
+    def test_raw_block_survives_recursion(self):
+        """A ``{% raw %}`` block reaches the output verbatim."""
+        template = "Example: {% raw %}{{ param.value }}{% endraw %}"
+        assert render_jinja_recursive(template, {}) == (
+            "Example: {{ param.value }}"
+        )
+
+    def test_raw_block_undefined_inside_not_evaluated(self):
+        """Literal braces are not re-rendered to '' on a later pass."""
+        template = "{% raw %}{{ missing }}{% endraw %}"
+        assert render_jinja_recursive(template, {}) == "{{ missing }}"
+
+    def test_raw_alongside_real_jinja(self):
+        """Real variables render; the raw block stays literal."""
+        template = "{{ name }} writes {% raw %}{{ x }}{% endraw %}"
+        result = render_jinja_recursive(template, {"name": "Ana"})
+        assert result == "Ana writes {{ x }}"
+
+    def test_literal_input_value_preserved(self):
+        """A value marked literal() keeps its braces through rendering."""
+        inputs = {"learnings": literal("Always check {{ foo }} first")}
+        result = render_jinja_recursive("Notes: {{ learnings }}", inputs)
+        assert result == "Notes: Always check {{ foo }} first"
+
+    def test_literal_input_value_endraw_breakout_attempt(self):
+        """literal() holds even if the value contains ``{% endraw %}``.
+
+        A plain ``{% raw %}`` wrapper around the value would be defeated by
+        an embedded ``{% endraw %}``; literal() escapes delimiters directly.
+        """
+        nasty = literal("{% endraw %}{{ secret }}")
+        result = render_jinja_recursive(
+            "{{ learnings }}", {"learnings": nasty, "secret": "X"}
+        )
+        assert result == "{% endraw %}{{ secret }}"
+
+    def test_literal_input_value_real_jinja_still_renders(self):
+        """Literal value stays literal while sibling variables render."""
+        inputs = {"learnings": literal("see {{ a }}"), "name": "Bo"}
+        result = render_jinja_recursive("{{ name }}: {{ learnings }}", inputs)
+        assert result == "Bo: see {{ a }}"
+
+
+class TestChainableUndefined:
+    """Undefined access is uniformly silent (renders to '')."""
+
+    def test_undefined_scalar_is_empty(self):
+        """``{{ x }}`` with x undefined renders empty."""
+        assert render_jinja("Hi {{ x }}", {}) == "Hi"
+
+    def test_undefined_attribute_is_empty(self):
+        """``{{ x.attr }}`` with x undefined renders empty (was raising)."""
+        assert render_jinja("Hi {{ x.attr }}", {}) == "Hi"
+
+    def test_undefined_deep_chain_is_empty(self):
+        """Deep undefined attribute chains render empty, not raise."""
+        assert render_jinja("Hi {{ x.a.b.c }}", {}) == "Hi"
+
+    def test_undefined_attribute_recursive_is_empty(self):
+        """Cold-start ``{{ learnings }}`` (undefined) renders empty."""
+        assert render_jinja_recursive("{{ learnings }}", {}) == ""
+
+    def test_optional_param_guard_still_works(self):
+        """The ``{% if optional.value %}`` app-template pattern still works."""
+        template = "{% if focus.value %}F: {{ focus.value }}{% endif %}done"
+        assert render_jinja_recursive(template, {}) == "done"
 
 
 class TestFormatDataFrame:
