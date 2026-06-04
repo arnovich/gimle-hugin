@@ -16,7 +16,7 @@ template: |
   **Template** (templates/name.yaml): System prompt with domain-specific expertise.
 
   **Task** (tasks/name.yaml): Prompt with Jinja2 parameter interpolation —
-  reference a "foo" parameter as foo.value inside double curly braces.
+  reference a "foo" parameter as {% raw %}{{ foo.value }}{% endraw %}.
   Parameters use strict schema: `{type: string, description: "...", required: true}`
 
   **Tools** (tools/name.py + name.yaml):
