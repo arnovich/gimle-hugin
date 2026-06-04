@@ -1,7 +1,7 @@
 ---
 github_issue: null
 title: render_jinja_recursive can never emit literal Jinja syntax; reconsider Undefined behavior
-state: OPEN
+state: CLOSED
 labels: [enhancement, tech-debt, prompts]
 author: erikarne
 created: 2026-05-11
@@ -43,12 +43,37 @@ example.
 
 ## Success criteria
 
-- [ ] A template body can include literal `{{ … }}` text that reaches the
+- [x] A template body can include literal `{{ … }}` text that reaches the
       model verbatim, via a documented mechanism, with a test.
-- [ ] `{{ undefined.attr }}` behaves consistently with `{{ undefined }}`
-      (both silent, or both loud — decided and documented).
-- [ ] Existing prompt-rendering tests still pass.
+- [x] A value passed via `template_inputs` can be marked literal so that any
+      Jinja delimiters inside it reach the model verbatim and are never
+      re-evaluated, with a test (the injection case task 021 depends on).
+- [x] `{{ undefined.attr }}` behaves consistently with `{{ undefined }}`
+      (decided: **both silent** via `ChainableUndefined`).
+- [x] Existing prompt-rendering tests still pass.
+
+## Resolution
+
+Implemented in `src/gimle/hugin/llm/prompt/jinja.py`:
+
+- **Literal escape via sentinels.** `{% raw %}…{% endraw %}` blocks and values
+  marked with the new `literal()` helper have their delimiters swapped for NUL-
+  wrapped sentinel tokens *before* the recursive render, then restored on the
+  final pass — so literal Jinja survives recursion. `literal()` is stronger than
+  `{% raw %}` for untrusted input: it holds even if the value embeds
+  `{% endraw %}`. This is the seam task 021 ("dreaming") injects `{{ learnings }}`
+  through.
+- **Undefined policy = `ChainableUndefined`.** `{{ x }}` and `{{ x.attr }}` both
+  render to `''` when undefined — consistent, low blast radius (existing
+  `{% if optional.value %}` app templates and cold-start `{{ learnings }}` keep
+  working). `StrictUndefined` was considered (pairs with task 019) but rejected
+  for this PR as too disruptive.
+- **agent-builder example restored.** `builder_system.yaml` again shows the
+  literal `{% raw %}{{ foo.value }}{% endraw %}` example.
 
 ## Context
 
 Follow-up noted in `tasks/closed/017-template-name-rendering-silent-failure.md`.
+
+Unblocks `tasks/open/021-dreaming-memory-consolidation.md`, which injects
+LLM-generated `Learning` text as a `{{ learnings }}` value via `literal()`.
