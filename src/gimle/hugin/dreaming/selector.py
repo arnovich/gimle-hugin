@@ -106,7 +106,8 @@ def select_learnings(
             continue
         artifact_ratings = ratings.get(artifact_id, [])
         count = len(artifact_ratings)
-        average = sum(artifact_ratings) / count if count else 0.0
+        # Unrated learnings rank neutrally — neither boosted nor buried.
+        average = sum(artifact_ratings) / count if count else NEUTRAL_RATING
         selected.append(
             SelectedLearning(
                 artifact_id=artifact_id,
@@ -121,10 +122,7 @@ def select_learnings(
         )
 
     def sort_key(item: SelectedLearning) -> tuple:
-        effective_rating = (
-            item.average_rating if item.rating_count else NEUTRAL_RATING
-        )
-        return (effective_rating, item.created_at or "")
+        return (item.average_rating, item.created_at or "")
 
     selected.sort(key=sort_key, reverse=True)
     if budget >= 0:

@@ -112,7 +112,7 @@ class LocalStorage(Storage):
                 load_interaction=load_interaction,
             )
 
-    def load_artifact_record(self, uuid: str) -> Dict[str, Any]:
+    def _load_artifact_record(self, uuid: str) -> Dict[str, Any]:
         """Load the raw stored artifact record without hydration."""
         if not self.base_path:
             raise ValueError("Artifacts not found in local memory storage")

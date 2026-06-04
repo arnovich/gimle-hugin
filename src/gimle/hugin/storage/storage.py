@@ -72,17 +72,23 @@ class Storage(ABC):
         return cast(Artifact, self.store[cache_key])
 
     @abstractmethod
+    def _load_artifact_record(self, uuid: str) -> Dict[str, Any]:
+        raise NotImplementedError("Subclasses must implement this method")
+
     def load_artifact_record(self, uuid: str) -> Dict[str, Any]:
         """Load the raw stored record for an artifact (no hydration).
 
         Returns the persisted ``{"type", "data"}`` dict, including
         ``data["interaction"]`` (the producing interaction's UUID) and
-        ``data["created_at"]``. Used by the dreaming provenance scan to
-        attribute artifacts to their config/task without hydrating the full
-        interaction chain (``load_artifact`` with ``stack=None`` drops the
-        interaction reference).
+        ``data["created_at"]``. Used by the dreaming provenance scan and
+        learning selector to read artifact metadata in bulk without hydrating
+        the full interaction chain (``load_artifact`` with ``stack=None`` drops
+        the interaction reference). Cached like ``load_artifact``.
         """
-        raise NotImplementedError("Subclasses must implement this method")
+        cache_key = f"artifact_record:{uuid}"
+        if cache_key not in self.store:
+            self.store[cache_key] = self._load_artifact_record(uuid)
+        return cast(Dict[str, Any], self.store[cache_key])
 
     @abstractmethod
     def _save_artifact(self, artifact: Artifact) -> None:

@@ -66,7 +66,7 @@ class MemoryStorage(Storage):
             load_interaction=load_interaction,
         )
 
-    def load_artifact_record(self, uuid: str) -> Dict[str, Any]:
+    def _load_artifact_record(self, uuid: str) -> Dict[str, Any]:
         """Load the raw stored artifact record without hydration."""
         if uuid not in self._artifacts:
             raise ValueError(f"Artifact {uuid} not found in storage")
