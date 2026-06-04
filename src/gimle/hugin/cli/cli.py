@@ -234,6 +234,40 @@ def cmd_rate(args: argparse.Namespace) -> int:
     )
 
 
+def cmd_dream(args: argparse.Namespace) -> int:
+    """Consolidate episodic memory into scoped Learning artifacts."""
+    from pathlib import Path
+
+    import gimle.hugin.dreaming as dreaming_pkg
+    from gimle.hugin.agent.environment import Environment
+    from gimle.hugin.dreaming.consolidate import run_dream
+    from gimle.hugin.storage.local import LocalStorage
+
+    storage_path = args.storage_path or "./storage"
+    agent_dir = Path(dreaming_pkg.__file__).resolve().parent / "agent"
+    storage = LocalStorage(base_path=storage_path)
+    environment = Environment.load(str(agent_dir), storage=storage)
+
+    if args.model:
+        environment.config_registry.get("dreamer").llm_model = args.model
+
+    results = run_dream(
+        environment,
+        config=args.config,
+        task=args.task,
+        max_steps=args.max_steps or 20,
+        dry_run=args.dry_run,
+    )
+
+    verb = "would save" if args.dry_run else "saved"
+    print(f"Dream complete: {verb} {len(results)} learning(s).")
+    for result in results:
+        scope = result.get("scope_config") or "?"
+        task_scope = result.get("scope_task") or "*"
+        print(f"  - {scope}/{task_scope}: {result.get('id')}")
+    return 0
+
+
 def cmd_install_models(args: argparse.Namespace) -> int:
     """Install Ollama models."""
     from gimle.hugin.cli.install_ollama_models import main as install_main
@@ -402,6 +436,40 @@ Examples:
         "--comment", help="Optional comment explaining the rating"
     )
     rate_parser.set_defaults(func=cmd_rate)
+
+    # dream command (offline memory consolidation)
+    dream_parser = subparsers.add_parser(
+        "dream",
+        help="Consolidate episodic memory into learnings",
+        description=(
+            "Replay saved insights and distil them into scoped Learning "
+            "artifacts that are injected into future prompts."
+        ),
+    )
+    dream_parser.add_argument(
+        "-s", "--storage-path", help="Path to agent storage"
+    )
+    dream_parser.add_argument(
+        "--config", help="Consolidate a single config scope (default: all)"
+    )
+    dream_parser.add_argument(
+        "--task", help="Restrict to a single task within the scope"
+    )
+    dream_parser.add_argument(
+        "--max-steps",
+        type=int,
+        default=20,
+        help="Per-scope step budget for the dream worker",
+    )
+    dream_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Produce learnings but persist nothing",
+    )
+    dream_parser.add_argument(
+        "--model", help="Override the dream worker's llm_model"
+    )
+    dream_parser.set_defaults(func=cmd_dream)
 
     # apps command (list apps)
     apps_parser = subparsers.add_parser(
