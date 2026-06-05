@@ -1,0 +1,23 @@
+name: assist
+description: Help the traveler with a request and remember durable preferences.
+parameters:
+  request:
+    type: string
+    description: The traveler's request, possibly revealing a preference.
+    required: false
+    default: >-
+      Book me a flight to Lisbon next month. And please — I only ever fly in
+      window seats, and I'm vegetarian.
+prompt: |
+  The traveler says:
+
+  {{ request.value }}
+
+  Help them with this request. If they reveal a durable preference, record it
+  with `save_insight` (one insight per preference, in plain language). When you
+  are done, call `finish`.
+system_template: assistant_system
+llm_model: sonnet-latest
+tools:
+  - builtins.save_insight:save_insight
+  - builtins.finish:finish
