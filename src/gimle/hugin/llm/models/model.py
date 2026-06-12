@@ -11,7 +11,16 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ModelResponse:
-    """A model response."""
+    """A model response.
+
+    ``content`` depends on which path the model took:
+
+    - Plain-text path (no tool call): the model's text **verbatim**, with
+      newlines preserved. Adapters must not collapse or otherwise mutate the
+      text — any single-line formatting belongs to the display/logging layer.
+    - Tool-call path: the tool-arguments dict (``tool_call`` / ``tool_call_id``
+      identify the tool).
+    """
 
     role: Literal["user", "assistant", "system"]
     content: Any

@@ -1050,7 +1050,7 @@ TEMPERATURE:\n{self.temperature}"""
             )
         return ModelResponse(
             role="assistant",
-            content=(response.message.content or "").replace("\n", " "),
+            content=(response.message.content or ""),
             input_tokens=input_tokens,
             output_tokens=output_tokens,
         )
