@@ -19,5 +19,8 @@ from gimle.hugin.tools.builtins.read_file import read_file  # noqa: F401
 from gimle.hugin.tools.builtins.save_code import save_code  # noqa: F401
 from gimle.hugin.tools.builtins.save_file import save_file  # noqa: F401
 from gimle.hugin.tools.builtins.save_insight import save_insight  # noqa: F401
+from gimle.hugin.tools.builtins.save_learning import (  # noqa: F401
+    save_learning,
+)
 from gimle.hugin.tools.builtins.save_text import save_text  # noqa: F401
 from gimle.hugin.tools.builtins.search_files import search_files  # noqa: F401

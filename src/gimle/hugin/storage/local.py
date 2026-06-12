@@ -4,7 +4,7 @@ import datetime
 import json
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, cast
 
 from gimle.hugin.agent.agent import Agent
 from gimle.hugin.agent.session import Session
@@ -111,6 +111,13 @@ class LocalStorage(Storage):
                 stack=stack,
                 load_interaction=load_interaction,
             )
+
+    def _load_artifact_record(self, uuid: str) -> Dict[str, Any]:
+        """Load the raw stored artifact record without hydration."""
+        if not self.base_path:
+            raise ValueError("Artifacts not found in local memory storage")
+        with open(self.base_path / "artifacts" / uuid, "r") as f:
+            return cast(Dict[str, Any], json.load(f))
 
     def _save_artifact(self, artifact: Artifact) -> None:
         """Save an artifact to the local filesystem."""
