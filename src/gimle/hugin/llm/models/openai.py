@@ -159,7 +159,7 @@ class OpenAIModel(Model):
         text_content = message.content or ""
         return ModelResponse(
             role="assistant",
-            content=text_content.replace("\n", " "),
+            content=text_content,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             reasoning_content=reasoning_content,
