@@ -33,6 +33,10 @@ Hugin is built around three core principles:
     <h3><a href="/concepts/tools/">Tools</a></h3>
     <p>Functions that agents can call. Built-in tools for common operations, plus easy custom tool development.</p>
   </div>
+  <div class="feature">
+    <h3><a href="/concepts/dreaming/">Dreaming</a></h3>
+    <p>Offline memory consolidation: distil scattered insights into scoped learnings that get injected back into the next run's prompt.</p>
+  </div>
 </div>
 
 ## Architecture Overview
@@ -70,7 +74,8 @@ Run multiple agents in a session with shared state via namespaces. Agents can co
 
 ### Memory Model
 - **Dynamic Context** (short-term): The interaction stack itself, rendered at each LLM call
-- **Artifacts** (long-term): Persistent storage via `save_insight`, `query_artifacts`, and `get_artifact_content` tools
+- **Artifacts** (long-term, episodic): Persistent storage via `save_insight`, `query_artifacts`, and `get_artifact_content` tools
+- **Learnings** (long-term, semantic): Consolidated lessons produced by [Dreaming](/concepts/dreaming/) and injected into the next run's prompt
 
 ### Visual Debugging
 The agent monitor provides real-time visualization of agent flows, tool calls, and decision trees.

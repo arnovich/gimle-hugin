@@ -72,6 +72,7 @@ We highly recommend either running the examples in interactive mode (`hugin run 
 | [simple_branching](simple_branching/) | Basic stack branching | `create_branch` tool, parallel execution |
 | [custom_artifacts](custom_artifacts/) | Custom artifact types | `@Artifact.register`, `@ComponentRegistry.register` |
 | [artifact_feedback](artifact_feedback/) | Artifact rating and feedback | `rate_artifact`, feedback-driven ranking |
+| [dreaming](dreaming/) | Self-improving memory loop | `hugin dream`, consolidated `{{ learnings }}` injected into prompts |
 
 ## Learning Path
 

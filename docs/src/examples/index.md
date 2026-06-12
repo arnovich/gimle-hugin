@@ -42,6 +42,7 @@ Start here to understand the basic structure.
 | [artifacts](https://github.com/gimlelabs/gimle-hugin/tree/main/examples/artifacts) | Long-term memory | `save_insight`, `query_artifacts` |
 | [custom_artifacts](https://github.com/gimlelabs/gimle-hugin/tree/main/examples/custom_artifacts) | Custom artifact types | `@Artifact.register`, UI components |
 | [artifact_feedback](https://github.com/gimlelabs/gimle-hugin/tree/main/examples/artifact_feedback) | Artifact rating and feedback | `rate_artifact`, feedback-driven ranking |
+| [dreaming](https://github.com/gimlelabs/gimle-hugin/tree/main/examples/dreaming) | Offline memory consolidation across runs | `hugin dream`, `Learning` artifacts, `{{ learnings }}` injection |
 
 ## Multi-Agent
 
