@@ -143,7 +143,7 @@ MAX TOKENS:\n{self.max_tokens}"""
         text_content = getattr(first_content, "text", "") or ""
         return ModelResponse(
             role="assistant",
-            content=text_content.replace("\n", " "),
+            content=text_content,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
         )
