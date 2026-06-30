@@ -241,6 +241,21 @@ interaction JSON under `storage/interactions/`.
 HUGIN_CAPTURE_RENDERED_PROMPTS=1 uv run hugin run --task hello_world --task-path examples/basic_agent
 ```
 
+### gimle-router correlation header
+
+Set `HUGIN_GIMLE_ROUTER=1` to stamp every Anthropic/OpenAI request with an
+`x-gimle-task` header carrying the `session.id`, so a gimle-router gateway in
+front of the providers can group one edition's sub-agent calls (orchestrator,
+analyst, editor) as a single task. Off by default — a normal run sends nothing
+extra to the providers. Pair it with the SDK-native `ANTHROPIC_BASE_URL` /
+`OPENAI_BASE_URL` pointing at the router. Implementation:
+`src/gimle/hugin/llm/router_correlation.py` (Ollama is local and not routed, so
+it is not stamped).
+
+```bash
+HUGIN_GIMLE_ROUTER=1 ANTHROPIC_BASE_URL=http://127.0.0.1:4000 uv run hugin app financial_newspaper
+```
+
 ## Architecture Overview
 
 Hugin is an agent framework built around a state machine architecture with the following key components:

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from gimle.hugin.interaction.ask_human import AskHuman
 from gimle.hugin.interaction.interaction import Interaction
 from gimle.hugin.llm.prompt.prompt import Prompt
+from gimle.hugin.llm.router_correlation import correlation_scope
 from gimle.hugin.utils.uuid import with_uuid
 
 if TYPE_CHECKING:
@@ -270,12 +271,17 @@ class AskOracle(Interaction):
             rendered_system_prompt = system_prompt
             rendered_user_message = render_user_message(self, reduced=False)
 
-        assistant_response = chat_completion(
-            system_prompt=system_prompt,
-            messages=interaction_messages,
-            tools=tools,
-            llm_model=llm_model,
-        )
+        # Tag every call of this edition with the session id so a router can
+        # group an edition's sub-agent calls (gimle-router x-gimle-task header,
+        # opt-in via HUGIN_GIMLE_ROUTER). session.id is the stable external
+        # correlation contract — changing its semantics changes router grouping.
+        with correlation_scope(self.stack.agent.session.id):
+            assistant_response = chat_completion(
+                system_prompt=system_prompt,
+                messages=interaction_messages,
+                tools=tools,
+                llm_model=llm_model,
+            )
         logger.debug(f"Assistant response: {assistant_response}")
         self.stack.add_interaction(
             OracleResponse(
