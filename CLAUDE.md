@@ -243,11 +243,15 @@ HUGIN_CAPTURE_RENDERED_PROMPTS=1 uv run hugin run --task hello_world --task-path
 
 ### gimle-router correlation header
 
-Set `HUGIN_GIMLE_ROUTER=1` to stamp every Anthropic/OpenAI request with an
-`x-gimle-task` header carrying the `session.id`, so a gimle-router gateway in
-front of the providers can group one edition's sub-agent calls (orchestrator,
-analyst, editor) as a single task. Off by default — a normal run sends nothing
-extra to the providers. Pair it with the SDK-native `ANTHROPIC_BASE_URL` /
+Set `HUGIN_GIMLE_ROUTER=1` to stamp every Anthropic/OpenAI request with two
+gimle-router headers: `x-gimle-task` carrying the `session.id` (so the gateway
+groups one edition's sub-agent calls as a single task), and `x-gimle-route`
+carrying the calling agent's `config.name` — its role (e.g. `editor`) — so the
+router keys each role as its own stable use-case (`tag:<role>`). The route
+matters because the router otherwise fingerprints the system prompt, which
+forks a new key whenever the app injects a volatile span (the current date);
+the explicit route is immune. Off by default — a normal run sends nothing extra
+to the providers. Pair it with the SDK-native `ANTHROPIC_BASE_URL` /
 `OPENAI_BASE_URL` pointing at the router. Implementation:
 `src/gimle/hugin/llm/router_correlation.py` (Ollama is local and not routed, so
 it is not stamped).
