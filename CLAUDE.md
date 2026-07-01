@@ -252,6 +252,17 @@ extra to the providers. Pair it with the SDK-native `ANTHROPIC_BASE_URL` /
 `src/gimle/hugin/llm/router_correlation.py` (Ollama is local and not routed, so
 it is not stamped).
 
+The same flag also makes `financial_newspaper` report each edition's **result**
+to the router when it finishes — `POST {GIMLE_ROUTER_URL}/gimle/outcome` with
+`{task_id: session.id, success, score}` — so the router's live A/B tripwire can
+tell whether a cheaper candidate model was good enough. `success` is whether a
+final layout was produced; `score` is the mean editor `quality_score`. The
+outcome goes to the router's own address (`GIMLE_ROUTER_URL`, default
+`http://127.0.0.1:4000`), not the provider-proxy base URL. Best-effort: a router
+that's down is logged and ignored, never failing the run. Implementation:
+`src/gimle/hugin/llm/router_outcome.py`, called once at the edition boundary in
+`apps/financial_newspaper/run.py`.
+
 ```bash
 HUGIN_GIMLE_ROUTER=1 ANTHROPIC_BASE_URL=http://127.0.0.1:4000 uv run hugin app financial_newspaper
 ```
