@@ -14,10 +14,11 @@ field optional; at least one required by the router).
 Opt-in and best-effort, mirroring the header:
   - Only sent when ``HUGIN_GIMLE_ROUTER`` is truthy (the same flag that enables
     the header) — a default run reports nothing.
-  - Target base URL from ``GIMLE_ROUTER_URL`` (default ``http://127.0.0.1:4000``).
-    This is the router's OWN address, not the provider-proxy ``ANTHROPIC_BASE_URL``:
-    the header rides on provider requests, but the outcome goes to the router
-    directly.
+  - Target base URL: the outcome endpoint lives on the SAME router the model
+    calls already go through, so by default it reuses ``ANTHROPIC_BASE_URL`` (or
+    ``OPENAI_BASE_URL``) — point that at the router and there's nothing else to
+    set. ``GIMLE_ROUTER_URL`` is only an override for the rare case where the
+    control-plane is on a different host than the provider proxy.
   - Any error is logged and swallowed — an eval signal must never fail the
     edition it measures.
 
@@ -37,7 +38,9 @@ from typing import Dict, Optional
 logger = logging.getLogger(__name__)
 
 _ENABLE_FLAG = "HUGIN_GIMLE_ROUTER"
-_URL_ENV = "GIMLE_ROUTER_URL"
+# Prefer an explicit override, then the provider base URLs the model calls
+# already use (same router), then a local default. One server, one place to set.
+_URL_ENVS = ("GIMLE_ROUTER_URL", "ANTHROPIC_BASE_URL", "OPENAI_BASE_URL")
 _DEFAULT_URL = "http://127.0.0.1:4000"
 _OUTCOME_PATH = "/gimle/outcome"
 _TIMEOUT_SECONDS = 5.0
@@ -53,7 +56,11 @@ def _enabled() -> bool:
 
 
 def _base_url() -> str:
-    return os.getenv(_URL_ENV, _DEFAULT_URL).strip().rstrip("/") or _DEFAULT_URL
+    for env in _URL_ENVS:
+        value = os.getenv(env, "").strip().rstrip("/")
+        if value:
+            return value
+    return _DEFAULT_URL
 
 
 def report_outcome(
