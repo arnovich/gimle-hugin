@@ -15,8 +15,13 @@ from gimle.hugin.llm.router_outcome import report_outcome
 
 @pytest.fixture
 def enabled(monkeypatch):
-    """Turn the opt-in integration on for a test."""
+    """Enable the integration and clear every URL source for determinism.
+
+    Tests opt back in to the one URL source they exercise.
+    """
     monkeypatch.setenv("HUGIN_GIMLE_ROUTER", "1")
+    for var in ("GIMLE_ROUTER_URL", "ANTHROPIC_BASE_URL", "OPENAI_BASE_URL"):
+        monkeypatch.delenv(var, raising=False)
 
 
 class _FakeResponse:
@@ -93,6 +98,28 @@ def test_custom_router_url_is_honored(enabled, monkeypatch):
     with patch("urllib.request.urlopen", fake):
         report_outcome("ed", success=True)
     assert captured["url"] == "http://router.local:9000/gimle/outcome"
+
+
+def test_falls_back_to_anthropic_base_url(enabled, monkeypatch):
+    """Reuse the base URL the model calls already go to when no override is set.
+
+    It's the same router, so pointing ANTHROPIC_BASE_URL at it is enough.
+    """
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:4000")
+    captured, fake = _capture()
+    with patch("urllib.request.urlopen", fake):
+        report_outcome("ed", success=True)
+    assert captured["url"] == "http://127.0.0.1:4000/gimle/outcome"
+
+
+def test_explicit_override_beats_the_provider_base_url(enabled, monkeypatch):
+    """GIMLE_ROUTER_URL wins when the control-plane is on a different host."""
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "http://proxy:4000")
+    monkeypatch.setenv("GIMLE_ROUTER_URL", "http://control:9000")
+    captured, fake = _capture()
+    with patch("urllib.request.urlopen", fake):
+        report_outcome("ed", success=True)
+    assert captured["url"] == "http://control:9000/gimle/outcome"
 
 
 # --- nothing to report -----------------------------------------------------
