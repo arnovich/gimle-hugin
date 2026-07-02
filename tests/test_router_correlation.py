@@ -12,6 +12,7 @@ import pytest
 from gimle.hugin.agent.agent import Agent
 from gimle.hugin.interaction.ask_oracle import AskOracle
 from gimle.hugin.llm.router_correlation import (
+    ROUTER_ROUTE_HEADER,
     ROUTER_TASK_HEADER,
     correlation_scope,
     router_headers,
@@ -77,6 +78,45 @@ def test_none_session_id_yields_no_header(enabled):
         assert router_headers() == {}
 
 
+# --- the route (per-agent use-case) ----------------------------------------
+
+
+def test_route_rides_alongside_the_task_id(enabled):
+    """A route in scope adds x-gimle-route beside the task id."""
+    with correlation_scope("edition-1", route="editor"):
+        assert router_headers() == {
+            ROUTER_TASK_HEADER: "edition-1",
+            ROUTER_ROUTE_HEADER: "editor",
+        }
+
+
+def test_no_route_means_only_the_task_id(enabled):
+    """Without a route, only x-gimle-task is emitted (back-compat)."""
+    with correlation_scope("edition-1"):
+        assert router_headers() == {ROUTER_TASK_HEADER: "edition-1"}
+
+
+def test_route_resets_on_scope_exit(enabled):
+    """The route is cleared on exit like the task id."""
+    with correlation_scope("edition-1", route="editor"):
+        assert ROUTER_ROUTE_HEADER in router_headers()
+    assert router_headers() == {}
+
+
+def test_route_emits_nothing_when_disabled():
+    """A route in scope is still silent unless the integration is enabled."""
+    with correlation_scope("edition-1", route="editor"):
+        assert router_headers() == {}
+
+
+def test_nested_scopes_restore_the_outer_route(enabled):
+    """Exiting an inner scope restores the outer edition's route."""
+    with correlation_scope("outer", route="journalist"):
+        with correlation_scope("inner", route="editor"):
+            assert router_headers()[ROUTER_ROUTE_HEADER] == "editor"
+        assert router_headers()[ROUTER_ROUTE_HEADER] == "journalist"
+
+
 # --- adapters attach it ----------------------------------------------------
 
 
@@ -118,6 +158,16 @@ def test_anthropic_sends_no_header_outside_a_scope(enabled):
     """The Anthropic adapter sends an empty header dict with no scope."""
     create = _run_anthropic()
     assert create.call_args.kwargs["extra_headers"] == {}
+
+
+def test_anthropic_forwards_the_route_when_in_scope(enabled):
+    """The adapter forwards x-gimle-route alongside the task id."""
+    with correlation_scope("edition-7", route="editor"):
+        create = _run_anthropic()
+    assert create.call_args.kwargs["extra_headers"] == {
+        ROUTER_TASK_HEADER: "edition-7",
+        ROUTER_ROUTE_HEADER: "editor",
+    }
 
 
 def _run_openai():
@@ -171,7 +221,10 @@ def test_ask_oracle_stamps_the_session_id(
 
     mock_chat_completion.side_effect = capture
     AskOracle(stack=mock_stack, prompt=sample_prompt, template_inputs={}).step()
-    assert seen["headers"] == {ROUTER_TASK_HEADER: mock_stack.agent.session.id}
+    assert seen["headers"] == {
+        ROUTER_TASK_HEADER: mock_stack.agent.session.id,
+        ROUTER_ROUTE_HEADER: mock_stack.agent.config.name,
+    }
 
 
 @patch("gimle.hugin.llm.completion.chat_completion")
@@ -193,5 +246,8 @@ def test_sub_agents_of_one_edition_share_the_id(
         stack=child.stack, prompt=sample_prompt, template_inputs={}
     ).step()
 
-    expected = {ROUTER_TASK_HEADER: mock_agent.session.id}
+    expected = {
+        ROUTER_TASK_HEADER: mock_agent.session.id,
+        ROUTER_ROUTE_HEADER: mock_agent.config.name,
+    }
     assert seen == [expected, expected]

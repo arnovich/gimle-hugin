@@ -7,6 +7,7 @@ import time
 import webbrowser
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 from dotenv import load_dotenv
 
@@ -17,6 +18,7 @@ from gimle.hugin.cli.helpers import (
     open_in_browser,
     start_monitor_dashboard,
 )
+from gimle.hugin.llm.router_outcome import report_outcome
 from gimle.hugin.storage.local import LocalStorage
 
 # Load environment variables from .env file
@@ -197,6 +199,24 @@ def load_newspaper_session(
     return session, storage
 
 
+def _edition_quality_score(articles: list) -> Optional[float]:
+    """Mean editor quality score across the edition's articles.
+
+    A 1-10 mean, or None if none carry a numeric score. Supplements the success
+    flag reported to gimle-router with a graded signal.
+    """
+    scores: list[float] = []
+    for article in articles:
+        if not isinstance(article, dict):
+            continue
+        value = article.get("quality_score")
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            scores.append(float(value))
+    if not scores:
+        return None
+    return sum(scores) / len(scores)
+
+
 def run_newspaper_generation(session: Session, max_steps: int) -> bool:
     """Run the newspaper generation process."""
     print("📰" + "=" * 58 + "📰")
@@ -226,9 +246,20 @@ def run_newspaper_generation(session: Session, max_steps: int) -> bool:
     # Get articles from env_vars
     articles = session.environment.env_vars.get("newspaper_articles", [])
 
-    # Check if we have the newspaper layout
+    # The edition succeeds iff a final newspaper layout was produced.
     layout_path = Path(LAYOUT_DIR) / "latest.html"
-    if layout_path.exists():
+    success = layout_path.exists()
+
+    # Report this edition's result to gimle-router (opt-in, best-effort): the
+    # session id is the x-gimle-task the calls were stamped with, so this closes
+    # the loop the router's A/B tripwire needs.
+    report_outcome(
+        session.id,
+        success=success,
+        score=_edition_quality_score(articles),
+    )
+
+    if success:
         print()
         print("🎉 NEWSPAPER GENERATION COMPLETE! 🎉")
         print(f"📰 Articles published: {len(articles)}")
@@ -241,9 +272,7 @@ def run_newspaper_generation(session: Session, max_steps: int) -> bool:
         except Exception as e:
             print(f"⚠️  Could not auto-open browser: {e}")
 
-        return True
-    else:
-        return False
+    return success
 
 
 def main() -> int:

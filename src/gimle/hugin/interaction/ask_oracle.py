@@ -275,7 +275,12 @@ class AskOracle(Interaction):
         # group an edition's sub-agent calls (gimle-router x-gimle-task header,
         # opt-in via HUGIN_GIMLE_ROUTER). session.id is the stable external
         # correlation contract — changing its semantics changes router grouping.
-        with correlation_scope(self.stack.agent.session.id):
+        # The agent's config name rides along as x-gimle-route so the router
+        # keys each role as its own stable use-case (immune to prompt drift).
+        with correlation_scope(
+            self.stack.agent.session.id,
+            route=self.stack.agent.config.name,
+        ):
             assistant_response = chat_completion(
                 system_prompt=system_prompt,
                 messages=interaction_messages,
