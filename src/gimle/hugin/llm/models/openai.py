@@ -3,6 +3,7 @@
 import logging
 from typing import Any, Dict, List, Optional
 
+from gimle.hugin.llm.router_correlation import router_headers
 from gimle.hugin.tools.tool import ParameterSchema, Tool
 
 from .model import Model, ModelResponse
@@ -97,6 +98,7 @@ class OpenAIModel(Model):
                 "model": self.model_name,
                 "messages": openai_messages,
                 "max_completion_tokens": self.max_tokens,
+                "extra_headers": router_headers(),
             }
 
             if self.temperature is not None:

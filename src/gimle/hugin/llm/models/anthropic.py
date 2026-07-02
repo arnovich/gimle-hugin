@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 
 import anthropic
 
+from gimle.hugin.llm.router_correlation import router_headers
 from gimle.hugin.tools.tool import Tool
 
 from .model import Model, ModelResponse
@@ -90,6 +91,7 @@ class AnthropicModel(Model):
                     system=system_prompt,
                     tools=tools_to_use,  # type: ignore[arg-type]
                     tool_choice=self.tool_choice,
+                    extra_headers=router_headers(),
                 )
             else:
                 response = client.with_options(max_retries=5).messages.create(
@@ -100,6 +102,7 @@ class AnthropicModel(Model):
                     max_tokens=self.max_tokens,
                     model=self.model_name,
                     system=system_prompt,
+                    extra_headers=router_headers(),
                 )
         except anthropic.APIError as error:
             logging.error(
