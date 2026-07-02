@@ -243,14 +243,30 @@ HUGIN_CAPTURE_RENDERED_PROMPTS=1 uv run hugin run --task hello_world --task-path
 
 ### gimle-router correlation header
 
-Set `HUGIN_GIMLE_ROUTER=1` to stamp every Anthropic/OpenAI request with an
-`x-gimle-task` header carrying the `session.id`, so a gimle-router gateway in
-front of the providers can group one edition's sub-agent calls (orchestrator,
-analyst, editor) as a single task. Off by default — a normal run sends nothing
-extra to the providers. Pair it with the SDK-native `ANTHROPIC_BASE_URL` /
+Set `HUGIN_GIMLE_ROUTER=1` to stamp every Anthropic/OpenAI request with two
+gimle-router headers: `x-gimle-task` carrying the `session.id` (so the gateway
+groups one edition's sub-agent calls as a single task), and `x-gimle-route`
+carrying the calling agent's `config.name` — its role (e.g. `editor`) — so the
+router keys each role as its own stable use-case (`tag:<role>`). The route
+matters because the router otherwise fingerprints the system prompt, which
+forks a new key whenever the app injects a volatile span (the current date);
+the explicit route is immune. Off by default — a normal run sends nothing extra
+to the providers. Pair it with the SDK-native `ANTHROPIC_BASE_URL` /
 `OPENAI_BASE_URL` pointing at the router. Implementation:
 `src/gimle/hugin/llm/router_correlation.py` (Ollama is local and not routed, so
 it is not stamped).
+
+The same flag also makes `financial_newspaper` report each edition's **result**
+to the router when it finishes — `POST {base}/gimle/outcome` with
+`{task_id: session.id, success, score}` — so the router's live A/B tripwire can
+tell whether a cheaper candidate model was good enough. `success` is whether a
+final layout was produced; `score` is the mean editor `quality_score`. The
+outcome endpoint lives on the same router the model calls already go through, so
+by default it reuses `ANTHROPIC_BASE_URL` (or `OPENAI_BASE_URL`) — nothing extra
+to set. `GIMLE_ROUTER_URL` is only an override for when the control-plane is on a
+different host. Best-effort: a router that's down is logged and ignored, never
+failing the run. Implementation: `src/gimle/hugin/llm/router_outcome.py`, called
+once at the edition boundary in `apps/financial_newspaper/run.py`.
 
 ```bash
 HUGIN_GIMLE_ROUTER=1 ANTHROPIC_BASE_URL=http://127.0.0.1:4000 uv run hugin app financial_newspaper
