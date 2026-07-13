@@ -82,6 +82,43 @@ class TestResultMapping:
         assert response.is_error is True
         assert "daemon down" in response.content["infra_error"]
 
+    def test_oom_kill_is_an_error(self):
+        """An OOM-killed command is an error, like a timeout — not a plain exit."""
+        fake = FakeSandbox(
+            ExecResult(
+                exit_code=-9,
+                stdout="partial",
+                stderr="",
+                duration_s=0.2,
+                oom_killed=True,
+            )
+        )
+        response = bash("./hog", stack=_stack_with_fake(fake))
+        assert response.is_error is True
+        assert response.content["oom_killed"] is True
+
+    def test_truncated_output_carries_the_spill_path(self):
+        """When output is truncated, the response tells the model where to read."""
+        fake = FakeSandbox(
+            ExecResult(
+                exit_code=0,
+                stdout="tail",
+                stderr="",
+                duration_s=0.1,
+                truncated=True,
+            )
+        )
+        response = bash("cat big", stack=_stack_with_fake(fake))
+        assert response.content["full_output"] == ".hugin/last_output.txt"
+
+    def test_timeout_argument_is_passed_to_exec(self):
+        """A caller-supplied timeout_s reaches the sandbox exec."""
+        fake = FakeSandbox(
+            ExecResult(exit_code=0, stdout="", stderr="", duration_s=0.1)
+        )
+        bash("make", timeout_s=120, stack=_stack_with_fake(fake))
+        assert fake.last_call.timeout_s == 120
+
 
 class TestPolicyEnforcement:
     """Policy is read from config and enforced before the sandbox runs."""
