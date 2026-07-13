@@ -107,6 +107,11 @@ class OpenAIModel(Model):
             if tools_to_use:
                 kwargs["tools"] = tools_to_use
                 kwargs["tool_choice"] = self.tool_choice
+                # The framework is single-tool-call by construction, so force
+                # one tool call at the request layer (matches Anthropic's
+                # disable_parallel_tool_use). Without this the model may return
+                # several and the parser below would keep only the first.
+                kwargs["parallel_tool_calls"] = False
 
             response = client.chat.completions.create(**kwargs)
 
@@ -138,7 +143,18 @@ class OpenAIModel(Model):
 
         # Check for tool calls
         if message.tool_calls:
-            tool_call = message.tool_calls[0]  # Handle first tool call
+            # Single-tool-call by construction (see parallel_tool_calls=False
+            # above). Keep the first deterministically; warn rather than
+            # silently dropping any extra the provider returned anyway.
+            if len(message.tool_calls) > 1:
+                logging.warning(
+                    "OpenAI returned %d tool calls despite "
+                    "parallel_tool_calls=False; kept '%s', dropped %s",
+                    len(message.tool_calls),
+                    message.tool_calls[0].function.name,
+                    [tc.function.name for tc in message.tool_calls[1:]],
+                )
+            tool_call = message.tool_calls[0]
             import json
 
             try:

@@ -122,15 +122,32 @@ MAX TOKENS:\n{self.max_tokens}"""
         logging.debug(
             f"Token usage {input_tokens=} {output_tokens=} for {response.id=}"
         )
-        # TODO support multiple tool calls in a single response
-
+        # The framework is single-tool-call by construction (ModelResponse
+        # carries one tool call), and the request sets
+        # disable_parallel_tool_use, so the provider returns at most one
+        # tool_use block. Keep the first deterministically; if a second ever
+        # arrives, warn rather than silently dropping it — a dropped call the
+        # model believes ran is a silent-data-loss bug.
         tool_use_content = None
         extra_content = []
+        dropped_tool_uses = []
         for content in response.content:
             if content.type == "tool_use":
-                tool_use_content = content
+                if tool_use_content is None:
+                    tool_use_content = content
+                else:
+                    dropped_tool_uses.append(content.name)
             elif hasattr(content, "text"):
                 extra_content.append(content.text)
+
+        if dropped_tool_uses and tool_use_content is not None:
+            logging.warning(
+                "Anthropic returned %d tool calls despite "
+                "disable_parallel_tool_use; kept '%s', dropped %s",
+                len(dropped_tool_uses) + 1,
+                tool_use_content.name,
+                dropped_tool_uses,
+            )
 
         if tool_use_content:
             return ModelResponse(
