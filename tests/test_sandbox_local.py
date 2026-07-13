@@ -251,4 +251,39 @@ def test_start_writes_owner_stamp(tmp_path):
     box.start()
     stamp = tmp_path / "s" / OWNER_FILE
     assert stamp.exists()
-    assert json.loads(stamp.read_text())["pid"] == os.getpid()
+    record = json.loads(stamp.read_text())
+    assert record["pid"] == os.getpid()
+    assert "start_time" in record  # incarnation token for the reaper
+
+
+def test_start_rewrites_stale_owner_stamp(tmp_path):
+    """A resumed session re-stamps its live PID over a stale (dead) one.
+
+    This is the data-loss fix: without rewriting, the stamp would keep the
+    previous process's dead PID and the reaper would delete the running
+    session's workspace.
+    """
+    import json
+
+    from gimle.hugin.sandbox.local import OWNER_FILE
+
+    session_root = tmp_path / "s"
+    session_root.mkdir()
+    stamp = session_root / OWNER_FILE
+    stamp.write_text(json.dumps({"pid": 999_000_001, "created": 1.0}))
+
+    box = LocalSandbox(SPEC, session_id="s", workspace_root=str(tmp_path))
+    box.start()
+
+    record = json.loads(stamp.read_text())
+    assert record["pid"] == os.getpid()  # rewritten to the live owner
+    assert record["created"] == 1.0  # original creation time preserved
+
+
+def test_process_start_time_is_a_stable_token_for_self(tmp_path):
+    """process_start_time returns a stable, non-empty token for a live PID."""
+    from gimle.hugin.sandbox.local import process_start_time
+
+    first = process_start_time(os.getpid())
+    assert isinstance(first, str) and first
+    assert process_start_time(os.getpid()) == first  # stable across calls

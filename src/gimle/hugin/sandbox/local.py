@@ -35,6 +35,37 @@ _SPILL_RELATIVE = os.path.join(".hugin", "last_output.txt")
 # Owner stamp read by the reaper to decide whether a workspace is abandoned.
 OWNER_FILE = ".hugin_owner.json"
 
+
+def process_start_time(pid: int) -> Optional[str]:
+    """Return an opaque token identifying this PID's process *incarnation*.
+
+    Paired with the PID in the owner stamp, this lets the reaper tell the
+    original owner from an unrelated process that later recycled the same PID —
+    without which a dead workspace whose PID got reused is kept forever (a leak)
+    or, worse, a live one is deleted. Best-effort and dependency-free: Linux
+    reads ``/proc/<pid>/stat`` (field 22, start time in clock ticks); macOS/BSD
+    shell out to ``ps -o lstart=``. Returns ``None`` when it cannot be
+    determined, in which case callers fall back to PID-only liveness.
+    """
+    try:
+        stat_path = f"/proc/{pid}/stat"
+        if os.path.exists(stat_path):
+            with open(stat_path, encoding="utf-8") as handle:
+                data = handle.read()
+            # comm (field 2) may contain spaces/parens; split after the last ')'
+            after_comm = data[data.rfind(")") + 2 :].split()
+            return after_comm[19]  # field 22 overall -> starttime
+        result = subprocess.run(
+            ["ps", "-o", "lstart=", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        return result.stdout.strip() or None
+    except (OSError, ValueError, IndexError, subprocess.SubprocessError):
+        return None
+
+
 # Hard ceiling on output *buffered in this process* per command, across stdout
 # and stderr combined. The model only ever sees ``max_output_bytes`` after
 # truncation; this larger cap bounds parent memory (and the spill file) so a
@@ -72,17 +103,30 @@ class LocalSandbox(Sandbox):
         self._write_owner_stamp()
 
     def _write_owner_stamp(self) -> None:
-        """Record the owning PID so the reaper can spot an abandoned workspace.
+        """Record the owning PID + start time so the reaper spots abandonment.
 
-        Written once (the created time is preserved across restarts) and
-        best-effort — a workspace we cannot stamp is simply reaped by age.
+        Rewritten on **every** ``start()`` with the current live PID — a
+        resumed session (same session id, new process) must re-stamp, or the
+        stale dead PID would make the reaper delete the running session's
+        workspace. Best-effort: a workspace we cannot stamp is reaped by age.
         """
         stamp = os.path.join(self._session_root, OWNER_FILE)
-        if os.path.exists(stamp):
-            return
+        pid = os.getpid()
+        record = {
+            "pid": pid,
+            "start_time": process_start_time(pid),
+            "created": time.time(),
+        }
+        try:  # preserve the original creation time, if any, for debugging
+            with open(stamp, encoding="utf-8") as handle:
+                existing = json.load(handle)
+            if isinstance(existing, dict) and "created" in existing:
+                record["created"] = existing["created"]
+        except (OSError, ValueError):
+            pass
         try:
             with open(stamp, "w", encoding="utf-8") as handle:
-                json.dump({"pid": os.getpid(), "created": time.time()}, handle)
+                json.dump(record, handle)
         except OSError as error:  # best-effort; the reaper falls back to age
             logger.debug("could not write owner stamp: %s", error)
 
