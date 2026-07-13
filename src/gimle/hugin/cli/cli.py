@@ -284,6 +284,61 @@ def cmd_version(args: argparse.Namespace) -> int:
     return 0
 
 
+DEFAULT_SANDBOX_ROOT = "./storage/sandboxes"
+
+
+def reap_sandboxes_quietly(root: str = DEFAULT_SANDBOX_ROOT) -> None:
+    """Best-effort reap of abandoned local sandbox workspaces at startup.
+
+    The primary teardown mechanism: it runs on every ``hugin`` invocation so an
+    abrupt exit (SIGKILL, sleep) that skipped ``Session.close`` still self-heals
+    within one invocation. Never raises — cleanup must not break the command.
+    """
+    try:
+        import time
+
+        from gimle.hugin.sandbox.reaper import reap_local_workspaces
+
+        reap_local_workspaces(root, now=time.time())
+    except Exception:  # cleanup is best-effort and must never break a command
+        pass
+
+
+def cmd_sandbox(args: argparse.Namespace) -> int:
+    """List or prune local sandbox workspaces."""
+    import time
+
+    from gimle.hugin.sandbox.reaper import (
+        list_local_workspaces,
+        reap_local_workspaces,
+    )
+
+    root = args.root or DEFAULT_SANDBOX_ROOT
+    now = time.time()
+
+    if args.action == "prune":
+        reaped = reap_local_workspaces(root, now=now)
+        if reaped:
+            print(f"Reaped {len(reaped)} abandoned workspace(s):")
+            for name in reaped:
+                print(f"  {name}")
+        else:
+            print("No abandoned workspaces to reap.")
+        return 0
+
+    # default: list
+    infos = list_local_workspaces(root, now=now)
+    if not infos:
+        print(f"No sandbox workspaces under {root}")
+        return 0
+    print(f"{'SESSION':<40} {'PID':>8}  {'OWNER':<7} {'AGE':>8}")
+    for info in infos:
+        owner = "alive" if info.alive else "dead"
+        pid = str(info.pid) if info.pid is not None else "-"
+        print(f"{info.name:<40} {pid:>8}  {owner:<7} {int(info.age_s):>7}s")
+    return 0
+
+
 def main() -> int:
     """Run the Hugin CLI."""
     parser = argparse.ArgumentParser(
@@ -508,8 +563,32 @@ Examples:
     )
     version_parser.set_defaults(func=cmd_version)
 
+    # sandbox command
+    sandbox_parser = subparsers.add_parser(
+        "sandbox",
+        help="Inspect or clean up local sandbox workspaces",
+        description="List or prune the per-session workspaces the bash tool "
+        "creates on the local backend.",
+    )
+    sandbox_parser.add_argument(
+        "action",
+        nargs="?",
+        choices=["list", "prune"],
+        default="list",
+        help="'list' shows workspaces; 'prune' removes abandoned ones",
+    )
+    sandbox_parser.add_argument(
+        "--root",
+        default=None,
+        help=f"Sandbox root (default: {DEFAULT_SANDBOX_ROOT})",
+    )
+    sandbox_parser.set_defaults(func=cmd_sandbox)
+
     # Parse arguments
     args = parser.parse_args()
+
+    # Self-heal: reap abandoned local sandbox workspaces on every invocation.
+    reap_sandboxes_quietly()
 
     # Load .env file if --env flag is set
     if args.env:

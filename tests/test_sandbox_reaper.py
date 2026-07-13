@@ -10,7 +10,10 @@ import os
 import time
 
 from gimle.hugin.sandbox.local import OWNER_FILE
-from gimle.hugin.sandbox.reaper import reap_local_workspaces
+from gimle.hugin.sandbox.reaper import (
+    list_local_workspaces,
+    reap_local_workspaces,
+)
 
 NOW = 1_000_000.0
 
@@ -87,3 +90,15 @@ def test_only_dead_owners_are_reaped_among_several(tmp_path):
     reaped = reap_local_workspaces(str(tmp_path), now=NOW, pid_alive=_only(222))
     assert sorted(reaped) == ["a-dead", "c-dead"]
     assert os.path.isdir(tmp_path / "b-live")
+
+
+def test_list_describes_each_workspace(tmp_path):
+    """The lister reports name, owner pid, liveness, and age."""
+    _session_dir(tmp_path, "live", pid=222, mtime=NOW - 100)
+    _session_dir(tmp_path, "dead", pid=333, mtime=NOW - 200)
+    infos = list_local_workspaces(str(tmp_path), now=NOW, pid_alive=_only(222))
+    by_name = {info.name: info for info in infos}
+    assert by_name["live"].alive is True
+    assert by_name["live"].pid == 222
+    assert by_name["dead"].alive is False
+    assert by_name["dead"].age_s == 200
