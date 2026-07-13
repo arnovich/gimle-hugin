@@ -218,10 +218,13 @@ class Policy:
         allow_shell_features: When ``False`` (opt-in strict mode) the shell
             escape hatches are refused. Default ``True`` — the runtime is the
             boundary, so the engine need not fight the shell.
-        workspace_only: Confine filesystem access to the workspace. Enforced by
-            the sandbox layer (realpath confinement), not this pure function.
-        network: Whether the command may reach the network (advisory here;
-            enforced by the backend).
+        workspace_only: Request that filesystem access stay in the workspace.
+            Advisory: honored only by an isolating backend (docker/ssh). The
+            local backend does NOT enforce it (it cannot confine ``exec``) —
+            the runtime is the boundary, so do not rely on this flag on local.
+        network: Request that the command not reach the network. Advisory in the
+            same way — honored by an isolating backend, ignored by the local
+            backend.
         timeout_s: Interactive per-command timeout.
         max_timeout_s: Ceiling for an explicit longer timeout.
         max_output_bytes: Cap on captured output.

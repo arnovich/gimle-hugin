@@ -31,6 +31,10 @@ from gimle.hugin.sandbox.sandbox import (
 
 logger = logging.getLogger(__name__)
 
+# Warn once per process that the local backend is not a sandbox — an operator
+# selecting ``backend: local`` should see it, not have to read a docstring.
+_isolation_warned = False
+
 _SPILL_RELATIVE = os.path.join(".hugin", "last_output.txt")
 # Owner stamp read by the reaper to decide whether a workspace is abandoned.
 OWNER_FILE = ".hugin_owner.json"
@@ -94,6 +98,15 @@ class LocalSandbox(Sandbox):
             os.path.join(workspace_root, session_id)
         )
         self._bash = shutil.which("bash") or "/bin/bash"
+        global _isolation_warned
+        if not _isolation_warned:
+            logger.warning(
+                "LocalSandbox has NO isolation boundary: commands run as host "
+                "subprocesses with your PATH and full filesystem access, and "
+                "policy 'workspace_only'/'network' are NOT enforced. Use the "
+                "docker or ssh backend for untrusted input."
+            )
+            _isolation_warned = True
 
     # -- lifecycle --
 
