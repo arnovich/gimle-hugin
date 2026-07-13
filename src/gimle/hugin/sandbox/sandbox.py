@@ -12,8 +12,8 @@ a fake backend first.
 """
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from typing import Literal, Optional, Tuple
+from dataclasses import dataclass, fields
+from typing import Any, Dict, Literal, Optional, Tuple
 
 from gimle.hugin.sandbox.policy import Policy
 
@@ -91,6 +91,51 @@ class SandboxSpec:
     cpu: float = 2.0
     memory: str = "2g"
     pids: int = 512
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "SandboxSpec":
+        """Build a SandboxSpec from the ``options.bash`` block, failing loud.
+
+        The ``policy`` sub-block belongs to :class:`Policy`, so it is ignored
+        here; every other unknown key raises. ``backend`` is required — a config
+        must name where its agent's shell runs; there is no silent default.
+        """
+        if not isinstance(data, dict):
+            raise ValueError("options.bash must be a mapping")
+        known = {f.name for f in fields(cls)}
+        provided = {k: v for k, v in data.items() if k != "policy"}
+        unknown = set(provided) - known
+        if unknown:
+            raise ValueError(f"unknown sandbox keys: {sorted(unknown)}")
+        if "backend" not in provided:
+            raise ValueError(
+                "options.bash.backend is required (local | docker | ssh)"
+            )
+        if provided["backend"] not in ("local", "docker", "ssh"):
+            raise ValueError(f"invalid backend: {provided['backend']!r}")
+        return cls(**provided)
+
+
+def create_sandbox(
+    spec: SandboxSpec,
+    session_id: str,
+    workspace_root: str = "./storage/sandboxes",
+) -> "Sandbox":
+    """Construct the backend named by ``spec``.
+
+    The concrete backend is imported lazily so selecting ``local`` never pulls
+    in the ``docker`` SDK, and vice versa — the three backends are peers with
+    no shared dependency.
+    """
+    if spec.backend == "local":
+        from gimle.hugin.sandbox.local import LocalSandbox
+
+        return LocalSandbox(spec, session_id, workspace_root)
+    if spec.backend in ("docker", "ssh"):
+        raise NotImplementedError(
+            f"the {spec.backend} backend lands in phase 2"
+        )
+    raise ValueError(f"unknown backend: {spec.backend!r}")
 
 
 class Sandbox(ABC):

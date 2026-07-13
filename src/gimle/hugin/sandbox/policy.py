@@ -26,8 +26,8 @@ What the engine guarantees:
 """
 
 import logging
-from dataclasses import dataclass, field
-from typing import Any, Iterator, List, Literal, Optional, Tuple, Union
+from dataclasses import dataclass, field, fields
+from typing import Any, Dict, Iterator, List, Literal, Optional, Tuple, Union
 
 import bashlex
 
@@ -184,6 +184,42 @@ class Policy:
     max_timeout_s: int = 600
     max_output_bytes: int = 16_000
     on_violation: Literal["deny", "ask_human"] = "deny"
+
+    @classmethod
+    def from_dict(cls, data: Optional[Dict[str, Any]]) -> "Policy":
+        """Build a Policy from a config dict, failing loud on anything wrong.
+
+        A security object must never silently fall back to a default because a
+        key was misspelled, so unknown keys and invalid literals raise
+        ``ValueError`` rather than being dropped. An empty/absent mapping yields
+        the conservative defaults.
+        """
+        if data is None:
+            return cls()
+        if not isinstance(data, dict):
+            raise ValueError("policy must be a mapping")
+        known = {f.name for f in fields(cls)}
+        unknown = set(data) - known
+        if unknown:
+            raise ValueError(f"unknown policy keys: {sorted(unknown)}")
+        kwargs = dict(data)
+        mode = kwargs.get("mode")
+        if mode is not None and mode not in (
+            "denylist",
+            "allowlist",
+            "unrestricted",
+        ):
+            raise ValueError(f"invalid policy mode: {mode!r}")
+        on_violation = kwargs.get("on_violation")
+        if on_violation is not None and on_violation not in (
+            "deny",
+            "ask_human",
+        ):
+            raise ValueError(f"invalid on_violation: {on_violation!r}")
+        for key in ("deny", "allow"):
+            if key in kwargs:
+                kwargs[key] = tuple(kwargs[key])
+        return cls(**kwargs)
 
 
 # --- AST helpers ---
