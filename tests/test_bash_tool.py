@@ -6,6 +6,7 @@ read from ``config.options['bash']`` and enforced before the sandbox runs, and
 that the command reaches the backend with the right cwd and policy.
 """
 
+import os
 from types import SimpleNamespace
 
 from gimle.hugin.sandbox.fake import FakeSandbox
@@ -121,6 +122,21 @@ class TestPolicyEnforcement:
         assert response.is_error is True
         assert "invalid bash policy config" in response.content["error"]
 
+    def test_unparseable_command_is_surfaced_distinctly(self):
+        """A parser limitation is reported as 'unparseable', not 'denied'.
+
+        The model must not mistake "the guard's parser choked" for a policy
+        refusal, or it will try other (also-unparseable) syntax instead of
+        rephrasing.
+        """
+        fake = FakeSandbox()
+        response = bash("ls '", stack=_stack_with_fake(fake))  # bad quoting
+        assert response.is_error is True
+        assert "unparseable" in response.content
+        assert "denied" not in response.content
+        assert "hint" in response.content
+        assert fake.calls == []
+
     def test_policy_is_passed_through_to_exec(self):
         """The resolved policy (timeout etc.) reaches the sandbox exec."""
         fake = FakeSandbox()
@@ -191,6 +207,28 @@ class TestAudit:
         stack = _stack(sandbox_manager=manager)
         bash("sleep 99", stack=stack)
         assert manager.audit.counters["timed_out"] == 1
+
+    def test_denied_first_command_is_audited_without_preseeded_manager(self):
+        """A denial is recorded even when no backend has been built yet.
+
+        The audit is resolved before the policy check, so a session whose very
+        first command is denied still counts it (previously dropped, because the
+        manager — and its audit — was only built on the allow path).
+        """
+        import shutil
+
+        stack = _stack(config_options={"bash": {"backend": "local"}})
+        try:
+            response = bash("dd if=/dev/zero of=/dev/sda", stack=stack)
+            assert response.is_error is True
+            assert "denied" in response.content
+            assert stack.agent.session.sandbox is not None
+            assert stack.agent.session.sandbox.audit.counters["denied"] == 1
+        finally:  # the tool builds a real (unstarted) manager under ./storage
+            shutil.rmtree(
+                os.path.join("./storage/sandboxes", "session-1"),
+                ignore_errors=True,
+            )
 
 
 class TestSandboxResolution:

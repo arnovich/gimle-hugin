@@ -75,6 +75,11 @@ class Escalate:
 
 Decision = Union[Allow, Deny, Escalate]
 
+# Reason attached to the Deny for a command bashlex cannot parse. Exposed so the
+# tool can tell "the guard's parser choked" (rephrase) from "policy refused this"
+# (try something else) — they are very different signals to an agent.
+UNPARSEABLE_REASON = "could not parse command; failing closed"
+
 
 # --- rule sets ---
 
@@ -486,7 +491,7 @@ def evaluate(command: str, policy: Policy) -> Decision:
     """
     trees = _parse(command)
     if trees is None:
-        return Deny("could not parse command; failing closed")
+        return Deny(UNPARSEABLE_REASON)
 
     if policy.mode == "unrestricted":
         return Allow()

@@ -14,7 +14,14 @@ import os
 from typing import TYPE_CHECKING, Any, Dict, Optional, cast
 
 from gimle.hugin.sandbox.manager import SandboxManager
-from gimle.hugin.sandbox.policy import Allow, Deny, Escalate, Policy, evaluate
+from gimle.hugin.sandbox.policy import (
+    UNPARSEABLE_REASON,
+    Allow,
+    Deny,
+    Escalate,
+    Policy,
+    evaluate,
+)
 from gimle.hugin.sandbox.sandbox import ExecResult, PolicyDenied, SandboxSpec
 from gimle.hugin.tools.tool import Tool, ToolResponse
 
@@ -95,8 +102,32 @@ def bash(
             content={"error": f"invalid bash policy config: {error}"},
         )
 
+    # Resolve the manager up front so its audit exists even for a denial — the
+    # first (or only) command in a session may be denied, and a denied command
+    # is exactly the security event worth recording. A bad/missing backend is
+    # tolerated here and only reported when a command is actually allowed.
+    try:
+        manager: Optional[SandboxManager] = _resolve_manager(stack, bash_opts)
+        manager_error: Optional[str] = None
+    except (ValueError, NotImplementedError) as error:
+        manager, manager_error = None, str(error)
+
     decision = evaluate(command, policy)
     if isinstance(decision, Deny):
+        if decision.reason == UNPARSEABLE_REASON:
+            # A parser limitation, NOT a policy refusal — tell the model to
+            # rephrase rather than to try a different (permitted) command.
+            _record(stack, command, "unparseable", reason=decision.reason)
+            return ToolResponse(
+                is_error=True,
+                content={
+                    "unparseable": decision.reason,
+                    "command": command,
+                    "hint": "the policy guard uses a limited bash parser; "
+                    "rephrase without [[ ]], $(( )), or arrays "
+                    "(use [ ], test, or expr)",
+                },
+            )
         _record(stack, command, "denied", reason=decision.reason)
         return ToolResponse(
             is_error=True,
@@ -111,15 +142,22 @@ def bash(
             content={
                 "needs_approval": decision.reason,
                 "command": command,
-                "note": "human approval is not available in this session",
+                "note": "human approval is unavailable in this session and "
+                "will not become available; do not retry — choose a "
+                "different approach",
             },
         )
     assert isinstance(decision, Allow)
 
+    if manager is None:
+        return ToolResponse(
+            is_error=True,
+            content={"error": f"sandbox unavailable: {manager_error}"},
+        )
     try:
-        manager = _resolve_manager(stack, bash_opts)
         sandbox = manager.get()
     except (ValueError, NotImplementedError) as error:
+        _record(stack, command, "infra_error", reason=str(error))
         return ToolResponse(
             is_error=True,
             content={"error": f"sandbox unavailable: {error}"},
