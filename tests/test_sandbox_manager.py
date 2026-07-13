@@ -55,3 +55,23 @@ class TestSandboxManager:
         """Without an injected backend, get() builds one from the spec."""
         manager = SandboxManager(LOCAL, "s", workspace_root=str(tmp_path))
         assert isinstance(manager.get(), LocalSandbox)
+
+
+class TestLifecycleCounters:
+    """The manager tallies backend starts and start-failures."""
+
+    def test_start_is_counted_once(self, tmp_path):
+        """Creating a backend counts one start; a re-get() does not add more."""
+        manager = SandboxManager(LOCAL, "s", workspace_root=str(tmp_path))
+        manager.get()
+        manager.get()
+        assert manager.audit.counters["sandbox_starts"] == 1
+        assert manager.audit.counters["sandbox_start_failures"] == 0
+
+    def test_start_failure_is_counted_and_reraised(self):
+        """A backend that cannot be created counts a failure and propagates."""
+        manager = SandboxManager(SandboxSpec(backend="docker"), "s")
+        with pytest.raises(NotImplementedError):
+            manager.get()
+        assert manager.audit.counters["sandbox_start_failures"] == 1
+        assert manager.audit.counters["sandbox_starts"] == 0
