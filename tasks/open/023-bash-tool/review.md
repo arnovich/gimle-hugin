@@ -219,3 +219,51 @@ Own the `ControlMaster` socket path and clean it in `stop()`. Better: target a
 hardened container on the remote (`ssh host docker run …`) rather than the bare
 host. Provisioning / ownership / cost / secrets must be written before phase 4,
 not during it.
+
+---
+
+# Implementation panel review (Phase 1, post-build)
+
+A second four-judge panel (security / framework architecture / agent-usability /
+SRE) reviewed the **implemented** Phase 1 code before the PR. Findings that were
+real on the local backend today, plus the cheap honesty/robustness set, were
+fixed in the branch; genuine phase-2 design items were deferred to
+`tasks/open/024-bash-sandbox-phase2-followups.md`.
+
+## Fixed before the Phase 1 PR
+
+- **Wrapper-prefix bypass** — `env dd`, `timeout 60 dd`, `nice -n 19 dd`,
+  `xargs … reboot`, `sudo reboot`, `command reboot`, `find -exec shutdown` all
+  passed the denylist/allowlist/strict mode (the AST walk saw only the first
+  word; `_WRAPPERS` was dead code). Now peels wrappers to the command they run,
+  in every mode, without false-denying data-position names.
+- **Unbounded output → orchestrator OOM** — `communicate()` buffered the whole
+  child output in parent memory before truncation. Now streamed with a 2MB
+  ceiling; past it the group is killed and the model sees an "output exceeded"
+  note.
+- **Timeout escape hang** — a `setsid`-escaped child holding the stdout pipe made
+  the post-kill `communicate()` block until it exited (defeating the timeout).
+  Now a bounded drain + kill by saved pgid.
+- **Reaper deleted a live session's workspace** — the owner stamp was written
+  once, so a resumed session kept the dead PID and a concurrent reaper deleted
+  the running workspace. Now re-stamped on every start with a process start-time
+  token (PID-reuse safe), plus per-entry crash guards (vanished dir / null pid).
+- **Audit dropped pre-backend denials** — the audit was built with the manager on
+  the allow path, so a denied first command recorded nothing. Manager (hence
+  audit) now resolved before the policy check.
+- **Model UX** — parse failures surfaced as `unparseable` (rephrase) vs `denied`;
+  `timeout_s` lever added (max_timeout_s was dead config); `oom_killed` → is_error;
+  spill path returned on truncation; clearer escalation note.
+- **Honesty** — `workspace_only`/`network` docstrings corrected (no code enforces
+  them); one-shot runtime warning that the local backend has no isolation.
+- **Lifecycle** — `Session.close()` wired into both `hugin run` paths (had no
+  production caller).
+
+## Deferred (tracked in task 024)
+
+Per-spec/per-agent sandbox ownership; backend registry; `put_file`/`get_file`
+agent context; remote lifecycle + secrets seam; `_resolve_cwd` realpath (latent,
+phase-2 path model); counter emission/alerting + monitor commands view; audit &
+workspace growth bounds; sandbox root from storage config; thread-safety;
+environment-probe affordance; elided-output marker; spill-file uniqueness;
+minor policy/error polish.
