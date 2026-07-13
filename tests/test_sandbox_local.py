@@ -287,3 +287,13 @@ def test_process_start_time_is_a_stable_token_for_self(tmp_path):
     first = process_start_time(os.getpid())
     assert isinstance(first, str) and first
     assert process_start_time(os.getpid()) == first  # stable across calls
+
+
+def test_local_backend_warns_it_is_not_isolated(tmp_path, caplog):
+    """Selecting the local backend logs that it provides no isolation."""
+    import gimle.hugin.sandbox.local as local_mod
+
+    local_mod._isolation_warned = False  # arm the one-shot warning
+    with caplog.at_level("WARNING", logger="gimle.hugin.sandbox.local"):
+        LocalSandbox(SPEC, session_id="warn", workspace_root=str(tmp_path))
+    assert any("NO isolation" in record.message for record in caplog.records)
