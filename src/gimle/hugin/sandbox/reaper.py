@@ -19,11 +19,22 @@ import json
 import logging
 import os
 import shutil
-from typing import Callable, List
+from dataclasses import dataclass
+from typing import Callable, List, Optional
 
 from gimle.hugin.sandbox.local import OWNER_FILE
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class WorkspaceInfo:
+    """A local sandbox workspace as seen by the reaper/CLI."""
+
+    name: str
+    pid: Optional[int]
+    alive: bool
+    age_s: float
 
 
 def _pid_alive(pid: int) -> bool:
@@ -96,3 +107,29 @@ def reap_local_workspaces(
     if reaped:
         logger.info("reaped %d abandoned sandbox workspace(s)", len(reaped))
     return reaped
+
+
+def list_local_workspaces(
+    workspace_root: str,
+    *,
+    now: float,
+    pid_alive: Callable[[int], bool] = _pid_alive,
+) -> List[WorkspaceInfo]:
+    """Describe each session workspace under ``workspace_root`` (for the CLI)."""
+    if not os.path.isdir(workspace_root):
+        return []
+    infos: List[WorkspaceInfo] = []
+    for name in sorted(os.listdir(workspace_root)):
+        session_dir = os.path.join(workspace_root, name)
+        if not os.path.isdir(session_dir):
+            continue
+        pid = _owner_pid(session_dir)
+        infos.append(
+            WorkspaceInfo(
+                name=name,
+                pid=pid,
+                alive=pid_alive(pid) if pid is not None else False,
+                age_s=now - os.path.getmtime(session_dir),
+            )
+        )
+    return infos

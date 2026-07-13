@@ -22,7 +22,11 @@ from gimle.hugin.sandbox.policy import (
     Policy,
     evaluate,
 )
-from gimle.hugin.sandbox.reaper import reap_local_workspaces
+from gimle.hugin.sandbox.reaper import (
+    WorkspaceInfo,
+    list_local_workspaces,
+    reap_local_workspaces,
+)
 from gimle.hugin.sandbox.sandbox import (
     ExecResult,
     PolicyDenied,
@@ -44,7 +48,9 @@ __all__ = [
     "Sandbox",
     "SandboxManager",
     "SandboxSpec",
+    "WorkspaceInfo",
     "create_sandbox",
     "evaluate",
+    "list_local_workspaces",
     "reap_local_workspaces",
 ]
