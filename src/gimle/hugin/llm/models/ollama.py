@@ -1018,6 +1018,16 @@ TEMPERATURE:\n{self.temperature}"""
         logging.debug(f"Token usage {input_tokens=} {output_tokens=}")
 
         if response.message.tool_calls:
+            # Single-tool-call by construction (ModelResponse carries one).
+            # Keep the first deterministically; warn rather than silently
+            # dropping any extra a local model returned.
+            if len(response.message.tool_calls) > 1:
+                logging.warning(
+                    "Ollama returned %d tool calls; kept the first, "
+                    "dropped %d",
+                    len(response.message.tool_calls),
+                    len(response.message.tool_calls) - 1,
+                )
             tool_call = response.message.tool_calls[0]
 
             # Handle both dictionary format (from our parsing) and object format (from Ollama)
