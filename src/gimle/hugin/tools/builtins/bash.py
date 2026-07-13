@@ -38,11 +38,17 @@ files there — each call is a FRESH shell, so `cd`, `export`, `source`, and \
 background jobs do NOT carry over between calls. Use the `cwd` argument to run \
 in a subdirectory for a single call.
 
-Large output is truncated (tail-biased); the full output is written to \
-`.hugin/last_output.txt` in your workspace — inspect it with `rg` or `sed -n`. \
-A non-zero exit code is normal information (e.g. `grep` finding no matches), \
-not a tool failure. A command refused by policy comes back with a `denied` \
-reason — that is information, so try a permitted alternative."""
+Commands are killed after ~15s by default; pass a larger `timeout_s` for a \
+slow command (a build, a test run). Only the last few command outputs stay \
+visible to you — write anything you need to keep into a file.
+
+Large output is truncated (tail-biased); when that happens the response \
+carries a `full_output` path (`.hugin/last_output.txt`) holding the complete \
+output — inspect it with `rg` or `sed -n`. A non-zero exit code is normal \
+information (e.g. `grep` finding no matches), not a tool failure. A command \
+refused by policy comes back with a `denied` reason — try a permitted \
+alternative; an `unparseable` reason means the guard's parser choked, so \
+rephrase the command (avoid `[[ ]]`, `$(( ))`, arrays)."""
 
 
 @Tool.register(
@@ -59,6 +65,12 @@ reason — that is information, so try a permitted alternative."""
             "description": "Optional subdirectory of the workspace to run in.",
             "required": False,
         },
+        "timeout_s": {
+            "type": "integer",
+            "description": "Optional per-command timeout in seconds for a slow "
+            "command (default ~15s, capped by policy).",
+            "required": False,
+        },
     },
     is_interactive=False,
     options={
@@ -72,6 +84,7 @@ def bash(
     command: str,
     stack: Optional["Stack"] = None,
     cwd: Optional[str] = None,
+    timeout_s: Optional[int] = None,
     branch: Optional[str] = None,
 ) -> ToolResponse:
     """Run ``command`` in the agent's sandbox and map the outcome for the model.
@@ -80,11 +93,13 @@ def bash(
         command: The shell command to run.
         stack: Injected agent stack (gives config, session, env_vars, agent id).
         cwd: Optional workspace-relative subdirectory to run in.
+        timeout_s: Optional per-command timeout; clamped to the policy ceiling.
         branch: Injected branch, so branches get isolated working directories.
 
     Returns:
         A ToolResponse. ``is_error`` is set only for a policy denial, a timeout,
-        or an infrastructure failure — never for a plain non-zero exit.
+        an out-of-memory kill, or an infrastructure failure — never for a plain
+        non-zero exit.
     """
     if stack is None:
         return ToolResponse(
@@ -171,12 +186,17 @@ def bash(
             content={"error": f"cwd escapes the workspace: {cwd}"},
         )
 
+    requested_timeout = (
+        timeout_s
+        if timeout_s is not None and timeout_s > 0
+        else policy.timeout_s
+    )
     try:
         result = sandbox.exec(
             command,
             policy=policy,
             cwd=effective_cwd,
-            timeout_s=policy.timeout_s,
+            timeout_s=requested_timeout,  # sandbox clamps to policy.max_timeout_s
             max_output_bytes=policy.max_output_bytes,
         )
     except PolicyDenied as denied:  # backstop; pre-check should have caught it
@@ -277,16 +297,22 @@ def _resolve_cwd(workspace: str, cwd: Optional[str]) -> Optional[str]:
 
 def _to_response(command: str, result: ExecResult) -> ToolResponse:
     """Map an ExecResult to a ToolResponse (see the module docstring on errors)."""
+    content: Dict[str, Any] = {
+        "command": command,
+        "exit_code": result.exit_code,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+        "duration_s": round(result.duration_s, 3),
+        "truncated": result.truncated,
+        "timed_out": result.timed_out,
+        "oom_killed": result.oom_killed,
+    }
+    if result.truncated:
+        # Point the model at the spill so it can read past the cap instead of
+        # re-running with a guessed filter. Path is relative to the command cwd.
+        content["full_output"] = ".hugin/last_output.txt"
+    # An OOM kill returns partial output for a process that did not finish — it
+    # is an error the model must react to, like a timeout (not a plain exit).
     return ToolResponse(
-        is_error=result.timed_out,
-        content={
-            "command": command,
-            "exit_code": result.exit_code,
-            "stdout": result.stdout,
-            "stderr": result.stderr,
-            "duration_s": round(result.duration_s, 3),
-            "truncated": result.truncated,
-            "timed_out": result.timed_out,
-            "oom_killed": result.oom_killed,
-        },
+        is_error=result.timed_out or result.oom_killed, content=content
     )
