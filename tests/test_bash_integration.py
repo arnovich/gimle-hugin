@@ -24,8 +24,9 @@ def _seed_real_sandbox(agent, tmp_path):
     sandbox = LocalSandbox(
         SPEC, session_id=agent.session.id, workspace_root=str(tmp_path)
     )
-    manager = SandboxManager(SPEC, agent.session.id, sandbox=sandbox)
-    agent.session.environment.env_vars["sandbox"] = manager
+    agent.session.sandbox = SandboxManager(
+        SPEC, agent.session.id, sandbox=sandbox
+    )
 
 
 def test_bash_runs_a_real_command_through_execute_tool(mock_agent, tmp_path):

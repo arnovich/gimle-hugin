@@ -159,16 +159,18 @@ def _resolve_manager(
 ) -> SandboxManager:
     """Return the session's SandboxManager, creating and caching it if absent.
 
-    A pre-seeded ``env_vars['sandbox']`` (an app, or a test) wins; otherwise the
-    manager is built from ``options.bash`` and cached for the session.
+    The session owns the sandbox (``session.sandbox``) so there is a single,
+    typed owner that ``Session.close`` can tear down — a pre-created one (an
+    app, or a test) wins; otherwise it is built from ``options.bash`` and
+    cached on the session.
     """
-    env_vars = stack.agent.environment.env_vars
-    manager = env_vars.get("sandbox")
+    session = stack.agent.session
+    manager = getattr(session, "sandbox", None)
     if manager is not None:
         return cast(SandboxManager, manager)
     spec = SandboxSpec.from_dict(bash_opts)
-    manager = SandboxManager(spec, stack.agent.session.id)
-    env_vars["sandbox"] = manager
+    manager = SandboxManager(spec, session.id)
+    session.sandbox = manager
     return manager
 
 

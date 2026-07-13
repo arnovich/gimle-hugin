@@ -16,12 +16,10 @@ from gimle.hugin.tools.builtins.bash import bash
 LOCAL = SandboxSpec(backend="local")
 
 
-def _stack(config_options=None, env_vars=None):
+def _stack(config_options=None, sandbox_manager=None):
     """Build a minimal stack exposing just what the bash tool reads."""
-    environment = SimpleNamespace(
-        env_vars=env_vars if env_vars is not None else {}
-    )
-    session = SimpleNamespace(id="session-1")
+    environment = SimpleNamespace(env_vars={})
+    session = SimpleNamespace(id="session-1", sandbox=sandbox_manager)
     config = SimpleNamespace(options=config_options or {})
     agent = SimpleNamespace(
         id="agent-a",
@@ -33,9 +31,9 @@ def _stack(config_options=None, env_vars=None):
 
 
 def _stack_with_fake(fake, config_options=None):
-    """Build a stack whose env_vars holds a manager wrapping ``fake``."""
+    """Build a stack whose session owns a manager wrapping ``fake``."""
     manager = SandboxManager(LOCAL, "session-1", sandbox=fake)
-    return _stack(config_options=config_options, env_vars={"sandbox": manager})
+    return _stack(config_options=config_options, sandbox_manager=manager)
 
 
 class TestResultMapping:
