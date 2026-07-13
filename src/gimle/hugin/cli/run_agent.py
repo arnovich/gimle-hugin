@@ -596,21 +596,26 @@ def run_interactive(
         print(f"    Monitor:   http://localhost:{monitor_port}")
     print()
 
-    step_count, last_error = run_steps_with_spinner(
-        step_fn=session.step,
-        save_fn=lambda: storage.save_session(session),
-        max_steps=max_steps,
-        prefix="    ",
-        clear_width=40,
-        session=session,
-        interactive=True,
-        step_delay=getattr(args, "step_delay", 0.0),
-    )
-    if last_error:
-        logging.error("Error during agent step", exc_info=last_error)
+    # Tear the session's sandbox down deterministically once stepping is over
+    # (or on an abrupt exit mid-step), rather than leaving it to the reaper.
+    try:
+        step_count, last_error = run_steps_with_spinner(
+            step_fn=session.step,
+            save_fn=lambda: storage.save_session(session),
+            max_steps=max_steps,
+            prefix="    ",
+            clear_width=40,
+            session=session,
+            interactive=True,
+            step_delay=getattr(args, "step_delay", 0.0),
+        )
+        if last_error:
+            logging.error("Error during agent step", exc_info=last_error)
 
-    # Final save
-    storage.save_session(session)
+        # Final save
+        storage.save_session(session)
+    finally:
+        session.close()
 
     # Show result on a new screen
     show_header("Agent Finished", f"Task: {task_name}")
@@ -1043,21 +1048,26 @@ Examples:
         print(f"Monitor:   run `hugin monitor -s {storage_path}`")
     print()
 
-    step_count, last_error = run_steps_with_spinner(
-        step_fn=session.step,
-        save_fn=lambda: storage.save_session(session),
-        max_steps=args.max_steps,
-        prefix="",
-        clear_width=30,
-        session=session,
-        interactive=not args.non_interactive,
-        step_delay=args.step_delay,
-    )
-    if last_error:
-        logging.error("Error during agent step", exc_info=last_error)
+    # Tear the session's sandbox down deterministically once stepping is over
+    # (or on an abrupt exit mid-step), rather than leaving it to the reaper.
+    try:
+        step_count, last_error = run_steps_with_spinner(
+            step_fn=session.step,
+            save_fn=lambda: storage.save_session(session),
+            max_steps=args.max_steps,
+            prefix="",
+            clear_width=30,
+            session=session,
+            interactive=not args.non_interactive,
+            step_delay=args.step_delay,
+        )
+        if last_error:
+            logging.error("Error during agent step", exc_info=last_error)
 
-    # Final save
-    storage.save_session(session)
+        # Final save
+        storage.save_session(session)
+    finally:
+        session.close()
 
     # Show result
     agent_word = "Agent" if len(session.agents) == 1 else "Agents"
