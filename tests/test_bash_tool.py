@@ -154,6 +154,45 @@ class TestWorkspaceRouting:
         assert fake.calls == []
 
 
+class TestAudit:
+    """Every command outcome is tallied in the session's audit counters."""
+
+    def test_run_is_counted(self):
+        """A completed command increments the ``run`` counter."""
+        fake = FakeSandbox(
+            ExecResult(exit_code=0, stdout="hi", stderr="", duration_s=0.1)
+        )
+        manager = SandboxManager(LOCAL, "session-1", sandbox=fake)
+        stack = _stack(sandbox_manager=manager)
+        bash("echo hi", stack=stack)
+        assert manager.audit.counters["run"] == 1
+
+    def test_denied_is_counted(self):
+        """A policy denial increments the ``denied`` counter, not ``run``."""
+        fake = FakeSandbox()
+        manager = SandboxManager(LOCAL, "session-1", sandbox=fake)
+        stack = _stack(sandbox_manager=manager)
+        bash("dd if=/dev/zero of=/dev/sda", stack=stack)
+        assert manager.audit.counters["denied"] == 1
+        assert manager.audit.counters["run"] == 0
+
+    def test_timeout_is_counted(self):
+        """A timed-out command increments the ``timed_out`` counter."""
+        fake = FakeSandbox(
+            ExecResult(
+                exit_code=-1,
+                stdout="",
+                stderr="",
+                duration_s=1.0,
+                timed_out=True,
+            )
+        )
+        manager = SandboxManager(LOCAL, "session-1", sandbox=fake)
+        stack = _stack(sandbox_manager=manager)
+        bash("sleep 99", stack=stack)
+        assert manager.audit.counters["timed_out"] == 1
+
+
 class TestSandboxResolution:
     """Building the sandbox from config when none is pre-seeded."""
 

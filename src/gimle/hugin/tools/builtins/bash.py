@@ -97,6 +97,7 @@ def bash(
 
     decision = evaluate(command, policy)
     if isinstance(decision, Deny):
+        _record(stack, command, "denied", reason=decision.reason)
         return ToolResponse(
             is_error=True,
             content={"denied": decision.reason, "command": command},
@@ -104,6 +105,7 @@ def bash(
     if isinstance(decision, Escalate):
         # Human-approval routing lands in phase 3; until then, refuse cleanly
         # rather than run an out-of-policy command.
+        _record(stack, command, "escalated", reason=decision.reason)
         return ToolResponse(
             is_error=True,
             content={
@@ -140,17 +142,29 @@ def bash(
             max_output_bytes=policy.max_output_bytes,
         )
     except PolicyDenied as denied:  # backstop; pre-check should have caught it
+        _record(stack, command, "denied", reason=denied.reason)
         return ToolResponse(
             is_error=True,
             content={"denied": denied.reason, "command": command},
         )
     except Exception as error:  # infrastructure failure (daemon down, etc.)
         logger.warning("bash infra failure: %s", error)
+        _record(stack, command, "infra_error", reason=str(error))
         return ToolResponse(
             is_error=True,
             content={"infra_error": str(error), "command": command},
         )
 
+    _record(
+        stack,
+        command,
+        "timed_out" if result.timed_out else "run",
+        exit_code=result.exit_code,
+        duration_s=round(result.duration_s, 3),
+        truncated=result.truncated,
+        timed_out=result.timed_out,
+        oom_killed=result.oom_killed,
+    )
     return _to_response(command, result)
 
 
@@ -169,9 +183,48 @@ def _resolve_manager(
     if manager is not None:
         return cast(SandboxManager, manager)
     spec = SandboxSpec.from_dict(bash_opts)
-    manager = SandboxManager(spec, session.id)
+    manager = SandboxManager(spec, session.id, record_audit_to_file=True)
     session.sandbox = manager
     return manager
+
+
+def _record(
+    stack: "Stack",
+    command: str,
+    outcome: str,
+    *,
+    exit_code: Optional[int] = None,
+    duration_s: Optional[float] = None,
+    truncated: bool = False,
+    timed_out: bool = False,
+    oom_killed: bool = False,
+    reason: Optional[str] = None,
+) -> None:
+    """Record an outcome in the session's audit, if a sandbox manager exists.
+
+    Denials can happen before the manager is built (no command has run yet); in
+    that rare case there is nothing to record to, so this is a no-op. Recording
+    is best-effort and must never disrupt the command result.
+    """
+    session = stack.agent.session
+    manager = getattr(session, "sandbox", None)
+    if manager is None:
+        return
+    try:
+        manager.audit.record(
+            session_id=session.id,
+            agent_id=stack.agent.id,
+            command=command,
+            outcome=outcome,
+            exit_code=exit_code,
+            duration_s=duration_s,
+            truncated=truncated,
+            timed_out=timed_out,
+            oom_killed=oom_killed,
+            reason=reason,
+        )
+    except Exception as error:  # audit must never break the tool
+        logger.debug("audit record failed: %s", error)
 
 
 def _resolve_cwd(workspace: str, cwd: Optional[str]) -> Optional[str]:
