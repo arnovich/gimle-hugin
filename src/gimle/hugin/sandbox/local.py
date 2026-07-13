@@ -16,8 +16,9 @@ import os
 import shutil
 import signal
 import subprocess
+import threading
 import time
-from typing import Dict, Optional
+from typing import Dict, List, Optional, Tuple
 
 from gimle.hugin.sandbox.policy import Allow, Policy, evaluate
 from gimle.hugin.sandbox.sandbox import (
@@ -33,6 +34,18 @@ logger = logging.getLogger(__name__)
 _SPILL_RELATIVE = os.path.join(".hugin", "last_output.txt")
 # Owner stamp read by the reaper to decide whether a workspace is abandoned.
 OWNER_FILE = ".hugin_owner.json"
+
+# Hard ceiling on output *buffered in this process* per command, across stdout
+# and stderr combined. The model only ever sees ``max_output_bytes`` after
+# truncation; this larger cap bounds parent memory (and the spill file) so a
+# runaway ``yes`` / ``cat /dev/zero`` cannot OOM the orchestrator before the
+# per-command truncation runs. Past it, the process group is killed.
+_MAX_CAPTURE_BYTES = 2_000_000
+
+# How long to wait, after killing the group, for the reader threads to drain
+# and the process to be reaped — bounded so an escaped child that ``setsid``'d
+# away and still holds the stdout pipe can never hang ``exec`` indefinitely.
+_DRAIN_GRACE_S = 0.5
 
 
 class LocalSandbox(Sandbox):
@@ -112,22 +125,22 @@ class LocalSandbox(Sandbox):
             env=env,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True,
             start_new_session=True,  # own process group, so we can kill it all
         )
-        timed_out = False
-        try:
-            stdout, stderr = proc.communicate(timeout=effective_timeout)
-        except subprocess.TimeoutExpired:
-            timed_out = True
-            self._kill_group(proc)
-            stdout, stderr = proc.communicate()
+        full_stdout, full_stderr, timed_out, capped = self._capture(
+            proc, effective_timeout
+        )
         duration = time.monotonic() - started
 
-        full_stdout, full_stderr = stdout or "", stderr or ""
+        if capped:
+            full_stderr += (
+                f"\n[hugin: output exceeded {_MAX_CAPTURE_BYTES} bytes; "
+                "process terminated]"
+            )
+
         out, out_trunc = truncate_output(full_stdout, max_output_bytes)
         err, err_trunc = truncate_output(full_stderr, max_output_bytes)
-        truncated = out_trunc or err_trunc
+        truncated = out_trunc or err_trunc or capped
         if truncated:
             self._spill(cwd, full_stdout, full_stderr)
 
@@ -141,6 +154,76 @@ class LocalSandbox(Sandbox):
             oom_killed=False,  # a bare subprocess cannot bound or detect OOM
         )
 
+    def _capture(
+        self, proc: "subprocess.Popen", timeout_s: int
+    ) -> Tuple[str, str, bool, bool]:
+        """Drain the process's output under a byte ceiling and a wall-clock cap.
+
+        Reads stdout and stderr concurrently into buffers bounded by
+        :data:`_MAX_CAPTURE_BYTES`, and kills the whole process group when the
+        command exceeds either the output ceiling or ``timeout_s``. After the
+        kill it waits only ``_DRAIN_GRACE_S`` for the readers, so a child that
+        escaped the group and still holds the pipe cannot block the caller.
+
+        Returns ``(stdout, stderr, timed_out, capped)``.
+        """
+        buffers: Dict[str, bytearray] = {"out": bytearray(), "err": bytearray()}
+        total = [0]
+        lock = threading.Lock()
+        capped = threading.Event()
+
+        def reader(stream: object, key: str) -> None:
+            try:
+                while True:
+                    chunk = stream.read(65536)  # type: ignore[attr-defined]
+                    if not chunk:
+                        break
+                    with lock:
+                        total[0] += len(chunk)
+                        room = _MAX_CAPTURE_BYTES - len(buffers[key])
+                        if room > 0:
+                            buffers[key].extend(chunk[:room])
+                        over = total[0] > _MAX_CAPTURE_BYTES
+                    if over:
+                        capped.set()
+            except (OSError, ValueError):  # pipe closed under us on kill
+                pass
+
+        threads: List[threading.Thread] = []
+        for stream, key in ((proc.stdout, "out"), (proc.stderr, "err")):
+            if stream is None:
+                continue
+            thread = threading.Thread(
+                target=reader, args=(stream, key), daemon=True
+            )
+            thread.start()
+            threads.append(thread)
+
+        timed_out = False
+        deadline = time.monotonic() + timeout_s
+        while True:
+            if proc.poll() is not None:
+                break
+            if capped.is_set():
+                break
+            if time.monotonic() >= deadline:
+                timed_out = True
+                break
+            time.sleep(0.02)
+
+        if proc.poll() is None:
+            self._kill_group(proc)
+        for thread in threads:
+            thread.join(timeout=_DRAIN_GRACE_S)
+        try:
+            proc.wait(timeout=1.0)
+        except subprocess.TimeoutExpired:  # escaped child; leave it to the OS
+            pass
+
+        stdout = bytes(buffers["out"]).decode("utf-8", "replace")
+        stderr = bytes(buffers["err"]).decode("utf-8", "replace")
+        return stdout, stderr, timed_out, capped.is_set()
+
     def _scrubbed_env(self, cwd: str) -> Dict[str, str]:
         """Build a minimal env: no inherited secrets, HOME in the workspace."""
         return {
@@ -152,11 +235,18 @@ class LocalSandbox(Sandbox):
 
     @staticmethod
     def _kill_group(proc: "subprocess.Popen") -> None:
-        """SIGKILL the command's whole process group (children included)."""
+        """SIGKILL the command's whole process group (children included).
+
+        ``start_new_session=True`` makes the child a group leader whose pgid
+        equals its pid, so we target ``proc.pid`` directly rather than
+        ``os.getpgid(proc.pid)`` — the latter raises if the leader has already
+        exited while group members remain, silently leaving them alive. The
+        unreaped process still holds its pid, so the group id is stable here.
+        """
         try:
-            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-        except ProcessLookupError:
-            pass  # already gone
+            os.killpg(proc.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass  # already gone, or not ours to kill
 
     def _spill(self, cwd: str, stdout: str, stderr: str) -> None:
         """Write full output to the workspace so the agent can read past the cap."""

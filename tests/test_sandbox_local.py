@@ -124,6 +124,29 @@ class TestTimeout:
         with pytest.raises(ProcessLookupError):
             os.kill(child_pid, 0)  # gone -> group kill worked
 
+    def test_escaped_child_does_not_hang_exec(self, sandbox):
+        """A child that setsid()'s away and holds the pipe cannot hang exec.
+
+        The old code drained with an un-timed communicate() after the kill, so
+        an escaped grandchild holding stdout blocked until it exited (30s here),
+        defeating the timeout. exec must return near the deadline regardless.
+        """
+        import time
+
+        start = time.monotonic()
+        # Trailing `; true` forces bash to fork python (rather than exec it in
+        # place), so python is a group member that can setsid() into its own
+        # session and escape the kill while holding the inherited stdout pipe.
+        result = sandbox.exec(
+            "python3 -c 'import os, time; os.setsid(); time.sleep(30)' ; true",
+            policy=Policy(),
+            cwd=_cwd(sandbox),
+            timeout_s=1,
+        )
+        elapsed = time.monotonic() - start
+        assert result.timed_out
+        assert elapsed < 8  # bounded drain, not blocked on the 30s sleep
+
 
 class TestOutputTruncation:
     """Output capping behaviour."""
@@ -148,6 +171,30 @@ class TestOutputTruncation:
             "echo small", policy=Policy(), cwd=_cwd(sandbox), timeout_s=10
         )
         assert not result.truncated
+
+    def test_runaway_output_is_capped_without_hanging(self, sandbox):
+        """Unbounded output is bounded in memory and the process is killed.
+
+        ``yes`` produces output forever; without a byte ceiling the parent
+        buffers it all and OOMs. The capture must stop it at the ceiling, well
+        before the (10s) timeout, and keep the model-facing output tiny.
+        """
+        import time
+
+        start = time.monotonic()
+        result = sandbox.exec(
+            "yes",
+            policy=Policy(max_output_bytes=300),
+            cwd=_cwd(sandbox),
+            timeout_s=10,
+            max_output_bytes=300,
+        )
+        elapsed = time.monotonic() - start
+        assert result.truncated
+        assert not result.timed_out  # killed for output, not for wall-clock
+        assert elapsed < 8
+        assert len(result.stdout.encode()) <= 600  # cap + marker slack
+        assert "output exceeded" in result.stderr
 
 
 class TestWorkspaces:
