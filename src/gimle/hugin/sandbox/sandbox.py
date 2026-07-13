@@ -13,9 +13,29 @@ a fake backend first.
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Literal, Optional
+from typing import Literal, Optional, Tuple
 
 from gimle.hugin.sandbox.policy import Policy
+
+
+def truncate_output(text: str, max_bytes: int) -> Tuple[str, bool]:
+    """Cap ``text`` at ``max_bytes``, tail-biased, with an elision marker.
+
+    Returns ``(text, truncated)``. The truncation keeps a small head (so the
+    reader sees where output began) and a larger tail — the actionable error
+    (a test failure, a traceback summary) is usually last. Shared by every
+    backend so the cap behaves identically regardless of where the command ran.
+    """
+    raw = text.encode("utf-8", "replace")
+    if len(raw) <= max_bytes:
+        return text, False
+    head_n = max_bytes // 5
+    tail_n = max_bytes - head_n
+    elided = len(raw) - head_n - tail_n
+    marker = f"\n[... {elided} bytes elided ...]\n"
+    head = raw[:head_n].decode("utf-8", "ignore")
+    tail = raw[len(raw) - tail_n :].decode("utf-8", "ignore")
+    return head + marker + tail, True
 
 
 class PolicyDenied(Exception):
