@@ -102,3 +102,80 @@ def test_list_describes_each_workspace(tmp_path):
     assert by_name["live"].pid == 222
     assert by_name["dead"].alive is False
     assert by_name["dead"].age_s == 200
+
+
+def _stamp(root, name, record, mtime=None):
+    """Create a session dir under root stamped with an arbitrary record."""
+    path = os.path.join(str(root), name)
+    os.makedirs(path)
+    with open(os.path.join(path, OWNER_FILE), "w") as handle:
+        json.dump(record, handle)
+    if mtime is not None:
+        os.utime(path, (mtime, mtime))
+    return path
+
+
+class TestPidReuseDisambiguation:
+    """The start-time token separates the true owner from a recycled PID."""
+
+    def test_reused_pid_is_reaped(self, tmp_path):
+        """A live PID with a DIFFERENT start time is not the owner — reaped."""
+        _stamp(tmp_path, "sess", {"pid": 222, "start_time": "OLD"})
+        reaped = reap_local_workspaces(
+            str(tmp_path),
+            now=NOW,
+            pid_alive=_only(222),
+            start_time_of=lambda pid: "NEW",
+        )
+        assert reaped == ["sess"]
+
+    def test_same_incarnation_is_kept(self, tmp_path):
+        """A live PID whose start time matches the stamp is the owner — kept."""
+        _stamp(tmp_path, "sess", {"pid": 222, "start_time": "SAME"})
+        reaped = reap_local_workspaces(
+            str(tmp_path),
+            now=NOW,
+            pid_alive=_only(222),
+            start_time_of=lambda pid: "SAME",
+        )
+        assert reaped == []
+        assert os.path.isdir(tmp_path / "sess")
+
+    def test_unknowable_start_time_keeps_workspace(self, tmp_path):
+        """When the start time can't be read now, err toward keeping."""
+        _stamp(tmp_path, "sess", {"pid": 222, "start_time": "OLD"})
+        reaped = reap_local_workspaces(
+            str(tmp_path),
+            now=NOW,
+            pid_alive=_only(222),
+            start_time_of=lambda pid: None,
+        )
+        assert reaped == []
+
+
+class TestCorruptStampIsHandled:
+    """A malformed owner stamp is tolerated, never crashing the sweep."""
+
+    def test_null_pid_does_not_crash_sweep(self, tmp_path):
+        """A null pid (int(None) -> TypeError) is treated as unstamped."""
+        _stamp(tmp_path, "bad", {"pid": None}, mtime=NOW - 3600)
+        _session_dir(tmp_path, "dead", pid=333)
+        reaped = reap_local_workspaces(str(tmp_path), now=NOW, pid_alive=_dead)
+        # Both go: the dead-owner one by PID, the null-pid one by age.
+        assert sorted(reaped) == ["bad", "dead"]
+
+    def test_vanished_dir_does_not_abort_listing(self, tmp_path):
+        """A directory removed mid-scan is skipped, not fatal, for the lister."""
+        _session_dir(tmp_path, "gone", pid=333, mtime=NOW - 10)
+
+        def racing_pid_alive(pid):
+            # Simulate a concurrent reaper removing the dir mid-scan.
+            import shutil
+
+            shutil.rmtree(tmp_path / "gone", ignore_errors=True)
+            return False
+
+        infos = list_local_workspaces(
+            str(tmp_path), now=NOW, pid_alive=racing_pid_alive
+        )
+        assert infos == []  # skipped cleanly, no exception
