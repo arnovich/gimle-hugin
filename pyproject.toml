@@ -19,6 +19,7 @@ authors = [{name = "gimlelabs", email = "noreply@github.com"}]
 keywords = ["agents", "agentic-framework", "llm", "ai", "anthropic"]
 dependencies = [
     "anthropic>=0.72.0",
+    "bashlex>=0.18",
     "jinja2>=3.1.6",
     "markdown>=3.7.0",
     "ollama>=0.6.1",
