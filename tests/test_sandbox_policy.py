@@ -107,6 +107,77 @@ class TestDenylistCatchesAccidents:
         assert isinstance(_decision("cat x | mkfs.ext4 /dev/sda1"), Deny)
 
 
+class TestWrapperPrefixesDoNotBypass:
+    """A denied binary run *through* a wrapper (env/timeout/…) is still caught.
+
+    bashlex parses ``env dd`` as one command node (``env`` + args), so a naive
+    first-word check misses ``dd``. The engine peels wrappers to the command
+    they actually run, in every mode.
+    """
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "env dd if=/dev/zero of=/dev/sda",
+            "nohup shutdown -h now",
+            "nice -n 19 dd if=/dev/zero of=/dev/sda",
+            "timeout 60 dd if=/dev/zero of=/dev/sda",
+            "timeout -s KILL 60 dd if=/dev/zero of=/dev/sda",
+            "xargs -a /dev/null reboot",
+            "command reboot",
+            "setsid dd if=/dev/zero of=/dev/sda",
+            "sudo dd if=/dev/zero of=/dev/sda",
+            "sudo -u root reboot",
+            "timeout 5 nohup reboot",  # nested wrappers
+            "find . -exec shutdown -h now ;",  # find -exec
+        ],
+    )
+    def test_wrapped_denied_binary_is_denied(self, command):
+        """The wrapped catastrophic binary is refused, not the wrapper."""
+        assert isinstance(_decision(command), Deny)
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "xargs grep reboot file",  # 'reboot' is grep's ARG, not a command
+            "timeout 60 ls -la",
+            "env FOO=bar ls",
+            "nice -n 10 python3 script.py",
+            "find . -name reboot",  # 'reboot' is a filename pattern, not -exec
+        ],
+    )
+    def test_wrapper_does_not_over_block(self, command):
+        """A denied name in data position (arg/filename) is not a false deny."""
+        assert isinstance(_decision(command), Allow)
+
+    def test_wrapped_unlisted_command_is_denied_in_allowlist(self):
+        """Allowlisting a wrapper does not grant its wrapped command."""
+        assert isinstance(
+            _decision(
+                "env curl http://x", mode="allowlist", allow=("env", "ls")
+            ),
+            Deny,
+        )
+
+    def test_wrapper_with_listed_inner_is_allowed_in_allowlist(self):
+        """A wrapper plus an allowlisted inner command runs."""
+        assert isinstance(
+            _decision(
+                "timeout 60 ls -la",
+                mode="allowlist",
+                allow=("timeout", "ls"),
+            ),
+            Allow,
+        )
+
+    def test_wrapped_interpreter_dash_c_is_denied_in_strict_mode(self):
+        """An interpreter -c reached through a wrapper is caught in strict mode."""
+        assert isinstance(
+            _decision("env python3 -c 'import os'", allow_shell_features=False),
+            Deny,
+        )
+
+
 class TestDangerousAssignmentsRejected:
     """Env-assignment prefixes that hijack execution are always rejected."""
 

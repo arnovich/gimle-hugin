@@ -18,16 +18,33 @@ What the engine guarantees:
 - **Fails closed:** a command ``bashlex`` cannot parse is denied, never allowed.
 - **Walks the whole AST:** a denied binary hidden behind ``&&``/``|`` or inside
   ``$(...)`` is still found.
+- **Peels wrappers:** a denied binary run *through* a wrapper that executes its
+  argument (``env dd``, ``timeout 60 dd``, ``nice -n 19 dd``, ``xargs … reboot``,
+  ``sudo reboot``, ``find … -exec shutdown``) is resolved to the command it
+  actually runs and judged as that command — in every mode. This is best-effort
+  on exotic flag grammars, not bulletproof; the runtime is still the boundary.
 - **Rejects execution-hijacking assignments** (``LD_PRELOAD`` and friends) on
   every backend.
 - **Opt-in strict mode** (``allow_shell_features=False``) additionally blocks
-  the shell escape hatches (command/process substitution, ``eval``/``source``,
-  interpreter ``-c``, and wrappers like ``timeout`` that run their argument).
+  the shell escape hatches: command/process substitution, ``eval``/``source``,
+  and running an interpreter with ``-c``/``-e`` — including when that
+  interpreter is reached through a wrapper (``env python3 -c …``).
 """
 
 import logging
+import re
 from dataclasses import dataclass, field, fields
-from typing import Any, Dict, Iterator, List, Literal, Optional, Tuple, Union
+from typing import (
+    Any,
+    Dict,
+    FrozenSet,
+    Iterator,
+    List,
+    Literal,
+    Optional,
+    Tuple,
+    Union,
+)
 
 import bashlex
 
@@ -128,8 +145,9 @@ _INTERPRETERS = frozenset(
     }
 )
 
-# Binaries that run their argument as a command, so a nested interpreter must be
-# looked through in strict mode.
+# Binaries that run one of their arguments as a command. A denied binary run
+# through one of these must be looked through — the wrapper is peeled down to
+# the command it actually executes (``env dd`` -> ``dd``).
 _WRAPPERS = frozenset(
     {
         "timeout",
@@ -144,8 +162,39 @@ _WRAPPERS = frozenset(
         "time",
         "chrt",
         "watch",
+        "sudo",
+        "doas",
     }
 )
+
+# Per-wrapper option flags that consume the *following* token as their value,
+# so the peeler skips both and doesn't mistake the value for the command.
+_WRAPPER_VALUE_FLAGS: Dict[str, FrozenSet[str]] = {
+    "timeout": frozenset({"-s", "--signal", "-k", "--kill-after"}),
+    "nice": frozenset({"-n", "--adjustment"}),
+    "ionice": frozenset({"-c", "-n", "-p", "-u"}),
+    "xargs": frozenset(
+        {"-a", "-E", "-I", "-i", "-L", "-l", "-n", "-P", "-s", "-d"}
+    ),
+    "env": frozenset(
+        {"-u", "--unset", "-C", "--chdir", "-S", "--split-string"}
+    ),
+    "stdbuf": frozenset({"-i", "-o", "-e"}),
+    "watch": frozenset({"-n", "--interval"}),
+    "sudo": frozenset(
+        {"-u", "--user", "-g", "--group", "-p", "-C", "-U", "-r"}
+    ),
+    "doas": frozenset({"-u", "-C"}),
+}
+
+# Wrappers that take a leading POSITIONAL (non-flag) argument before the
+# command — ``timeout <duration> cmd``, ``chrt <priority> cmd``.
+_WRAPPER_POSITIONALS: Dict[str, int] = {"timeout": 1, "chrt": 1}
+
+# ``find`` primaries whose following token begins a command to run.
+_FIND_EXEC_PRIMARIES = frozenset({"-exec", "-execdir", "-ok", "-okdir"})
+
+_ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 
 
 # --- policy ---
@@ -323,6 +372,93 @@ def _has_interpreter_dash_c(ctx: _CommandContext) -> bool:
     return any(_base(w) in _INTERPRETERS for w in ctx.words)
 
 
+def _looks_like_assignment(token: str) -> bool:
+    """Report whether ``token`` is ``NAME=VALUE`` (an ``env`` inline assign)."""
+    return bool(_ASSIGNMENT_RE.match(token))
+
+
+def _peel_wrapper(ctx: _CommandContext) -> Optional[_CommandContext]:
+    """If ``ctx``'s head is a wrapper, return the command it actually runs.
+
+    Skips the wrapper's own option flags (and their values), ``env`` inline
+    assignments, and any leading positional (a ``timeout`` duration / ``chrt``
+    priority), leaving the wrapped command. Returns ``None`` if the head is not
+    a wrapper or nothing runnable remains.
+    """
+    if ctx.word is None:
+        return None
+    wrapper = _base(ctx.word)
+    if wrapper not in _WRAPPERS:
+        return None
+    value_flags: FrozenSet[str] = _WRAPPER_VALUE_FLAGS.get(wrapper, frozenset())
+    positionals = _WRAPPER_POSITIONALS.get(wrapper, 0)
+    args = ctx.args
+    i = 0
+    while i < len(args):
+        token = args[i]
+        if token == "--":  # explicit end of options
+            i += 1
+            break
+        if token.startswith("-"):
+            i += 1
+            if token in value_flags and i < len(args):
+                i += 1  # this flag consumes the next token as its value
+            continue
+        if wrapper == "env" and _looks_like_assignment(token):
+            i += 1
+            continue
+        if positionals > 0:
+            positionals -= 1
+            i += 1
+            continue
+        break
+    inner = args[i:]
+    if not inner:
+        return None
+    return _CommandContext(
+        word=inner[0], args=inner[1:], words=inner, assignments=[]
+    )
+
+
+def _resolve_chain(ctx: _CommandContext) -> List[_CommandContext]:
+    """Return ``ctx`` and each command it runs by peeling wrappers, outer first.
+
+    The depth bound is a guard against a pathological self-referential peel; a
+    real wrapper chain is only a few deep.
+    """
+    chain = [ctx]
+    current = ctx
+    for _ in range(10):
+        inner = _peel_wrapper(current)
+        if inner is None:
+            break
+        chain.append(inner)
+        current = inner
+    return chain
+
+
+def _base_deny_reason(base: str, policy: Policy) -> Optional[str]:
+    """Return the deny reason for a bare command basename (mkfs / deny-set)."""
+    if base == "mkfs" or base.startswith("mkfs."):
+        return f"{base} is denied (destroys filesystems)"
+    if base in DEFAULT_DENY or base in policy.deny:
+        return f"{base} is denied"
+    return None
+
+
+def _find_exec_reason(ctx: _CommandContext, policy: Policy) -> Optional[str]:
+    """Return the deny reason for a ``find … -exec <denied>`` primary, if any."""
+    if ctx.word is None or _base(ctx.word) != "find":
+        return None
+    args = ctx.args
+    for index, token in enumerate(args):
+        if token in _FIND_EXEC_PRIMARIES and index + 1 < len(args):
+            reason = _base_deny_reason(_base(args[index + 1]), policy)
+            if reason is not None:
+                return f"{reason} (via find -exec)"
+    return None
+
+
 # --- evaluation ---
 
 
@@ -371,6 +507,7 @@ def evaluate(command: str, policy: Policy) -> Decision:
             )
 
     for ctx in commands:
+        # Shell assignments prefix the outer command, so check them on ``ctx``.
         for assignment in ctx.assignments:
             name = assignment.split("=", 1)[0]
             if name in DANGEROUS_ASSIGNMENTS:
@@ -378,13 +515,20 @@ def evaluate(command: str, policy: Policy) -> Decision:
                     policy, f"dangerous environment assignment: {name}"
                 )
 
+        # Peel wrappers so the rest of the rules see the command actually run.
+        chain = _resolve_chain(ctx)
+        effective = chain[-1]
+
         if not policy.allow_shell_features:
-            if ctx.word is not None and _base(ctx.word) in _SHELL_ESCAPE_WORDS:
+            if (
+                effective.word is not None
+                and _base(effective.word) in _SHELL_ESCAPE_WORDS
+            ):
                 return _violation(
                     policy,
-                    f"'{ctx.word}' is disabled in strict mode",
+                    f"'{effective.word}' is disabled in strict mode",
                 )
-            if _has_interpreter_dash_c(ctx):
+            if _has_interpreter_dash_c(effective):
                 return _violation(
                     policy,
                     "running an interpreter with -c/-e is disabled in "
@@ -392,12 +536,19 @@ def evaluate(command: str, policy: Policy) -> Decision:
                 )
 
         if policy.mode == "allowlist":
-            if ctx.word is not None and _base(ctx.word) not in policy.allow:
-                return _violation(
-                    policy, f"command not in allowlist: {ctx.word}"
-                )
+            # Both the wrapper(s) and the wrapped command must be allowlisted.
+            for node in chain:
+                if (
+                    node.word is not None
+                    and _base(node.word) not in policy.allow
+                ):
+                    return _violation(
+                        policy, f"command not in allowlist: {node.word}"
+                    )
         else:  # denylist
-            reason = _denylist_reason(ctx, policy)
+            reason = _denylist_reason(effective, policy)
+            if reason is None:
+                reason = _find_exec_reason(effective, policy)
             if reason is not None:
                 return _violation(policy, reason)
 
@@ -408,10 +559,9 @@ def _denylist_reason(ctx: _CommandContext, policy: Policy) -> Optional[str]:
     if ctx.word is None:
         return None
     base = _base(ctx.word)
-    if base == "mkfs" or base.startswith("mkfs."):
-        return f"{base} is denied (destroys filesystems)"
-    if base in DEFAULT_DENY or base in policy.deny:
-        return f"{base} is denied"
+    reason = _base_deny_reason(base, policy)
+    if reason is not None:
+        return reason
     if base == "rm" and _is_dangerous_rm(ctx.args):
         return "rm with a recursive force on a top-level target is denied"
     if base == "git" and _is_force_push(ctx.args):
