@@ -192,3 +192,16 @@ def test_stop_is_idempotent(tmp_path):
     box.start()
     box.stop()
     box.stop()
+
+
+def test_start_writes_owner_stamp(tmp_path):
+    """start() stamps the workspace with the current PID for the reaper."""
+    import json
+
+    from gimle.hugin.sandbox.local import OWNER_FILE
+
+    box = LocalSandbox(SPEC, session_id="s", workspace_root=str(tmp_path))
+    box.start()
+    stamp = tmp_path / "s" / OWNER_FILE
+    assert stamp.exists()
+    assert json.loads(stamp.read_text())["pid"] == os.getpid()

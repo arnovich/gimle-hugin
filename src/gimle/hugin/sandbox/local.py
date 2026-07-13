@@ -10,6 +10,7 @@ contain a determined command, stop ``/dev/tcp`` egress — is the container's jo
 not this backend's.
 """
 
+import json
 import logging
 import os
 import shutil
@@ -30,6 +31,8 @@ from gimle.hugin.sandbox.sandbox import (
 logger = logging.getLogger(__name__)
 
 _SPILL_RELATIVE = os.path.join(".hugin", "last_output.txt")
+# Owner stamp read by the reaper to decide whether a workspace is abandoned.
+OWNER_FILE = ".hugin_owner.json"
 
 
 class LocalSandbox(Sandbox):
@@ -51,8 +54,24 @@ class LocalSandbox(Sandbox):
     # -- lifecycle --
 
     def start(self) -> None:
-        """Create the session workspace root. Idempotent."""
+        """Create the session workspace root and stamp its owner. Idempotent."""
         os.makedirs(self._session_root, exist_ok=True)
+        self._write_owner_stamp()
+
+    def _write_owner_stamp(self) -> None:
+        """Record the owning PID so the reaper can spot an abandoned workspace.
+
+        Written once (the created time is preserved across restarts) and
+        best-effort — a workspace we cannot stamp is simply reaped by age.
+        """
+        stamp = os.path.join(self._session_root, OWNER_FILE)
+        if os.path.exists(stamp):
+            return
+        try:
+            with open(stamp, "w", encoding="utf-8") as handle:
+                json.dump({"pid": os.getpid(), "created": time.time()}, handle)
+        except OSError as error:  # best-effort; the reaper falls back to age
+            logger.debug("could not write owner stamp: %s", error)
 
     def stop(self) -> None:
         """No persistent resource to release. Idempotent, safe if unstarted."""
