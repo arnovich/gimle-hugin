@@ -1,0 +1,20 @@
+name: explore
+description: Explore the workspace and report what is there
+system_template: bash_system
+llm_model: sonnet-latest
+parameters:
+  goal:
+    type: string
+    description: What to do in the workspace
+    required: false
+    default: >-
+      Create a file notes.txt containing the text "hello from bash", then read
+      it back to confirm its contents.
+prompt: |
+  {{ goal.value }}
+
+  Use the bash tool to accomplish this. When done, call the finish tool with a
+  short summary of what you did.
+tools:
+  - builtins.bash:bash
+  - builtins.finish:finish

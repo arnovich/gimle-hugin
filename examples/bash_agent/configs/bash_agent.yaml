@@ -1,0 +1,19 @@
+name: bash_agent
+description: An agent that can run shell commands in a sandboxed workspace
+system_template: bash_system
+llm_model: sonnet-latest
+tools:
+  - builtins.bash:bash
+  - builtins.finish:finish
+interactive: false
+options:
+  bash:
+    # Where the shell runs. `local` has NO isolation boundary — it runs on the
+    # host. That is acceptable for this example (a trusted, illustrative task);
+    # for untrusted work choose the `docker` or `ssh` backend instead.
+    backend: local
+    policy:
+      # Permissive denylist: a guardrail against accidents, not a security
+      # boundary. The runtime is the boundary — see tasks/open/023-bash-tool.
+      mode: denylist
+      timeout_s: 15

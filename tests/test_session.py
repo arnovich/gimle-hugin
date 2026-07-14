@@ -15,9 +15,50 @@ from gimle.hugin.interaction.ask_oracle import AskOracle
 from gimle.hugin.interaction.task_definition import TaskDefinition
 from gimle.hugin.interaction.tool_result import ToolResult
 from gimle.hugin.llm.prompt.prompt import Prompt
+from gimle.hugin.sandbox import FakeSandbox, SandboxManager, SandboxSpec
 from gimle.hugin.tools.tool import Tool
 
 from .memory_storage import MemoryStorage
+
+
+class TestSessionClose:
+    """The session-owned sandbox teardown seam."""
+
+    def _session_with_sandbox(self):
+        session = Session(environment=Environment())
+        fake = FakeSandbox()
+        session.sandbox = SandboxManager(
+            SandboxSpec(backend="local"), session.id, sandbox=fake
+        )
+        session.sandbox.get()  # start the backend
+        return session, fake
+
+    def test_close_stops_the_sandbox_and_clears_it(self):
+        """close() tears down the sandbox and drops the reference."""
+        session, fake = self._session_with_sandbox()
+        session.close()
+        assert fake.stopped
+        assert session.sandbox is None
+
+    def test_close_is_idempotent(self):
+        """close() twice, and on a session that never made a sandbox, is safe."""
+        session, _ = self._session_with_sandbox()
+        session.close()
+        session.close()  # no error on the second call
+        Session(environment=Environment()).close()  # never had a sandbox
+
+    def test_context_manager_closes_on_exit(self):
+        """Leaving a `with Session(...)` block tears the sandbox down."""
+        session = Session(environment=Environment())
+        fake = FakeSandbox()
+        session.sandbox = SandboxManager(
+            SandboxSpec(backend="local"), session.id, sandbox=fake
+        )
+        session.sandbox.get()
+        with session:
+            assert session.sandbox is not None
+        assert fake.stopped
+        assert session.sandbox is None
 
 
 class TestSessionBasic:

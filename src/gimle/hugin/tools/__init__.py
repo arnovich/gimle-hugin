@@ -2,6 +2,7 @@
 
 # Import tools to register them
 from gimle.hugin.tools.builtins.ask_user import ask_user  # noqa: F401
+from gimle.hugin.tools.builtins.bash import bash  # noqa: F401
 from gimle.hugin.tools.builtins.finish import finish_tool  # noqa: F401
 from gimle.hugin.tools.builtins.launch_agent import launch_agent  # noqa: F401
 from gimle.hugin.tools.builtins.list_agents import list_agents  # noqa: F401
