@@ -12,6 +12,7 @@ from gimle.hugin.utils.uuid import with_uuid
 if TYPE_CHECKING:
     from gimle.hugin.agent.task import Task
     from gimle.hugin.interaction.interaction import Interaction
+    from gimle.hugin.sandbox.manager import SandboxManager
     from gimle.hugin.storage.storage import Storage
 
 logger = logging.getLogger(__name__)
@@ -44,6 +45,9 @@ class Session:
         # Update state's session reference if it was passed in without one
         if self.state._session is None:
             self.state._session = self
+        # The session owns at most one sandbox (the bash tool creates it lazily
+        # on first use). Not serialized: a resumed session recreates it.
+        self.sandbox: Optional["SandboxManager"] = None
 
     @property
     def id(self) -> str:
@@ -193,6 +197,26 @@ class Session:
         if self.storage:
             self.storage.save_session(self)
         return step_count
+
+    def close(self) -> None:
+        """Release session-owned resources (currently the sandbox).
+
+        Idempotent and safe to call on a session that never created a sandbox.
+        This is the in-process teardown seam; because it is skipped on an
+        abrupt exit (SIGKILL, laptop sleep), it is a complement to — not a
+        replacement for — the out-of-band reaper.
+        """
+        if self.sandbox is not None:
+            self.sandbox.close()
+            self.sandbox = None
+
+    def __enter__(self) -> "Session":
+        """Enter a context that guarantees ``close`` on exit."""
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        """Close the session when leaving the context."""
+        self.close()
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize the session to a dictionary.
