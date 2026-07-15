@@ -16,19 +16,26 @@ tracked rather than lost.
 
 ## Phase 2 design (do before docker/ssh backends land)
 
-- [ ] **Per-spec (or per-agent) sandbox ownership.** *(architect, HIGH for
-  phase 2)* Today `session.sandbox` is a single manager built first-writer-wins
+**Status:** the three de-risking foundation items — per-spec ownership, the
+backend registry, and the storage-derived sandbox root — landed together on
+branch `bash_sandbox_phase2_foundation`. The remaining items below are still
+open.
+
+- [x] **Per-spec (or per-agent) sandbox ownership.** *(architect, HIGH for
+  phase 2)* ~~Today `session.sandbox` is a single manager built first-writer-wins
   from whichever agent runs bash first; a second agent's differing spec
   (`backend: docker`, `network: false`, cpu/memory caps) is silently ignored, so
-  an agent's isolation is decided by call order. Move to
-  `session.sandboxes: Dict[SandboxSpec, SandboxManager]` (or per-agent), all torn
-  down in `Session.close`. Cheap interim guard: reject a second, differing spec
-  with a clear error instead of silently reusing the first.
-- [ ] **Backend selection via a registry, not a hardcoded enum + if/elif.**
-  *(architect, MEDIUM)* `create_sandbox` / `SandboxSpec.backend`
+  an agent's isolation is decided by call order.~~ **Done** (branch
+  `bash_sandbox_phase2_foundation`): `session.sandboxes: Dict[SandboxSpec,
+  SandboxManager]`; the tool resolves the manager for the calling agent's own
+  spec, same-spec agents share a backend, all are torn down in `Session.close`.
+- [x] **Backend selection via a registry, not a hardcoded enum + if/elif.**
+  *(architect, MEDIUM)* ~~`create_sandbox` / `SandboxSpec.backend`
   `Literal["local","docker","ssh"]` bypass the framework's `Registry` idiom; a
-  third-party backend can't be added without editing core. Register backends
-  (lazy-import thunks) keyed by name.
+  third-party backend can't be added without editing core.~~ **Done** (branch
+  `bash_sandbox_phase2_foundation`): backends are registered as lazy-import
+  loader thunks keyed by name (`register_backend` / `registered_backends`);
+  `SandboxSpec.backend` is a free `str` validated against the registry.
 - [ ] **`put_file`/`get_file` need agent context.** *(architect, MEDIUM)* They
   take no agent/branch and `_confine` resolves against the *session* root, while
   `exec` cwd is agent-scoped — three confinement scopes under one "workspace"
@@ -71,11 +78,15 @@ tracked rather than lost.
   files accumulate for the session lifetime (reaper is session-granularity).
   Rotate the audit by size; reap idle agent/branch subdirs or at least account
   their size.
-- [ ] **Derive the sandbox root from session storage.** *(SRE/architect,
-  MEDIUM)* `"./storage/sandboxes"` is duplicated in four places and is cwd-
+- [x] **Derive the sandbox root from session storage.** *(SRE/architect,
+  MEDIUM)* ~~`"./storage/sandboxes"` is duplicated in four places and is cwd-
   relative, decoupled from `--storage-path`; run from a different dir or with a
-  custom storage path and the self-heal reaper never finds the workspaces. Thread
-  one root from `Environment`/storage config.
+  custom storage path and the self-heal reaper never finds the workspaces.~~
+  **Done** (branch `bash_sandbox_phase2_foundation`): a single
+  `sandbox_root_for(storage_base)` derives `<base>/sandboxes` from the session's
+  storage base path; the bash tool and the CLI reaper both call it, so a custom
+  `--storage-path` run keeps its sandboxes with its sessions and the reaper
+  finds them.
 
 ## Usability / low severity
 
