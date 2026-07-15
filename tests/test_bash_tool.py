@@ -18,10 +18,22 @@ LOCAL = SandboxSpec(backend="local")
 
 
 def _stack(config_options=None, sandbox_manager=None):
-    """Build a minimal stack exposing just what the bash tool reads."""
+    """Build a minimal stack exposing just what the bash tool reads.
+
+    When a ``sandbox_manager`` is pre-seeded, the config is given
+    ``backend: local`` so the tool resolves the same LOCAL spec the manager is
+    keyed by in ``session.sandboxes``.
+    """
+    opts = dict(config_options or {})
+    sandboxes = {}
+    if sandbox_manager is not None:
+        bash_opts = dict(opts.get("bash", {}))
+        bash_opts.setdefault("backend", "local")
+        opts["bash"] = bash_opts
+        sandboxes[LOCAL] = sandbox_manager
     environment = SimpleNamespace(env_vars={})
-    session = SimpleNamespace(id="session-1", sandbox=sandbox_manager)
-    config = SimpleNamespace(options=config_options or {})
+    session = SimpleNamespace(id="session-1", sandboxes=sandboxes)
+    config = SimpleNamespace(options=opts)
     agent = SimpleNamespace(
         id="agent-a",
         config=config,
@@ -245,6 +257,32 @@ class TestAudit:
         bash("sleep 99", stack=stack)
         assert manager.audit.counters["timed_out"] == 1
 
+    def test_audit_root_follows_session_storage(self, tmp_path):
+        """A built manager writes its audit under <storage-base>/sandboxes.
+
+        The tool derives the sandbox root from the session's storage, so a
+        custom storage path keeps sandboxes (and their audit) beside its
+        sessions rather than in a fixed ./storage/sandboxes.
+        """
+        storage = SimpleNamespace(base_path=tmp_path)
+        environment = SimpleNamespace(env_vars={}, storage=storage)
+        session = SimpleNamespace(
+            id="sess-x", sandboxes={}, environment=environment
+        )
+        config = SimpleNamespace(options={"bash": {"backend": "local"}})
+        agent = SimpleNamespace(
+            id="agent-a",
+            config=config,
+            session=session,
+            environment=environment,
+        )
+        stack = SimpleNamespace(agent=agent)
+
+        bash("dd if=/dev/zero of=/dev/sda", stack=stack)  # denied -> audited
+
+        audit = tmp_path / "sandboxes" / "sess-x" / ".hugin" / "audit.jsonl"
+        assert audit.is_file()
+
     def test_denied_first_command_is_audited_without_preseeded_manager(self):
         """A denial is recorded even when no backend has been built yet.
 
@@ -259,13 +297,86 @@ class TestAudit:
             response = bash("dd if=/dev/zero of=/dev/sda", stack=stack)
             assert response.is_error is True
             assert "denied" in response.content
-            assert stack.agent.session.sandbox is not None
-            assert stack.agent.session.sandbox.audit.counters["denied"] == 1
+            manager = stack.agent.session.sandboxes[LOCAL]
+            assert manager.audit.counters["denied"] == 1
         finally:  # the tool builds a real (unstarted) manager under ./storage
             shutil.rmtree(
                 os.path.join("./storage/sandboxes", "session-1"),
                 ignore_errors=True,
             )
+
+
+class TestPerSpecOwnership:
+    """A session owns one backend per spec — call order doesn't decide isolation."""
+
+    def test_agents_with_different_specs_use_their_own_backend(self):
+        """Agent B's command runs in B's backend, not whichever agent ran first.
+
+        Under the old single-sandbox model, the first agent to run bash fixed
+        the backend for the whole session, silently downgrading a later agent's
+        isolation. Here each distinct spec gets its own manager.
+        """
+        spec_a = SandboxSpec(backend="local")
+        spec_b = SandboxSpec(backend="local", network=True)  # a different spec
+        fake_a = FakeSandbox(
+            ExecResult(exit_code=0, stdout="A", stderr="", duration_s=0.1)
+        )
+        fake_b = FakeSandbox(
+            ExecResult(exit_code=0, stdout="B", stderr="", duration_s=0.1)
+        )
+        session = SimpleNamespace(
+            id="session-1",
+            sandboxes={
+                spec_a: SandboxManager(spec_a, "session-1", sandbox=fake_a),
+                spec_b: SandboxManager(spec_b, "session-1", sandbox=fake_b),
+            },
+        )
+
+        def _agent_stack(agent_id, bash_opts):
+            config = SimpleNamespace(options={"bash": bash_opts})
+            agent = SimpleNamespace(
+                id=agent_id,
+                config=config,
+                session=session,
+                environment=SimpleNamespace(env_vars={}),
+            )
+            return SimpleNamespace(agent=agent)
+
+        stack_a = _agent_stack("agent-a", {"backend": "local"})
+        stack_b = _agent_stack("agent-b", {"backend": "local", "network": True})
+
+        # Agent A runs first (would have fixed the backend under the old model).
+        result_a = bash("echo hi", stack=stack_a)
+        result_b = bash("echo hi", stack=stack_b)
+
+        assert result_a.content["stdout"] == "A"
+        assert result_b.content["stdout"] == "B"  # B's own backend, not A's
+
+    def test_same_spec_shares_one_backend(self):
+        """Two agents with the same spec share the one manager (and container)."""
+        fake = FakeSandbox(
+            ExecResult(exit_code=0, stdout="", stderr="", duration_s=0.1)
+        )
+        spec = SandboxSpec(backend="local")
+        session = SimpleNamespace(
+            id="session-1",
+            sandboxes={spec: SandboxManager(spec, "session-1", sandbox=fake)},
+        )
+
+        def _agent_stack(agent_id):
+            config = SimpleNamespace(options={"bash": {"backend": "local"}})
+            agent = SimpleNamespace(
+                id=agent_id,
+                config=config,
+                session=session,
+                environment=SimpleNamespace(env_vars={}),
+            )
+            return SimpleNamespace(agent=agent)
+
+        bash("echo hi", stack=_agent_stack("agent-a"))
+        bash("echo hi", stack=_agent_stack("agent-b"))
+
+        assert len(session.sandboxes) == 1  # one shared backend, two agents
 
 
 class TestSandboxResolution:

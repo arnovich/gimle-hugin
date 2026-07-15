@@ -11,7 +11,7 @@ nothing exits 1, and flagging that as a failure just makes the model thrash.
 
 import logging
 import os
-from typing import TYPE_CHECKING, Any, Dict, Optional, cast
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from gimle.hugin.sandbox.manager import SandboxManager
 from gimle.hugin.sandbox.policy import (
@@ -22,7 +22,12 @@ from gimle.hugin.sandbox.policy import (
     Policy,
     evaluate,
 )
-from gimle.hugin.sandbox.sandbox import ExecResult, PolicyDenied, SandboxSpec
+from gimle.hugin.sandbox.sandbox import (
+    ExecResult,
+    PolicyDenied,
+    SandboxSpec,
+    sandbox_root_for,
+)
 from gimle.hugin.tools.tool import Tool, ToolResponse
 
 if TYPE_CHECKING:
@@ -132,7 +137,9 @@ def bash(
         if decision.reason == UNPARSEABLE_REASON:
             # A parser limitation, NOT a policy refusal — tell the model to
             # rephrase rather than to try a different (permitted) command.
-            _record(stack, command, "unparseable", reason=decision.reason)
+            _record(
+                manager, stack, command, "unparseable", reason=decision.reason
+            )
             return ToolResponse(
                 is_error=True,
                 content={
@@ -143,7 +150,7 @@ def bash(
                     "(use [ ], test, or expr)",
                 },
             )
-        _record(stack, command, "denied", reason=decision.reason)
+        _record(manager, stack, command, "denied", reason=decision.reason)
         return ToolResponse(
             is_error=True,
             content={"denied": decision.reason, "command": command},
@@ -151,7 +158,7 @@ def bash(
     if isinstance(decision, Escalate):
         # Human-approval routing lands in phase 3; until then, refuse cleanly
         # rather than run an out-of-policy command.
-        _record(stack, command, "escalated", reason=decision.reason)
+        _record(manager, stack, command, "escalated", reason=decision.reason)
         return ToolResponse(
             is_error=True,
             content={
@@ -172,7 +179,7 @@ def bash(
     try:
         sandbox = manager.get()
     except (ValueError, NotImplementedError) as error:
-        _record(stack, command, "infra_error", reason=str(error))
+        _record(manager, stack, command, "infra_error", reason=str(error))
         return ToolResponse(
             is_error=True,
             content={"error": f"sandbox unavailable: {error}"},
@@ -200,20 +207,21 @@ def bash(
             max_output_bytes=policy.max_output_bytes,
         )
     except PolicyDenied as denied:  # backstop; pre-check should have caught it
-        _record(stack, command, "denied", reason=denied.reason)
+        _record(manager, stack, command, "denied", reason=denied.reason)
         return ToolResponse(
             is_error=True,
             content={"denied": denied.reason, "command": command},
         )
     except Exception as error:  # infrastructure failure (daemon down, etc.)
         logger.warning("bash infra failure: %s", error)
-        _record(stack, command, "infra_error", reason=str(error))
+        _record(manager, stack, command, "infra_error", reason=str(error))
         return ToolResponse(
             is_error=True,
             content={"infra_error": str(error), "command": command},
         )
 
     _record(
+        manager,
         stack,
         command,
         "timed_out" if result.timed_out else "run",
@@ -229,24 +237,44 @@ def bash(
 def _resolve_manager(
     stack: "Stack", bash_opts: Dict[str, Any]
 ) -> SandboxManager:
-    """Return the session's SandboxManager, creating and caching it if absent.
+    """Return the SandboxManager for this agent's spec — one per distinct spec.
 
-    The session owns the sandbox (``session.sandbox``) so there is a single,
-    typed owner that ``Session.close`` can tear down — a pre-created one (an
-    app, or a test) wins; otherwise it is built from ``options.bash`` and
-    cached on the session.
+    The session owns a sandbox per :class:`SandboxSpec` (``session.sandboxes``),
+    so agents that share an isolation profile share a backend (and its per-agent
+    workspaces) while an agent with a different profile gets its own — the
+    agent's own ``options.bash`` decides where its shell runs, not whichever
+    agent happened to run bash first. ``Session.close`` tears them all down.
     """
     session = stack.agent.session
-    manager = getattr(session, "sandbox", None)
-    if manager is not None:
-        return cast(SandboxManager, manager)
     spec = SandboxSpec.from_dict(bash_opts)
-    manager = SandboxManager(spec, session.id, record_audit_to_file=True)
-    session.sandbox = manager
+    existing = session.sandboxes.get(spec)
+    if existing is not None:
+        return existing
+    manager = SandboxManager(
+        spec,
+        session.id,
+        workspace_root=_sandbox_root(session),
+        record_audit_to_file=True,
+    )
+    session.sandboxes[spec] = manager
     return manager
 
 
+def _sandbox_root(session: Any) -> str:
+    """Sandbox root for this session — beside its storage, so both agree.
+
+    Derived from the session's storage base path (``<base>/sandboxes``); falls
+    back to the default when storage is in-memory / has no path. This keeps a
+    custom ``--storage-path`` run's sandboxes with its sessions and lets the
+    startup reaper find them.
+    """
+    storage = getattr(getattr(session, "environment", None), "storage", None)
+    base = getattr(storage, "base_path", None)
+    return sandbox_root_for(str(base) if base else None)
+
+
 def _record(
+    manager: Optional[SandboxManager],
     stack: "Stack",
     command: str,
     outcome: str,
@@ -258,19 +286,17 @@ def _record(
     oom_killed: bool = False,
     reason: Optional[str] = None,
 ) -> None:
-    """Record an outcome in the session's audit, if a sandbox manager exists.
+    """Record an outcome in ``manager``'s audit, if a manager was resolved.
 
-    Denials can happen before the manager is built (no command has run yet); in
-    that rare case there is nothing to record to, so this is a no-op. Recording
-    is best-effort and must never disrupt the command result.
+    A denial can happen before any manager is built (a missing/invalid backend),
+    in which case ``manager`` is None and this is a no-op. Recording is
+    best-effort and must never disrupt the command result.
     """
-    session = stack.agent.session
-    manager = getattr(session, "sandbox", None)
     if manager is None:
         return
     try:
         manager.audit.record(
-            session_id=session.id,
+            session_id=stack.agent.session.id,
             agent_id=stack.agent.id,
             command=command,
             outcome=outcome,

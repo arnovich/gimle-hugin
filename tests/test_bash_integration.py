@@ -20,11 +20,16 @@ SPEC = SandboxSpec(backend="local")
 
 
 def _seed_real_sandbox(agent, tmp_path):
-    """Give the agent's session a real LocalSandbox rooted under tmp_path."""
+    """Give the agent's session a real LocalSandbox rooted under tmp_path.
+
+    The config names ``backend: local`` so the tool resolves the same spec the
+    manager is keyed by in ``session.sandboxes``.
+    """
+    agent.config.options = {"bash": {"backend": "local"}}
     sandbox = LocalSandbox(
         SPEC, session_id=agent.session.id, workspace_root=str(tmp_path)
     )
-    agent.session.sandbox = SandboxManager(
+    agent.session.sandboxes[SPEC] = SandboxManager(
         SPEC, agent.session.id, sandbox=sandbox
     )
 
