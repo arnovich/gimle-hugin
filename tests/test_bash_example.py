@@ -68,7 +68,7 @@ def test_bash_example_loads_and_runs(tmp_path):
     sandbox = LocalSandbox(
         SPEC, session.id, workspace_root=str(tmp_path / "sb")
     )
-    session.sandbox = SandboxManager(SPEC, session.id, sandbox=sandbox)
+    session.sandboxes[SPEC] = SandboxManager(SPEC, session.id, sandbox=sandbox)
 
     # Scripted model: write a file with bash, then finish.
     registry = get_model_registry()

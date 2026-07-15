@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from gimle.hugin.agent.task import Task
     from gimle.hugin.interaction.interaction import Interaction
     from gimle.hugin.sandbox.manager import SandboxManager
+    from gimle.hugin.sandbox.sandbox import SandboxSpec
     from gimle.hugin.storage.storage import Storage
 
 logger = logging.getLogger(__name__)
@@ -45,9 +46,12 @@ class Session:
         # Update state's session reference if it was passed in without one
         if self.state._session is None:
             self.state._session = self
-        # The session owns at most one sandbox (the bash tool creates it lazily
-        # on first use). Not serialized: a resumed session recreates it.
-        self.sandbox: Optional["SandboxManager"] = None
+        # The session owns one sandbox per distinct SandboxSpec (the bash tool
+        # creates them lazily on first use), so agents with different isolation
+        # profiles get the backend their config asks for — not whichever the
+        # first agent to run bash created. Keyed by spec; not serialized (a
+        # resumed session recreates them).
+        self.sandboxes: Dict["SandboxSpec", "SandboxManager"] = {}
 
     @property
     def id(self) -> str:
@@ -199,16 +203,16 @@ class Session:
         return step_count
 
     def close(self) -> None:
-        """Release session-owned resources (currently the sandbox).
+        """Release session-owned resources (the sandboxes).
 
         Idempotent and safe to call on a session that never created a sandbox.
-        This is the in-process teardown seam; because it is skipped on an
-        abrupt exit (SIGKILL, laptop sleep), it is a complement to — not a
-        replacement for — the out-of-band reaper.
+        Every per-spec sandbox is torn down. This is the in-process teardown
+        seam; because it is skipped on an abrupt exit (SIGKILL, laptop sleep),
+        it is a complement to — not a replacement for — the out-of-band reaper.
         """
-        if self.sandbox is not None:
-            self.sandbox.close()
-            self.sandbox = None
+        for manager in self.sandboxes.values():
+            manager.close()
+        self.sandboxes.clear()
 
     def __enter__(self) -> "Session":
         """Enter a context that guarantees ``close`` on exit."""
