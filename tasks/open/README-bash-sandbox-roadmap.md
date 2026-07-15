@@ -2,9 +2,10 @@
 
 The bash tool lets a Hugin agent run shell commands through a pluggable
 execution sandbox. It ships in phases so each is independently reviewable. The
-full design lives in the **task 023 folder** (`spec.md` / `plan.md` / `notes.md`
-/ `review.md`) — read that for rationale; the tasks below are the actionable,
-self-contained pieces.
+full design lives in the **task 023 folder**, now at
+`tasks/closed/023-bash-tool/` (`spec.md` / `plan.md` / `notes.md` / `review.md`)
+— read that for rationale; the tasks below are the actionable, self-contained
+pieces.
 
 Guiding thesis: **the runtime you choose is the boundary, not the allowlist.**
 The policy engine is a guardrail against accidents; isolation comes from the
@@ -14,7 +15,7 @@ The policy engine is a guardrail against accidents; isolation comes from the
 
 | Task | What | Status |
 |------|------|--------|
-| 023 | **Phase 0 + 1** — one-tool-call guard; core vertical on the `local` backend (policy engine, LocalSandbox, manager, reaper, audit, `Session.close`, `hugin sandbox`, `bash` tool, example) | **In PR #59** (arnovich/gimle-hugin); hardened after a 4-judge implementation review |
+| 023 | **Phase 0 + 1** — one-tool-call guard; core vertical on the `local` backend (policy engine, LocalSandbox, manager, reaper, audit, `Session.close`, `hugin sandbox`, `bash` tool, example) | **MERGED** (PR #59); hardened after a 4-judge implementation review. Design docs in `tasks/closed/023-bash-tool/` |
 | 024 | Deferred hardening + phase-2 design items from the Phase 1 implementation review | OPEN |
 | 025 | **Phase 2** — Docker backend (container isolation) | OPEN |
 | 026 | **Phase 2** — SSH / remote (VPS) backend | OPEN (design note first) |
@@ -24,7 +25,7 @@ The policy engine is a guardrail against accidents; isolation comes from the
 
 ## Ordering & dependencies
 
-- **023 merges first** (Phase 1 is the foundation everything builds on).
+- **023 is merged** — Phase 1 is the foundation everything below builds on.
 - **024** items are mostly independent cleanups; several are prerequisites for
   Phase 2 (per-spec sandbox ownership, backend registry, reaper generalization to
   non-local resources, sandbox root from storage config). Do those before/with 025.
