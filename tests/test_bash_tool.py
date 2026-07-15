@@ -245,6 +245,32 @@ class TestAudit:
         bash("sleep 99", stack=stack)
         assert manager.audit.counters["timed_out"] == 1
 
+    def test_audit_root_follows_session_storage(self, tmp_path):
+        """A built manager writes its audit under <storage-base>/sandboxes.
+
+        The tool derives the sandbox root from the session's storage, so a
+        custom storage path keeps sandboxes (and their audit) beside its
+        sessions rather than in a fixed ./storage/sandboxes.
+        """
+        storage = SimpleNamespace(base_path=tmp_path)
+        environment = SimpleNamespace(env_vars={}, storage=storage)
+        session = SimpleNamespace(
+            id="sess-x", sandbox=None, environment=environment
+        )
+        config = SimpleNamespace(options={"bash": {"backend": "local"}})
+        agent = SimpleNamespace(
+            id="agent-a",
+            config=config,
+            session=session,
+            environment=environment,
+        )
+        stack = SimpleNamespace(agent=agent)
+
+        bash("dd if=/dev/zero of=/dev/sda", stack=stack)  # denied -> audited
+
+        audit = tmp_path / "sandboxes" / "sess-x" / ".hugin" / "audit.jsonl"
+        assert audit.is_file()
+
     def test_denied_first_command_is_audited_without_preseeded_manager(self):
         """A denial is recorded even when no backend has been built yet.
 

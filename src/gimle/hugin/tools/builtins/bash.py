@@ -22,7 +22,12 @@ from gimle.hugin.sandbox.policy import (
     Policy,
     evaluate,
 )
-from gimle.hugin.sandbox.sandbox import ExecResult, PolicyDenied, SandboxSpec
+from gimle.hugin.sandbox.sandbox import (
+    ExecResult,
+    PolicyDenied,
+    SandboxSpec,
+    sandbox_root_for,
+)
 from gimle.hugin.tools.tool import Tool, ToolResponse
 
 if TYPE_CHECKING:
@@ -241,9 +246,27 @@ def _resolve_manager(
     if manager is not None:
         return cast(SandboxManager, manager)
     spec = SandboxSpec.from_dict(bash_opts)
-    manager = SandboxManager(spec, session.id, record_audit_to_file=True)
+    manager = SandboxManager(
+        spec,
+        session.id,
+        workspace_root=_sandbox_root(session),
+        record_audit_to_file=True,
+    )
     session.sandbox = manager
     return manager
+
+
+def _sandbox_root(session: Any) -> str:
+    """Sandbox root for this session — beside its storage, so both agree.
+
+    Derived from the session's storage base path (``<base>/sandboxes``); falls
+    back to the default when storage is in-memory / has no path. This keeps a
+    custom ``--storage-path`` run's sandboxes with its sessions and lets the
+    startup reaper find them.
+    """
+    storage = getattr(getattr(session, "environment", None), "storage", None)
+    base = getattr(storage, "base_path", None)
+    return sandbox_root_for(str(base) if base else None)
 
 
 def _record(

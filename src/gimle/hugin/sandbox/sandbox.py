@@ -11,11 +11,31 @@ shared types so the tool and the policy engine can be built and tested against
 a fake backend first.
 """
 
+import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, fields
 from typing import Any, Callable, Dict, Optional, Tuple, Type, cast
 
 from gimle.hugin.sandbox.policy import Policy
+
+# Default storage base when a session has no explicit path (in-memory storage).
+DEFAULT_STORAGE_BASE = "./storage"
+
+
+def sandbox_root_for(storage_base: Optional[str]) -> str:
+    """Return the sandbox workspace root for a session's storage base path.
+
+    Sandboxes live beside the rest of a session's storage
+    (``<storage_base>/sandboxes``) — one place, derived from one source — so a
+    custom ``--storage-path`` keeps its sandboxes with its sessions and the
+    startup reaper looks where the tool actually wrote. Falls back to the
+    default base when storage is in-memory / has no path.
+    """
+    return os.path.join(storage_base or DEFAULT_STORAGE_BASE, "sandboxes")
+
+
+# The single canonical default root (was duplicated as a literal in four files).
+DEFAULT_SANDBOX_ROOT = sandbox_root_for(None)
 
 # --- backend registry ---
 # Backend name -> a lazy loader returning its ``Sandbox`` subclass. Lazy so
@@ -161,7 +181,7 @@ class SandboxSpec:
 def create_sandbox(
     spec: SandboxSpec,
     session_id: str,
-    workspace_root: str = "./storage/sandboxes",
+    workspace_root: str = DEFAULT_SANDBOX_ROOT,
 ) -> "Sandbox":
     """Construct the backend named by ``spec`` via the registry.
 
