@@ -11,6 +11,7 @@ The pieces are deliberately orthogonal (see ``tasks/open/023-bash-tool``):
 Backends and the tool that drives them land in later phases.
 """
 
+from gimle.hugin.sandbox.docker import DockerSandbox
 from gimle.hugin.sandbox.fake import FakeSandbox
 from gimle.hugin.sandbox.local import LocalSandbox
 from gimle.hugin.sandbox.manager import SandboxManager
@@ -39,6 +40,7 @@ __all__ = [
     "Allow",
     "Decision",
     "Deny",
+    "DockerSandbox",
     "Escalate",
     "ExecResult",
     "FakeSandbox",

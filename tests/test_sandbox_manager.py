@@ -18,10 +18,12 @@ class TestCreateSandbox:
         box = create_sandbox(LOCAL, "s", workspace_root=str(tmp_path))
         assert isinstance(box, LocalSandbox)
 
-    def test_docker_backend_not_yet_implemented(self):
-        """backend='docker' is a clear NotImplementedError until phase 2."""
-        with pytest.raises(NotImplementedError, match="phase 2"):
-            create_sandbox(SandboxSpec(backend="docker"), "s")
+    def test_docker_backend_builds_docker_sandbox(self):
+        """backend='docker' constructs a DockerSandbox (no daemon touched)."""
+        from gimle.hugin.sandbox.docker import DockerSandbox
+
+        box = create_sandbox(SandboxSpec(backend="docker"), "s")
+        assert isinstance(box, DockerSandbox)
 
     def test_ssh_backend_not_yet_implemented(self):
         """backend='ssh' is a clear NotImplementedError until phase 2."""
@@ -127,9 +129,23 @@ class TestLifecycleCounters:
         assert manager.audit.counters["sandbox_start_failures"] == 0
 
     def test_start_failure_is_counted_and_reraised(self):
-        """A backend that cannot be created counts a failure and propagates."""
-        manager = SandboxManager(SandboxSpec(backend="docker"), "s")
-        with pytest.raises(NotImplementedError):
-            manager.get()
-        assert manager.audit.counters["sandbox_start_failures"] == 1
-        assert manager.audit.counters["sandbox_starts"] == 0
+        """A backend that fails to start counts a failure and propagates."""
+        from gimle.hugin.sandbox import sandbox as sandbox_mod
+        from gimle.hugin.sandbox.sandbox import register_backend
+
+        class _Boom:
+            def __init__(self, spec, session_id, workspace_root):
+                pass
+
+            def start(self):
+                raise RuntimeError("cannot start")
+
+        register_backend("boomtest", lambda: _Boom)
+        try:
+            manager = SandboxManager(SandboxSpec(backend="boomtest"), "s")
+            with pytest.raises(RuntimeError, match="cannot start"):
+                manager.get()
+            assert manager.audit.counters["sandbox_start_failures"] == 1
+            assert manager.audit.counters["sandbox_starts"] == 0
+        finally:
+            sandbox_mod._BACKENDS.pop("boomtest", None)
