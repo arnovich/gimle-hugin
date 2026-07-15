@@ -295,9 +295,16 @@ def reap_sandboxes_quietly(root: str = DEFAULT_SANDBOX_ROOT) -> None:
     try:
         import time
 
-        from gimle.hugin.sandbox.reaper import reap_local_workspaces
+        from gimle.hugin.sandbox.reaper import (
+            reap_abandoned_containers,
+            reap_local_workspaces,
+        )
 
-        reap_local_workspaces(root, now=time.time())
+        now = time.time()
+        reap_local_workspaces(root, now=now)
+        # Container reaping is daemon-optional: a no-op without the docker SDK
+        # or a running daemon, so local/ssh-only users pay nothing here.
+        reap_abandoned_containers(now=now)
     except Exception:  # cleanup is best-effort and must never break a command
         pass
 
@@ -308,6 +315,7 @@ def cmd_sandbox(args: argparse.Namespace) -> int:
 
     from gimle.hugin.sandbox.reaper import (
         list_local_workspaces,
+        reap_abandoned_containers,
         reap_local_workspaces,
     )
 
@@ -316,12 +324,17 @@ def cmd_sandbox(args: argparse.Namespace) -> int:
 
     if args.action == "prune":
         reaped = reap_local_workspaces(root, now=now)
+        containers = reap_abandoned_containers(now=now)
         if reaped:
             print(f"Reaped {len(reaped)} abandoned workspace(s):")
             for name in reaped:
                 print(f"  {name}")
         else:
             print("No abandoned workspaces to reap.")
+        if containers:
+            print(f"Reaped {len(containers)} abandoned container(s):")
+            for name in containers:
+                print(f"  {name}")
         return 0
 
     # default: list

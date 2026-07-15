@@ -29,8 +29,14 @@ class FakeSandbox(Sandbox):
         self,
         result: Optional[ExecResult] = None,
         raises: Optional[Exception] = None,
+        raises_on_start: Optional[Exception] = None,
     ) -> None:
-        """Return ``result`` (or a benign default) from every exec, or raise."""
+        """Return ``result`` (or a benign default) from every exec, or raise.
+
+        ``raises`` is raised from ``exec``; ``raises_on_start`` from ``start``
+        (modelling a backend that fails to come up — daemon down, image
+        missing, extra not installed).
+        """
         self._result = result or ExecResult(
             exit_code=0,
             stdout="ok",
@@ -38,13 +44,16 @@ class FakeSandbox(Sandbox):
             duration_s=0.0,
         )
         self._raises = raises
+        self._raises_on_start = raises_on_start
         self.started = False
         self.stopped = False
         self.calls: List[_ExecCall] = []
         self.files: Dict[str, bytes] = {}
 
     def start(self) -> None:
-        """Record that the sandbox was started."""
+        """Record that the sandbox was started, or raise if configured to fail."""
+        if self._raises_on_start is not None:
+            raise self._raises_on_start
         self.started = True
 
     def stop(self) -> None:

@@ -148,6 +148,118 @@ def reap_local_workspaces(
     return reaped
 
 
+def reap_abandoned_containers(
+    *,
+    now: float,
+    pid_alive: Callable[[int], bool] = _pid_alive,
+    start_time_of: Callable[[int], Optional[str]] = process_start_time,
+) -> List[str]:
+    """Stop and remove docker sandbox containers whose owner process is gone.
+
+    The container counterpart of :func:`reap_local_workspaces`: a
+    ``DockerSandbox`` labels its container with the owning PID and that
+    process's start-time token, so the same dead-owner test (never session
+    label alone — that would race a live peer) decides abandonment here. A
+    container we cannot positively judge is kept until its TTL elapses.
+
+    Best-effort and **daemon-optional**: if the ``docker`` SDK is absent or the
+    daemon is unreachable, this is a no-op returning ``[]`` — reaping must never
+    require docker, so ``local``/``ssh``-only users are unaffected.
+
+    Returns:
+        The names of the containers that were removed.
+    """
+    from gimle.hugin.sandbox.docker import (
+        LABEL_CREATED,
+        LABEL_OWNER_PID,
+        LABEL_OWNER_START,
+        LABEL_SESSION,
+        LABEL_TTL,
+        REAPER_CLIENT_TIMEOUT_S,
+        import_docker,
+    )
+
+    try:
+        # Short client timeout so a wedged daemon can't stall the startup reap
+        # (this runs on every `hugin` invocation, before the real command).
+        client = import_docker().from_env(timeout=REAPER_CLIENT_TIMEOUT_S)
+        containers = client.containers.list(
+            all=True, filters={"label": LABEL_SESSION}
+        )
+    except Exception as error:  # no SDK / daemon down — cleanup stays optional
+        logger.debug("container reap skipped (docker unavailable): %s", error)
+        return []
+
+    reaped: List[str] = []
+    for container in containers:
+        try:
+            labels = container.labels or {}
+            if _container_is_abandoned(
+                labels,
+                now=now,
+                pid_alive=pid_alive,
+                start_time_of=start_time_of,
+                created_key=LABEL_CREATED,
+                pid_key=LABEL_OWNER_PID,
+                start_key=LABEL_OWNER_START,
+                ttl_key=LABEL_TTL,
+            ):
+                # force=True SIGKILLs and removes in one step (the owner is
+                # already dead — no graceful stop to wait on).
+                container.remove(force=True, v=False)
+                reaped.append(container.name)
+        except Exception as error:  # one bad container never aborts the sweep
+            logger.debug("could not reap container %s: %s", container, error)
+
+    if reaped:
+        logger.info("reaped %d abandoned sandbox container(s)", len(reaped))
+    return reaped
+
+
+def _container_is_abandoned(
+    labels: dict,
+    *,
+    now: float,
+    pid_alive: Callable[[int], bool],
+    start_time_of: Callable[[int], Optional[str]],
+    created_key: str,
+    pid_key: str,
+    start_key: str,
+    ttl_key: str,
+) -> bool:
+    """Decide whether a labelled container is abandoned (dead owner, or past TTL).
+
+    Dead owner is the primary signal, using the same start-time disambiguation
+    as the local reaper: a PID that is gone — or now belongs to a different
+    incarnation — means the owner is dead and the container is abandoned. A
+    container whose owner cannot be identified at all (missing/garbled PID
+    label) is kept until its TTL elapses, never removed while its owner is
+    provably alive.
+    """
+    try:
+        pid = int(labels[pid_key])
+    except (KeyError, ValueError, TypeError):
+        pid = 0
+    if pid <= 0:  # unidentifiable owner — lean on the TTL backstop only
+        return _past_ttl(
+            labels, now=now, created_key=created_key, ttl_key=ttl_key
+        )
+    start_time = labels.get(start_key) or None
+    return not _owner_is_alive(pid, start_time, pid_alive, start_time_of)
+
+
+def _past_ttl(
+    labels: dict, *, now: float, created_key: str, ttl_key: str
+) -> bool:
+    """Return whether ``now`` is past the container's ``created + ttl``."""
+    try:
+        created = float(labels[created_key])
+        ttl = float(labels[ttl_key])
+    except (KeyError, ValueError, TypeError):
+        return False  # cannot tell — keep it
+    return now - created > ttl
+
+
 def list_local_workspaces(
     workspace_root: str,
     *,

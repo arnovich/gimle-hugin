@@ -62,6 +62,18 @@ def _load_local() -> Type["Sandbox"]:
     return LocalSandbox
 
 
+def _load_docker() -> Type["Sandbox"]:
+    """Import the docker backend on demand.
+
+    Importing the module is cheap and dependency-free — ``DockerSandbox`` pulls
+    in the ``docker`` SDK lazily inside its methods — so a missing extra
+    surfaces as a clear remediation error at ``start()``, not an import crash.
+    """
+    from gimle.hugin.sandbox.docker import DockerSandbox
+
+    return DockerSandbox
+
+
 def _phase2_loader(name: str) -> Callable[[], Type["Sandbox"]]:
     """Build a loader for a not-yet-implemented backend (clear error on use)."""
 
@@ -72,7 +84,7 @@ def _phase2_loader(name: str) -> Callable[[], Type["Sandbox"]]:
 
 
 register_backend("local", _load_local)
-register_backend("docker", _phase2_loader("docker"))
+register_backend("docker", _load_docker)
 register_backend("ssh", _phase2_loader("ssh"))
 
 
