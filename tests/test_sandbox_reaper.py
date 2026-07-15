@@ -9,9 +9,18 @@ import json
 import os
 import time
 
+from gimle.hugin.sandbox.docker import (
+    LABEL_CREATED,
+    LABEL_OWNER_PID,
+    LABEL_OWNER_START,
+    LABEL_SESSION,
+    LABEL_TTL,
+)
 from gimle.hugin.sandbox.local import OWNER_FILE
 from gimle.hugin.sandbox.reaper import (
+    _container_is_abandoned,
     list_local_workspaces,
+    reap_abandoned_containers,
     reap_local_workspaces,
 )
 
@@ -151,6 +160,83 @@ class TestPidReuseDisambiguation:
             start_time_of=lambda pid: None,
         )
         assert reaped == []
+
+
+def _labels(pid, start="SAME", created=NOW, ttl=3600):
+    """Build the container labels a DockerSandbox would stamp."""
+    return {
+        LABEL_SESSION: "sess",
+        LABEL_OWNER_PID: str(pid),
+        LABEL_OWNER_START: start,
+        LABEL_CREATED: str(created),
+        LABEL_TTL: str(ttl),
+    }
+
+
+def _abandoned(labels, *, now=NOW, pid_alive=_dead, start_time_of=None):
+    """Call _container_is_abandoned with the real docker label keys."""
+    return _container_is_abandoned(
+        labels,
+        now=now,
+        pid_alive=pid_alive,
+        start_time_of=start_time_of or (lambda pid: "SAME"),
+        created_key=LABEL_CREATED,
+        pid_key=LABEL_OWNER_PID,
+        start_key=LABEL_OWNER_START,
+        ttl_key=LABEL_TTL,
+    )
+
+
+class TestContainerReaping:
+    """Container abandonment mirrors the local reaper's dead-owner rule."""
+
+    def test_dead_owner_container_is_abandoned(self):
+        """A container whose owner PID is gone is abandoned."""
+        assert _abandoned(_labels(4242), pid_alive=_dead) is True
+
+    def test_live_owner_container_is_kept(self):
+        """A container whose owner is alive (same incarnation) is kept."""
+        assert (
+            _abandoned(
+                _labels(222, start="SAME"),
+                pid_alive=_only(222),
+                start_time_of=lambda pid: "SAME",
+            )
+            is False
+        )
+
+    def test_reused_pid_is_abandoned(self):
+        """A live PID with a different start time is not the owner — abandoned."""
+        assert (
+            _abandoned(
+                _labels(222, start="OLD"),
+                pid_alive=_only(222),
+                start_time_of=lambda pid: "NEW",
+            )
+            is True
+        )
+
+    def test_unidentifiable_owner_kept_until_ttl(self):
+        """A garbled PID label leans on the TTL: fresh kept, stale reaped."""
+        fresh = _labels("not-an-int", created=NOW - 10, ttl=3600)
+        stale = _labels("not-an-int", created=NOW - 7200, ttl=3600)
+        assert _abandoned(fresh) is False
+        assert _abandoned(stale) is True
+
+    def test_reap_is_a_noop_without_docker(self, monkeypatch):
+        """Without the docker SDK / a daemon, reaping is a silent no-op."""
+        # docker isn't a hard dependency; simulate its absence deterministically.
+        import builtins
+
+        real_import = builtins.__import__
+
+        def no_docker(name, *args, **kwargs):
+            if name == "docker":
+                raise ImportError("no docker in this env")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", no_docker)
+        assert reap_abandoned_containers(now=NOW) == []
 
 
 class TestCorruptStampIsHandled:
