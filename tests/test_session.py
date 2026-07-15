@@ -27,18 +27,17 @@ class TestSessionClose:
     def _session_with_sandbox(self):
         session = Session(environment=Environment())
         fake = FakeSandbox()
-        session.sandbox = SandboxManager(
-            SandboxSpec(backend="local"), session.id, sandbox=fake
-        )
-        session.sandbox.get()  # start the backend
+        spec = SandboxSpec(backend="local")
+        session.sandboxes[spec] = SandboxManager(spec, session.id, sandbox=fake)
+        session.sandboxes[spec].get()  # start the backend
         return session, fake
 
     def test_close_stops_the_sandbox_and_clears_it(self):
-        """close() tears down the sandbox and drops the reference."""
+        """close() tears down every sandbox and clears the registry."""
         session, fake = self._session_with_sandbox()
         session.close()
         assert fake.stopped
-        assert session.sandbox is None
+        assert session.sandboxes == {}
 
     def test_close_is_idempotent(self):
         """close() twice, and on a session that never made a sandbox, is safe."""
@@ -48,17 +47,16 @@ class TestSessionClose:
         Session(environment=Environment()).close()  # never had a sandbox
 
     def test_context_manager_closes_on_exit(self):
-        """Leaving a `with Session(...)` block tears the sandbox down."""
+        """Leaving a `with Session(...)` block tears the sandboxes down."""
         session = Session(environment=Environment())
         fake = FakeSandbox()
-        session.sandbox = SandboxManager(
-            SandboxSpec(backend="local"), session.id, sandbox=fake
-        )
-        session.sandbox.get()
+        spec = SandboxSpec(backend="local")
+        session.sandboxes[spec] = SandboxManager(spec, session.id, sandbox=fake)
+        session.sandboxes[spec].get()
         with session:
-            assert session.sandbox is not None
+            assert session.sandboxes
         assert fake.stopped
-        assert session.sandbox is None
+        assert session.sandboxes == {}
 
 
 class TestSessionBasic:
