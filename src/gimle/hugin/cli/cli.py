@@ -8,6 +8,7 @@ from typing import List, Optional
 
 from gimle.hugin import __version__
 from gimle.hugin.cli.ui import HUGIN_LOGO
+from gimle.hugin.sandbox.sandbox import DEFAULT_SANDBOX_ROOT, sandbox_root_for
 
 VERSION = __version__
 
@@ -284,9 +285,6 @@ def cmd_version(args: argparse.Namespace) -> int:
     return 0
 
 
-DEFAULT_SANDBOX_ROOT = "./storage/sandboxes"
-
-
 def reap_sandboxes_quietly(root: str = DEFAULT_SANDBOX_ROOT) -> None:
     """Best-effort reap of abandoned local sandbox workspaces at startup.
 
@@ -313,7 +311,7 @@ def cmd_sandbox(args: argparse.Namespace) -> int:
         reap_local_workspaces,
     )
 
-    root = args.root or DEFAULT_SANDBOX_ROOT
+    root = args.root or sandbox_root_for(getattr(args, "storage_path", None))
     now = time.time()
 
     if args.action == "prune":
@@ -587,8 +585,11 @@ Examples:
     # Parse arguments
     args = parser.parse_args()
 
-    # Self-heal: reap abandoned local sandbox workspaces on every invocation.
-    reap_sandboxes_quietly()
+    # Self-heal: reap abandoned local sandbox workspaces on every invocation,
+    # resolving the root from --storage-path so it matches where the tool wrote.
+    reap_sandboxes_quietly(
+        sandbox_root_for(getattr(args, "storage_path", None))
+    )
 
     # Load .env file if --env flag is set
     if args.env:

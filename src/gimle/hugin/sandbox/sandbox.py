@@ -11,11 +11,69 @@ shared types so the tool and the policy engine can be built and tested against
 a fake backend first.
 """
 
+import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, fields
-from typing import Any, Dict, Literal, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple, Type, cast
 
 from gimle.hugin.sandbox.policy import Policy
+
+# Default storage base when a session has no explicit path (in-memory storage).
+DEFAULT_STORAGE_BASE = "./storage"
+
+
+def sandbox_root_for(storage_base: Optional[str]) -> str:
+    """Return the sandbox workspace root for a session's storage base path.
+
+    Sandboxes live beside the rest of a session's storage
+    (``<storage_base>/sandboxes``) — one place, derived from one source — so a
+    custom ``--storage-path`` keeps its sandboxes with its sessions and the
+    startup reaper looks where the tool actually wrote. Falls back to the
+    default base when storage is in-memory / has no path.
+    """
+    return os.path.join(storage_base or DEFAULT_STORAGE_BASE, "sandboxes")
+
+
+# The single canonical default root (was duplicated as a literal in four files).
+DEFAULT_SANDBOX_ROOT = sandbox_root_for(None)
+
+# --- backend registry ---
+# Backend name -> a lazy loader returning its ``Sandbox`` subclass. Lazy so
+# selecting one backend never imports another's dependency (the ``docker`` SDK,
+# a remote client) — the three backends stay true peers. Adding a backend is a
+# ``register_backend`` call, not an edit to a hardcoded enum + factory.
+_BACKENDS: Dict[str, Callable[[], Type["Sandbox"]]] = {}
+
+
+def register_backend(name: str, loader: Callable[[], Type["Sandbox"]]) -> None:
+    """Register ``name`` -> a thunk that imports and returns its Sandbox class."""
+    _BACKENDS[name] = loader
+
+
+def registered_backends() -> Tuple[str, ...]:
+    """Return the registered backend names, sorted."""
+    return tuple(sorted(_BACKENDS))
+
+
+def _load_local() -> Type["Sandbox"]:
+    """Import the local backend on demand."""
+    from gimle.hugin.sandbox.local import LocalSandbox
+
+    return LocalSandbox
+
+
+def _phase2_loader(name: str) -> Callable[[], Type["Sandbox"]]:
+    """Build a loader for a not-yet-implemented backend (clear error on use)."""
+
+    def loader() -> Type["Sandbox"]:
+        raise NotImplementedError(f"the {name} backend lands in phase 2")
+
+    return loader
+
+
+register_backend("local", _load_local)
+register_backend("docker", _phase2_loader("docker"))
+register_backend("ssh", _phase2_loader("ssh"))
 
 
 def truncate_output(text: str, max_bytes: int) -> Tuple[str, bool]:
@@ -84,7 +142,7 @@ class SandboxSpec:
     ``host`` to ``ssh`` only; the resource knobs to the container backends only.
     """
 
-    backend: Literal["local", "docker", "ssh"]
+    backend: str
     image: Optional[str] = None
     host: Optional[str] = None
     network: bool = False
@@ -109,33 +167,38 @@ class SandboxSpec:
             raise ValueError(f"unknown sandbox keys: {sorted(unknown)}")
         if "backend" not in provided:
             raise ValueError(
-                "options.bash.backend is required (local | docker | ssh)"
+                "options.bash.backend is required "
+                f"({' | '.join(registered_backends())})"
             )
-        if provided["backend"] not in ("local", "docker", "ssh"):
-            raise ValueError(f"invalid backend: {provided['backend']!r}")
+        if provided["backend"] not in registered_backends():
+            raise ValueError(
+                f"invalid backend: {provided['backend']!r} "
+                f"(known: {', '.join(registered_backends())})"
+            )
         return cls(**provided)
 
 
 def create_sandbox(
     spec: SandboxSpec,
     session_id: str,
-    workspace_root: str = "./storage/sandboxes",
+    workspace_root: str = DEFAULT_SANDBOX_ROOT,
 ) -> "Sandbox":
-    """Construct the backend named by ``spec``.
+    """Construct the backend named by ``spec`` via the registry.
 
-    The concrete backend is imported lazily so selecting ``local`` never pulls
-    in the ``docker`` SDK, and vice versa — the three backends are peers with
-    no shared dependency.
+    The backend's class is imported lazily (through its registered loader) so
+    selecting ``local`` never pulls in the ``docker`` SDK, and vice versa — the
+    backends are peers with no shared dependency.
     """
-    if spec.backend == "local":
-        from gimle.hugin.sandbox.local import LocalSandbox
-
-        return LocalSandbox(spec, session_id, workspace_root)
-    if spec.backend in ("docker", "ssh"):
-        raise NotImplementedError(
-            f"the {spec.backend} backend lands in phase 2"
+    loader = _BACKENDS.get(spec.backend)
+    if loader is None:
+        raise ValueError(
+            f"unknown backend: {spec.backend!r} "
+            f"(known: {', '.join(registered_backends())})"
         )
-    raise ValueError(f"unknown backend: {spec.backend!r}")
+    # Every backend is constructed uniformly as (spec, session_id, root); the
+    # Sandbox ABC declares no constructor, so tell the type checker the shape.
+    factory = cast(Callable[[SandboxSpec, str, str], "Sandbox"], loader())
+    return factory(spec, session_id, workspace_root)
 
 
 class Sandbox(ABC):

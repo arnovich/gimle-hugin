@@ -12,7 +12,12 @@ import os
 from typing import Optional
 
 from gimle.hugin.sandbox.audit import CommandAudit
-from gimle.hugin.sandbox.sandbox import Sandbox, SandboxSpec, create_sandbox
+from gimle.hugin.sandbox.sandbox import (
+    DEFAULT_SANDBOX_ROOT,
+    Sandbox,
+    SandboxSpec,
+    create_sandbox,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +29,7 @@ class SandboxManager:
         self,
         spec: SandboxSpec,
         session_id: str,
-        workspace_root: str = "./storage/sandboxes",
+        workspace_root: str = DEFAULT_SANDBOX_ROOT,
         sandbox: Optional[Sandbox] = None,
         record_audit_to_file: bool = False,
     ) -> None:
