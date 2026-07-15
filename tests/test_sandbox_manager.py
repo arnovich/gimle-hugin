@@ -28,6 +28,45 @@ class TestCreateSandbox:
         with pytest.raises(NotImplementedError, match="phase 2"):
             create_sandbox(SandboxSpec(backend="ssh"), "s")
 
+    def test_unknown_backend_is_a_clear_error(self):
+        """An unregistered backend fails loud, listing what is known."""
+        with pytest.raises(ValueError, match="unknown backend"):
+            create_sandbox(SandboxSpec(backend="nope"), "s")
+
+
+class TestBackendRegistry:
+    """Backends are looked up through a registry, not a hardcoded factory."""
+
+    def test_registered_backends_include_the_three_peers(self):
+        """local, docker, and ssh are registered out of the box."""
+        from gimle.hugin.sandbox.sandbox import registered_backends
+
+        names = registered_backends()
+        assert {"local", "docker", "ssh"} <= set(names)
+
+    def test_a_registered_backend_is_constructed(self):
+        """A newly registered backend is built by create_sandbox (no core edit)."""
+        from gimle.hugin.sandbox import sandbox as sandbox_mod
+        from gimle.hugin.sandbox.sandbox import register_backend
+
+        built = {}
+
+        class _Toy:
+            def __init__(self, spec, session_id, workspace_root):
+                built["ok"] = (spec.backend, session_id)
+
+        register_backend("toytest", lambda: _Toy)
+        try:
+            create_sandbox(SandboxSpec(backend="toytest"), "s", "/tmp/x")
+            assert built["ok"] == ("toytest", "s")
+        finally:
+            sandbox_mod._BACKENDS.pop("toytest", None)
+
+    def test_from_dict_validates_against_the_registry(self):
+        """SandboxSpec.from_dict rejects a backend the registry doesn't know."""
+        with pytest.raises(ValueError, match="invalid backend"):
+            SandboxSpec.from_dict({"backend": "nope"})
+
 
 class TestSandboxManager:
     """Lazy lifecycle around a single backend."""
