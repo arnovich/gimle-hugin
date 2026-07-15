@@ -68,6 +68,25 @@ class TestBackendRegistry:
             SandboxSpec.from_dict({"backend": "nope"})
 
 
+class TestSandboxRoot:
+    """The sandbox root is derived from the session's storage base path."""
+
+    def test_default_root_when_no_storage_base(self):
+        """No storage path (in-memory) falls back to the default root."""
+        from gimle.hugin.sandbox.sandbox import (
+            DEFAULT_SANDBOX_ROOT,
+            sandbox_root_for,
+        )
+
+        assert sandbox_root_for(None) == DEFAULT_SANDBOX_ROOT
+
+    def test_root_is_beside_a_custom_storage_base(self):
+        """A custom storage base puts sandboxes under <base>/sandboxes."""
+        from gimle.hugin.sandbox.sandbox import sandbox_root_for
+
+        assert sandbox_root_for("/tmp/run7") == "/tmp/run7/sandboxes"
+
+
 class TestSandboxManager:
     """Lazy lifecycle around a single backend."""
 

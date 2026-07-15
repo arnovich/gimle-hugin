@@ -22,6 +22,7 @@ from typing import Dict, List, Optional, Tuple
 
 from gimle.hugin.sandbox.policy import Allow, Policy, evaluate
 from gimle.hugin.sandbox.sandbox import (
+    DEFAULT_SANDBOX_ROOT,
     ExecResult,
     PolicyDenied,
     Sandbox,
@@ -90,7 +91,7 @@ class LocalSandbox(Sandbox):
         self,
         spec: SandboxSpec,
         session_id: str,
-        workspace_root: str = "./storage/sandboxes",
+        workspace_root: str = DEFAULT_SANDBOX_ROOT,
     ) -> None:
         """Bind this sandbox to ``session_id`` under ``workspace_root``."""
         self._spec = spec
