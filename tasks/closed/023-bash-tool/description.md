@@ -1,10 +1,19 @@
 ---
 title: Bash tool with pluggable execution sandbox
-state: OPEN
+state: CLOSED
 labels: [enhancement, tools, security]
 priority: high
 created: 2026-07-13
+closed: 2026-07-15
 ---
+
+> **Status (2026-07-15):** Phase 0 (one-tool-call guard, PR #58) and Phase 1
+> (core vertical on the `local` backend) are **shipped and merged** (PR #59),
+> hardened after a 4-judge implementation panel review (see `review.md`). The
+> remaining phases are tracked as their own open tasks —
+> `tasks/open/024`–`029` and `tasks/open/README-bash-sandbox-roadmap.md`. This
+> folder is retained as the design source of truth (`spec.md`/`plan.md`/
+> `notes.md`/`review.md`) that those tasks point back to.
 
 # Bash tool with pluggable execution sandbox
 
