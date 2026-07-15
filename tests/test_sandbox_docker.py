@@ -20,6 +20,7 @@ from gimle.hugin.sandbox.docker import (
     LABEL_OWNER_PID,
     LABEL_TTL,
     _sanitize_name,
+    container_name,
 )
 from gimle.hugin.sandbox.policy import Policy
 from gimle.hugin.sandbox.sandbox import PolicyDenied
@@ -132,14 +133,112 @@ class TestHardeningContract:
         assert labels[LABEL_OWNER_PID] == str(os.getpid())
         assert LABEL_CREATED in labels and LABEL_TTL in labels
 
+    def test_dev_shm_is_hardened_too(self, tmp_path):
+        """/dev/shm is a noexec,nosuid tmpfs (docker mounts it rw+exec by default)."""
+        tmpfs = _sandbox(tmp_path)._container_kwargs()["tmpfs"]
+        assert "noexec" in tmpfs["/dev/shm"]
+        assert "nosuid" in tmpfs["/dev/shm"]
+
+    def test_swap_is_pinned_to_the_memory_limit(self, tmp_path):
+        """memswap_limit == mem_limit so the memory cap can't be doubled via swap."""
+        kwargs = _sandbox(tmp_path, memory="1g")._container_kwargs()
+        assert kwargs["memswap_limit"] == kwargs["mem_limit"] == "1g"
+
+
+class TestExitClassification:
+    """124/137/hung map to the right (timed_out, oom_killed) signals."""
+
+    def test_124_is_timeout(self):
+        """`timeout`'s 124 is an unambiguous wall-clock timeout."""
+        assert DockerSandbox._classify_exit(124, False, 15.0, 15) == (
+            True,
+            False,
+        )
+
+    def test_137_near_deadline_is_timeout_not_oom(self):
+        """A TERM-ignoring hang killed after grace (137 at the deadline) = timeout."""
+        assert DockerSandbox._classify_exit(137, False, 15.2, 15) == (
+            True,
+            False,
+        )
+
+    def test_137_well_before_deadline_is_oom(self):
+        """A SIGKILL long before the deadline is most likely a memory-cap OOM."""
+        assert DockerSandbox._classify_exit(137, False, 2.0, 15) == (
+            False,
+            True,
+        )
+
+    def test_hung_is_always_timeout(self):
+        """A host-side abandonment is reported as a timeout regardless of code."""
+        assert DockerSandbox._classify_exit(-1, True, 30.0, 15) == (True, False)
+
+    def test_clean_exit_is_neither(self):
+        """A normal exit (0, or non-zero from the command) is not a failure kind."""
+        assert DockerSandbox._classify_exit(0, False, 1.0, 15) == (False, False)
+        assert DockerSandbox._classify_exit(1, False, 1.0, 15) == (False, False)
+
+
+class TestOwnerIsCurrent:
+    """Reattach reuses only a container this live process owns."""
+
+    class _FakeContainer:
+        def __init__(self, labels):
+            self.labels = labels
+
+        status = "running"
+
+    def test_own_pid_is_current(self, tmp_path):
+        """A container labelled with our PID is reused."""
+        sandbox = _sandbox(tmp_path)
+        c = self._FakeContainer({LABEL_OWNER_PID: str(os.getpid())})
+        assert sandbox._owner_is_current(c) is True
+
+    def test_foreign_or_dead_pid_is_not_current(self, tmp_path):
+        """A container labelled with a different PID (dead prior owner) is not."""
+        sandbox = _sandbox(tmp_path)
+        assert (
+            sandbox._owner_is_current(
+                self._FakeContainer({LABEL_OWNER_PID: "999999999"})
+            )
+            is False
+        )
+
+    def test_garbled_label_is_not_current(self, tmp_path):
+        """A missing/garbled owner label is treated as not-ours (recreate)."""
+        sandbox = _sandbox(tmp_path)
+        assert sandbox._owner_is_current(self._FakeContainer({})) is False
+
 
 class TestNameAndPaths:
     """Naming and the container<->host path mapping."""
 
-    def test_container_name_is_docker_legal(self):
+    def test_container_name_is_docker_legal_and_prefixed(self):
         """A UUID-ish session id becomes a legal, prefixed container name."""
-        assert _sanitize_name("abc-123").startswith("hugin-sbx-")
-        assert _sanitize_name("weird/id:x") == "hugin-sbx-weird-id-x"
+        spec = SandboxSpec(backend="docker")
+        name = container_name("weird/id:x", spec)
+        assert name.startswith("hugin-sbx-weird-id-x-")
+        assert _sanitize_name("weird/id:x") == "weird-id-x"
+
+    def test_distinct_specs_get_distinct_container_names(self):
+        """Two specs in one session map to different containers (per-spec)."""
+        session = "sess-9"
+        a = container_name(session, SandboxSpec(backend="docker", memory="1g"))
+        b = container_name(session, SandboxSpec(backend="docker", memory="2g"))
+        assert a != b
+
+    def test_same_spec_gives_a_stable_name(self):
+        """The same (session, spec) always resolves to the same container name."""
+        spec = SandboxSpec(backend="docker", image="x:1", network=True)
+        assert container_name("s", spec) == container_name("s", spec)
+
+    def test_sanitize_collision_is_disambiguated_by_the_hash(self):
+        """`weird/id` and `weird-id` sanitize alike but don't share a container."""
+        spec = SandboxSpec(backend="docker")
+        # Same sanitized fragment, but the raw ids are hashed, so names differ.
+        assert container_name("weird/id", spec) != container_name(
+            "weird-id", spec
+        )
 
     def test_workspace_for_creates_host_dir_and_returns_container_path(
         self, tmp_path
@@ -249,12 +348,14 @@ class TestContainmentGate:
         assert "TOP-SECRET" not in result.stdout
 
     def test_process_is_not_container_root(self, running_sandbox):
-        """The uid inside the container is the host user, not 0."""
+        """The uid inside the container is the host user, and specifically not 0."""
         cwd = running_sandbox.workspace_for("a", None)
         result = running_sandbox.exec(
             "id -u", policy=Policy(), cwd=cwd, timeout_s=15
         )
-        assert result.stdout.strip() == str(os.getuid())
+        uid = result.stdout.strip()
+        assert uid == str(os.getuid())
+        assert uid != "0"  # not container-root (the guard would refuse root)
 
     def test_no_network_by_default(self, running_sandbox):
         """With network:false the container cannot open an outbound socket."""
@@ -320,3 +421,47 @@ class TestContainerLifecycle:
             assert "persisted" in result.stdout
         finally:
             second.stop()
+
+    def test_resume_by_a_new_owner_recreates_with_fresh_labels(
+        self, tmp_path, monkeypatch
+    ):
+        """A container left by a dead owner is recreated so its labels refresh.
+
+        Otherwise the immutable owner-PID label would name a dead process and
+        the startup reaper would remove the live resumed session's container.
+        Simulate a different owner by faking getpid() on the "resume".
+        """
+        spec = SandboxSpec(backend="docker", image=DAEMON_IMAGE)
+        first = create_sandbox(spec, "reown-sess", str(tmp_path))
+        first.start()
+        first_id = first._container.id
+        try:
+            monkeypatch.setattr(os, "getpid", lambda: 424242)
+            second = create_sandbox(spec, "reown-sess", str(tmp_path))
+            second.start()
+            assert second._container.id != first_id  # recreated
+            assert (
+                second._container.labels[LABEL_OWNER_PID] == "424242"
+            )  # labels now name the live (resumed) owner
+        finally:
+            second.stop()
+
+    def test_missing_image_fails_fast_with_a_build_hint(self, tmp_path):
+        """A never-built default image raises a clear, actionable error."""
+        spec = SandboxSpec(backend="docker", image="gimle/does-not-exist:nope")
+        sandbox = create_sandbox(spec, "noimg-sess", str(tmp_path))
+        with pytest.raises(RuntimeError, match="docker build"):
+            sandbox.start()
+
+    def test_backgrounded_process_does_not_hang_the_call(self, running_sandbox):
+        """A command that backgrounds a pipe-holding child still returns."""
+        cwd = running_sandbox.workspace_for("a", None)
+        # `sleep 30 &` would hold the exec's stdout pipe open; the host-side
+        # deadline (or foreground-exit detection) must let exec() return anyway.
+        result = running_sandbox.exec(
+            "echo started; sleep 30 &",
+            policy=Policy(),
+            cwd=cwd,
+            timeout_s=5,
+        )
+        assert "started" in result.stdout

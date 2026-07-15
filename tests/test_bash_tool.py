@@ -94,6 +94,22 @@ class TestResultMapping:
         assert response.is_error is True
         assert "daemon down" in response.content["infra_error"]
 
+    def test_backend_that_fails_to_start_is_a_clean_dont_retry_error(self):
+        """A start() failure (any exception) comes back as an actionable result.
+
+        Regression guard: docker's start() raises RuntimeError/DockerException/
+        ImageNotFound, none of which are ValueError/NotImplementedError; a
+        too-narrow handler would let them escape the tool entirely instead of
+        reaching the model.
+        """
+        fake = FakeSandbox(
+            raises_on_start=RuntimeError("Cannot connect to the Docker daemon")
+        )
+        response = bash("echo hi", stack=_stack_with_fake(fake))
+        assert response.is_error is True
+        assert "Docker daemon" in response.content["infra_error"]
+        assert "operator" in response.content["note"]
+
     def test_oom_kill_is_an_error(self):
         """An OOM-killed command is an error, like a timeout — not a plain exit."""
         fake = FakeSandbox(

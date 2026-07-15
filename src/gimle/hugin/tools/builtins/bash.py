@@ -178,11 +178,23 @@ def bash(
         )
     try:
         sandbox = manager.get()
-    except (ValueError, NotImplementedError) as error:
+    except Exception as error:
+        # Bringing a backend up is the classic infra failure: docker daemon
+        # down, image not built, the `sandbox` extra not installed, a remote
+        # host unreachable. Any of these raise here (RuntimeError,
+        # DockerException, ImageNotFound, ...) and must come back as a clean,
+        # actionable tool result — never propagate as an unhandled exception
+        # (which the model can't see) or invite a pointless retry loop.
         _record(manager, stack, command, "infra_error", reason=str(error))
         return ToolResponse(
             is_error=True,
-            content={"error": f"sandbox unavailable: {error}"},
+            content={
+                "infra_error": str(error),
+                "command": command,
+                "note": "the sandbox could not start; retrying will not fix "
+                "this — it needs an operator (start docker, build/pull the "
+                "image, or install the sandbox extra)",
+            },
         )
 
     workspace = sandbox.workspace_for(stack.agent.id, branch)
