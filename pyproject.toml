@@ -42,6 +42,12 @@ test = [
     "pytest-mock>=3.10.0",
     "pytest-cov>=4.0.0",
 ]
+# The docker execution backend. Optional so the package installs and the
+# local/ssh backends run with no docker dependency; only `backend: docker`
+# needs this. Install with `pip install "gimle-hugin[sandbox]"`.
+sandbox = [
+    "docker>=7.1",
+]
 apps = [
     "matplotlib>=3.8.0",
     "scipy>=1.11.0",
