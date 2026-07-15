@@ -20,10 +20,27 @@ machinery — per-``(agent, branch)`` directories, output spill, ``put_file`` /
 unchanged, and a resumed session reattaches its files instead of getting an
 empty container. The container runs as the host user so those files stay
 host-readable.
+
+Two honest limits of this backend's isolation, both dependent on host/daemon
+configuration this code cannot set per-container:
+
+- **No userns-remap here.** The container process runs as the host uid, which
+  makes it non-root *inside* the container but does not remap container-root to
+  a subuid. True userns-remap is a daemon-level setting; enable it on the docker
+  daemon for defence in depth. As a fail-closed guard, ``start()`` refuses to
+  run as uid 0 unless the daemon has userns-remap on (else container-root would
+  equal host-root).
+- **``network: true`` is not egress-filtered.** The default (``network: false``)
+  is the safe path — no network at all. Opting in attaches the default bridge
+  with *unrestricted* egress, including the cloud metadata endpoint
+  (169.254.169.254); it warns loudly and must not be used with untrusted input
+  until the egress-allowlist proxy lands (task 025 follow-ups).
 """
 
+import hashlib
 import logging
 import os
+import threading
 import time
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
@@ -57,6 +74,9 @@ CONTAINER_WORKSPACE = "/workspace"
 _NAME_PREFIX = "hugin-sbx-"
 _SPILL_RELATIVE = os.path.join(".hugin", "last_output.txt")
 
+# Warn once per process that network:true has unrestricted egress (see start()).
+_network_warned = False
+
 # Container labels the reaper reads to decide abandonment (mirrors the local
 # backend's owner stamp: PID + process-incarnation token, never session alone).
 LABEL_SESSION = "hugin.session"
@@ -80,6 +100,21 @@ _MAX_CAPTURE_BYTES = 2_000_000
 # SIGKILL (so a process ignoring SIGTERM cannot hang past its limit).
 _KILL_AFTER_S = 5
 
+# Extra host-side slack on top of the in-container timeout before ``exec`` gives
+# up waiting for output — covers SDK/daemon latency. The in-container ``timeout``
+# should always fire first; this only backstops a wedged daemon or a command
+# that backgrounded a child holding the output pipe (which ``timeout`` can't
+# reach), so a bash call can never hang the agent's turn indefinitely.
+_HOST_GRACE_S = 10
+
+# How long to keep draining after the foreground process exits, for a lingering
+# background child that still holds the pipe (mirrors LocalSandbox).
+_DRAIN_GRACE_S = 0.5
+
+# Short client timeout for the reaper's daemon calls so a wedged daemon can't
+# stall every ``hugin`` startup (the reaper runs on each invocation).
+REAPER_CLIENT_TIMEOUT_S = 5
+
 
 def import_docker() -> Any:
     """Import and return the docker SDK module, typed ``Any`` for callers.
@@ -96,11 +131,41 @@ def import_docker() -> Any:
 
 
 def _sanitize_name(session_id: str) -> str:
-    """Return a docker-legal container name for ``session_id``."""
-    safe = "".join(
+    """Return a docker-legal name fragment for ``session_id``."""
+    return "".join(
         c if (c.isalnum() or c in "_.-") else "-" for c in session_id
     )
-    return f"{_NAME_PREFIX}{safe}"
+
+
+def _identity_hash(session_id: str, spec: SandboxSpec) -> str:
+    """Return a short stable hash of the raw session id and the spec.
+
+    Folded into the container name for two reasons: two agents in one session
+    with *different* specs (image / network / cpu / memory / pids) must get
+    *different* containers — an agent's hardening profile follows its own config,
+    not whichever agent started a container first — and the *raw* session id is
+    hashed (not just its sanitized fragment) so two ids that sanitize alike
+    (``weird/id`` and ``weird-id`` both -> ``weird-id``) never collide onto one
+    container.
+    """
+    identity = "|".join(
+        str(part)
+        for part in (
+            session_id,
+            spec.image,
+            spec.network,
+            spec.cpu,
+            spec.memory,
+            spec.pids,
+        )
+    )
+    return hashlib.sha256(identity.encode("utf-8")).hexdigest()[:12]
+
+
+def container_name(session_id: str, spec: SandboxSpec) -> str:
+    """Return the docker container name for a ``(session, spec)`` pair."""
+    fragment = _sanitize_name(session_id)[:40]
+    return f"{_NAME_PREFIX}{fragment}-{_identity_hash(session_id, spec)}"
 
 
 class DockerSandbox(Sandbox):
@@ -118,7 +183,7 @@ class DockerSandbox(Sandbox):
         self._host_root = os.path.abspath(
             os.path.join(workspace_root, session_id)
         )
-        self._name = _sanitize_name(session_id)
+        self._name = container_name(session_id, spec)
         self._image = spec.image or DEFAULT_IMAGE
         self._client: Any = None
         self._container: Optional["Container"] = None
@@ -145,25 +210,101 @@ class DockerSandbox(Sandbox):
     def start(self) -> None:
         """Create or reattach the session container; refresh its liveness stamp.
 
-        Idempotent: a running container is reused (resume reattaches the same
-        bind-mounted files), a stopped one is restarted, and only a missing one
-        is created with the mandatory hardening flags. Also writes the host-side
-        owner stamp so the filesystem reaper treats this exactly like a local
-        workspace.
+        Idempotent. A container this same process owns is reused; a container
+        left by a *dead* prior owner (a resume after an abrupt exit) is recreated
+        so its immutable owner labels — which the reaper judges liveness by —
+        refresh to this live process, and any changed hardening spec takes
+        effect. Only a missing container is created fresh. Also writes the
+        host-side owner stamp so the filesystem reaper treats this like a local
+        workspace, and fails closed on an unsafe (root, no userns) configuration.
         """
         docker = self._docker()
         if self._client is None:
             self._client = docker.from_env()
+        self._assert_not_unsafe_root()
+        self._warn_if_network_opted_in()
         os.makedirs(self._host_root, exist_ok=True)
         self._write_owner_stamp()
+        self._ensure_image()
 
         container = self._existing_container()
+        if container is not None and not self._owner_is_current(container):
+            # A dead prior owner's container: its frozen labels name a dead PID,
+            # so the reaper would treat this resumed (live) session as abandoned.
+            # Recreate — the bind-mounted files persist, so this is cheap.
+            self._remove_container(container)
+            container = None
         if container is None:
             container = self._create_container(docker)
         elif container.status != "running":
             container.start()
         self._container = container
-        self._touch_heartbeat()
+
+    def _assert_not_unsafe_root(self) -> None:
+        """Fail closed if running as root without daemon userns-remap.
+
+        Running as the host uid makes the container process non-root only when
+        the orchestrator itself is non-root. If Hugin runs as root (CI, some
+        servers), the sandbox would run as container-root — and without
+        userns-remap container-root *is* host-root, so a single escape primitive
+        is host root. Allowed only when the daemon has userns-remap on (which
+        decouples them); otherwise refused with remediation.
+        """
+        if self._host_uid_gid() != "0:0":
+            return
+        try:
+            security = self._client.info().get("SecurityOptions", []) or []
+        except Exception:  # can't tell — fail closed
+            security = []
+        if any("userns" in str(opt) for opt in security):
+            return
+        raise RuntimeError(
+            "refusing to run the docker sandbox as root without userns-remap: "
+            "container-root would equal host-root. Run Hugin as a non-root "
+            "user, or enable docker userns-remap on the daemon."
+        )
+
+    def _warn_if_network_opted_in(self) -> None:
+        """Warn once that ``network: true`` has unrestricted (unsafe) egress."""
+        if not self._spec.network:
+            return
+        global _network_warned
+        if not _network_warned:
+            logger.warning(
+                "DockerSandbox network:true attaches UNRESTRICTED egress "
+                "(including the cloud metadata endpoint 169.254.169.254); an "
+                "injected command can exfiltrate cloud IAM credentials. Do NOT "
+                "use network:true with untrusted input until egress filtering "
+                "lands. The default network:false is the safe path."
+            )
+            _network_warned = True
+
+    def _ensure_image(self) -> None:
+        """Verify the image is present locally, or raise a clear build/pull hint.
+
+        Fails fast with remediation instead of the SDK's cryptic registry-pull
+        404 thirty steps into a run — the default image is built locally, not
+        published, so a first run would otherwise 404 opaquely.
+        """
+        docker = self._docker()
+        try:
+            self._client.images.get(self._image)
+        except docker.errors.ImageNotFound as error:
+            raise RuntimeError(
+                f"sandbox image {self._image!r} is not available locally. "
+                "Build the default image with: "
+                f"docker build -f docker/sandbox.Dockerfile -t {self._image} ."
+                " — or `docker pull` it, or set options.bash.image to an image "
+                "you already have."
+            ) from error
+
+    def _owner_is_current(self, container: "Container") -> bool:
+        """Return whether ``container``'s owner label is this live process."""
+        labels = container.labels or {}
+        try:
+            return int(labels.get(LABEL_OWNER_PID, "")) == os.getpid()
+        except (ValueError, TypeError):
+            return False
 
     def _existing_container(self) -> Optional["Container"]:
         """Return the session's container if one already exists, else None."""
@@ -181,6 +322,19 @@ class DockerSandbox(Sandbox):
             for (name, soft, hard) in kwargs["ulimits"]
         ]
         return self._client.containers.run(self._image, **kwargs)
+
+    @staticmethod
+    def _remove_container(container: "Container") -> None:
+        """Force-remove a container (SIGKILL + remove) idempotently.
+
+        ``force=True`` kills and removes in one step, so there is no wasted
+        graceful-stop wait; ``v=False`` keeps any volumes (we use a bind mount,
+        which is untouched regardless).
+        """
+        try:
+            container.remove(force=True, v=False)
+        except Exception as error:  # already gone / daemon down — nothing to do
+            logger.debug("container remove failed: %s", error)
 
     def _container_kwargs(self) -> Dict[str, Any]:
         """Build the container-creation kwargs — the whole hardening contract.
@@ -202,8 +356,16 @@ class DockerSandbox(Sandbox):
             "cap_drop": ["ALL"],
             "security_opt": ["no-new-privileges:true"],
             "read_only": True,  # rootfs is immutable; only the mounts below write
-            "tmpfs": {"/tmp": "rw,noexec,nosuid,size=256m"},
+            # Both writable scratch mounts are noexec,nosuid,size-capped —
+            # /dev/shm too, which docker otherwise mounts rw+exec even under a
+            # read-only rootfs (a would-be drop-and-exec path).
+            "tmpfs": {
+                "/tmp": "rw,noexec,nosuid,size=256m",
+                "/dev/shm": "rw,noexec,nosuid,size=64m",
+            },
             "mem_limit": self._spec.memory,
+            # Pin swap to the memory limit so the cap can't be doubled via swap.
+            "memswap_limit": self._spec.memory,
             "nano_cpus": int(self._spec.cpu * 1_000_000_000),
             "pids_limit": self._spec.pids,
             "ulimits": [
@@ -280,18 +442,8 @@ class DockerSandbox(Sandbox):
         ) as error:  # best-effort; the reaper falls back to age/TTL
             logger.debug("could not write owner stamp: %s", error)
 
-    def _touch_heartbeat(self) -> None:
-        """Touch a host-side heartbeat file each start (a TTL freshness signal)."""
-        try:
-            beat = os.path.join(self._host_root, ".hugin", "heartbeat")
-            os.makedirs(os.path.dirname(beat), exist_ok=True)
-            with open(beat, "w", encoding="utf-8") as handle:
-                handle.write(str(time.time()))
-        except OSError as error:  # best-effort
-            logger.debug("could not touch heartbeat: %s", error)
-
     def stop(self) -> None:
-        """Stop and remove the container. Idempotent; safe if never started.
+        """Remove the container. Idempotent; safe if never started.
 
         Unlike ``local`` (whose ``stop`` is a no-op), this releases a real
         resource, so a clean exit does not leak a container. The reaper is the
@@ -301,14 +453,7 @@ class DockerSandbox(Sandbox):
         container = self._container
         if container is None:
             return
-        try:
-            container.stop(timeout=5)
-        except Exception as error:  # already gone / daemon down — nothing to do
-            logger.debug("container stop failed: %s", error)
-        try:
-            container.remove(force=True, v=False)
-        except Exception as error:  # remove is best-effort; reaper is the net
-            logger.debug("container remove failed: %s", error)
+        self._remove_container(container)
         self._container = None
 
     # -- workspaces --
@@ -366,21 +511,25 @@ class DockerSandbox(Sandbox):
             "TERM": "dumb",
         }
 
+        host_deadline = effective_timeout + _KILL_AFTER_S + _HOST_GRACE_S
         started = time.monotonic()
-        exit_code, stdout_raw, stderr_raw, capped = self._exec_capture(
-            wrapped, cwd, env
+        exit_code, stdout_raw, stderr_raw, capped, hung = self._exec_capture(
+            wrapped, cwd, env, host_deadline
         )
         duration = time.monotonic() - started
 
-        # `timeout` reports 124 on a wall-clock timeout; a child SIGKILLed
-        # before that (a memory-cap OOM kill is the common cause) surfaces as
-        # 137. The 137->OOM mapping is a documented heuristic, not certainty.
-        timed_out = exit_code == 124
-        oom_killed = exit_code == 137
+        timed_out, oom_killed = self._classify_exit(
+            exit_code, hung, duration, effective_timeout
+        )
         if capped:
             stderr_raw += (
                 f"\n[hugin: output exceeded {_MAX_CAPTURE_BYTES} bytes; "
                 "stopped reading]"
+            )
+        if hung:
+            stderr_raw += (
+                "\n[hugin: command exceeded its time budget and was abandoned "
+                "(it may have left a background process)]"
             )
 
         out, out_trunc = truncate_output(stdout_raw, max_output_bytes)
@@ -399,15 +548,43 @@ class DockerSandbox(Sandbox):
             oom_killed=oom_killed,
         )
 
-    def _exec_capture(
-        self, cmd: List[str], cwd: str, env: Dict[str, str]
-    ) -> Tuple[int, str, str, bool]:
-        """Stream one exec, capping buffered bytes; return code, out, err, capped.
+    @staticmethod
+    def _classify_exit(
+        exit_code: int, hung: bool, duration: float, timeout_s: int
+    ) -> Tuple[bool, bool]:
+        """Map an exit code to ``(timed_out, oom_killed)``.
 
-        Uses the low-level exec API so output can be drained incrementally and
-        stopped at :data:`_MAX_CAPTURE_BYTES` — past the cap we stop reading and
-        let the in-container ``timeout`` end the process, bounding host memory
-        the same way ``LocalSandbox`` does.
+        ``timeout`` reports 124 on a wall-clock timeout. Exit 137 is a SIGKILL,
+        which is ambiguous: a memory-cap OOM kill *or* ``timeout``'s kill-after
+        finishing off a SIGTERM-ignoring process — so 137 at/after the deadline
+        is classed as a timeout (the more actionable signal for the model),
+        otherwise as OOM. A host-side abandonment (``hung``) is always a timeout.
+        """
+        if hung or exit_code == 124:
+            return True, False
+        if exit_code == 137 and duration >= timeout_s:
+            return True, False  # kill-after finished off a TERM-ignoring hang
+        if exit_code == 137:
+            return False, True  # SIGKILL well before the deadline — likely OOM
+        return False, False
+
+    def _exec_capture(
+        self,
+        cmd: List[str],
+        cwd: str,
+        env: Dict[str, str],
+        deadline_s: float,
+    ) -> Tuple[int, str, str, bool, bool]:
+        """Stream one exec under a byte cap and a host-side deadline.
+
+        Returns ``(exit_code, stdout, stderr, capped, hung)``. Output is drained
+        in a worker thread so a command that backgrounds a child holding the
+        output pipe — which the in-container ``timeout`` cannot reach — can never
+        block the agent's turn: the reader is joined against ``deadline_s``, and
+        once the foreground exec exits, only a short grace. Buffered bytes are
+        hard-capped at :data:`_MAX_CAPTURE_BYTES` so a runaway ``yes`` can't OOM
+        the orchestrator. ``hung`` means the deadline was hit with the reader
+        still blocked; ``exit_code`` is -1 when the process had not exited.
         """
         assert (
             self._container is not None
@@ -424,33 +601,70 @@ class DockerSandbox(Sandbox):
 
         out = bytearray()
         err = bytearray()
-        total = 0
-        capped = False
-        for stdout_chunk, stderr_chunk in stream:
-            for chunk, buf in (
-                (stdout_chunk, out),
-                (stderr_chunk, err),
-            ):
-                if not chunk:
-                    continue
-                total += len(chunk)
-                room = _MAX_CAPTURE_BYTES - len(buf)
-                if room > 0:
-                    buf.extend(chunk[:room])
-            if total > _MAX_CAPTURE_BYTES:
-                capped = True
+        total = [0]  # boxed so the reader thread can mutate it
+        capped = threading.Event()
+        done = threading.Event()
+
+        def drain() -> None:
+            try:
+                for stdout_chunk, stderr_chunk in stream:
+                    for chunk, buf in (
+                        (stdout_chunk, out),
+                        (stderr_chunk, err),
+                    ):
+                        if not chunk:
+                            continue
+                        total[0] += len(chunk)
+                        room = _MAX_CAPTURE_BYTES - len(buf)
+                        if room > 0:
+                            buf.extend(chunk[:room])
+                    if total[0] > _MAX_CAPTURE_BYTES:
+                        capped.set()
+                        break
+            except Exception:  # pipe closed under us / stream error
+                pass
+            finally:
+                done.set()
+
+        reader = threading.Thread(target=drain, daemon=True)
+        reader.start()
+
+        deadline = time.monotonic() + deadline_s
+        while not done.is_set():
+            if not self._exec_running(api, exec_id):
+                # Foreground exec finished; a lingering background child may
+                # still hold the pipe. Give the drain a short grace, then stop.
+                done.wait(timeout=_DRAIN_GRACE_S)
                 break
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(0.05)
+
+        hung = not done.is_set()
+        try:
+            stream.close()  # release our socket even if the drain is abandoned
+        except Exception:  # pragma: no cover - best-effort
+            pass
 
         info = api.exec_inspect(exec_id)
         exit_code = info.get("ExitCode")
-        if exit_code is None:  # still running (we stopped draining on the cap)
+        if exit_code is None:  # still running (cap break or host-side timeout)
             exit_code = -1
         return (
-            exit_code,
+            int(exit_code),
             bytes(out).decode("utf-8", "replace"),
             bytes(err).decode("utf-8", "replace"),
-            capped,
+            capped.is_set(),
+            hung,
         )
+
+    @staticmethod
+    def _exec_running(api: Any, exec_id: str) -> bool:
+        """Return whether the exec'd process is still running (True if unknown)."""
+        try:
+            return bool(api.exec_inspect(exec_id).get("Running", False))
+        except Exception:  # pragma: no cover - if we can't tell, assume running
+            return True
 
     def _spill(self, cwd: str, stdout: str, stderr: str) -> None:
         """Write full output host-side so the agent can read past the cap.

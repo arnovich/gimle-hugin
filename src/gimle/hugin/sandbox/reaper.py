@@ -175,11 +175,14 @@ def reap_abandoned_containers(
         LABEL_OWNER_START,
         LABEL_SESSION,
         LABEL_TTL,
+        REAPER_CLIENT_TIMEOUT_S,
         import_docker,
     )
 
     try:
-        client = import_docker().from_env()
+        # Short client timeout so a wedged daemon can't stall the startup reap
+        # (this runs on every `hugin` invocation, before the real command).
+        client = import_docker().from_env(timeout=REAPER_CLIENT_TIMEOUT_S)
         containers = client.containers.list(
             all=True, filters={"label": LABEL_SESSION}
         )
@@ -201,7 +204,8 @@ def reap_abandoned_containers(
                 start_key=LABEL_OWNER_START,
                 ttl_key=LABEL_TTL,
             ):
-                container.stop(timeout=5)
+                # force=True SIGKILLs and removes in one step (the owner is
+                # already dead — no graceful stop to wait on).
                 container.remove(force=True, v=False)
                 reaped.append(container.name)
         except Exception as error:  # one bad container never aborts the sweep
