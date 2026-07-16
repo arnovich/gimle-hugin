@@ -322,7 +322,15 @@ def running_sandbox(tmp_path):
 @pytest.mark.slow
 @requires_docker
 class TestContainmentGate:
-    """The acceptance gate: the runtime contains, the policy does not deny."""
+    """The acceptance gate: the runtime contains, the policy does not deny.
+
+    The backend-*interchangeable* half of this (interpreter-not-denied, host fs
+    unreachable) is asserted once for all backends in
+    ``test_sandbox_contract.py``. What stays here is docker-*specific*: no
+    network by default, not-container-root, the real hardening flags. Add new
+    cross-backend containment assertions to the contract suite; add docker-only
+    ones here.
+    """
 
     def test_interpreter_runs_it_is_not_denied(self, running_sandbox):
         """python3 -c 'os.system("id")' RUNS (denylist lets interpreters through)."""
