@@ -191,9 +191,10 @@ def bash(
             content={
                 "infra_error": str(error),
                 "command": command,
-                "note": "the sandbox could not start; retrying will not fix "
-                "this — it needs an operator (start docker, build/pull the "
-                "image, or install the sandbox extra)",
+                "note": "the sandbox backend could not start; retrying will "
+                "not fix this — an operator needs to fix the backend (e.g. "
+                "start the docker daemon / build the image / install the "
+                "sandbox extra, or make the ssh host reachable)",
             },
         )
 

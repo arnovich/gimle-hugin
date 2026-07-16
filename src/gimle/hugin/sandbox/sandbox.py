@@ -74,18 +74,37 @@ def _load_docker() -> Type["Sandbox"]:
     return DockerSandbox
 
 
-def _phase2_loader(name: str) -> Callable[[], Type["Sandbox"]]:
-    """Build a loader for a not-yet-implemented backend (clear error on use)."""
+def _load_ssh() -> Type["Sandbox"]:
+    """Import the ssh backend on demand (it shells out to ``ssh``/``scp``)."""
+    from gimle.hugin.sandbox.ssh import SSHSandbox
 
-    def loader() -> Type["Sandbox"]:
-        raise NotImplementedError(f"the {name} backend lands in phase 2")
-
-    return loader
+    return SSHSandbox
 
 
 register_backend("local", _load_local)
 register_backend("docker", _load_docker)
-register_backend("ssh", _phase2_loader("ssh"))
+register_backend("ssh", _load_ssh)
+
+
+def classify_timeout_exit(
+    exit_code: int, hung: bool, duration: float, timeout_s: float
+) -> Tuple[bool, bool]:
+    """Map a ``timeout``-wrapped exit code to ``(timed_out, oom_killed)``.
+
+    Shared by every backend that runs commands under coreutils ``timeout -k``:
+    124 is a wall-clock timeout; 137 is a SIGKILL, ambiguous between a memory-cap
+    OOM kill and ``timeout``'s kill-after finishing off a SIGTERM-ignoring
+    process — so 137 at/after the deadline is classed as a timeout (the more
+    actionable signal), otherwise as OOM. A host-side abandonment (``hung``) is
+    always a timeout.
+    """
+    if hung or exit_code == 124:
+        return True, False
+    if exit_code == 137 and duration >= timeout_s:
+        return True, False  # kill-after finished off a TERM-ignoring hang
+    if exit_code == 137:
+        return False, True  # SIGKILL well before the deadline — likely OOM
+    return False, False
 
 
 def truncate_output(text: str, max_bytes: int) -> Tuple[str, bool]:
@@ -151,12 +170,14 @@ class SandboxSpec:
     runs. The three backends are peers with no Docker dependency: ``local``
     (no isolation, honest about it), ``docker`` (container boundary), ``ssh``
     (the remote machine is the boundary). ``image`` applies to ``docker`` only;
-    ``host`` to ``ssh`` only; the resource knobs to the container backends only.
+    ``host`` / ``ssh_key`` to ``ssh`` only; the resource knobs to the container
+    backends only.
     """
 
     backend: str
     image: Optional[str] = None
     host: Optional[str] = None
+    ssh_key: Optional[str] = None
     network: bool = False
     cpu: float = 2.0
     memory: str = "2g"
@@ -244,11 +265,17 @@ class Sandbox(ABC):
 
     @abstractmethod
     def put_file(self, path: str, content: bytes) -> None:
-        """Write ``content`` to ``path`` inside the workspace."""
+        """Write ``content`` to ``path`` inside the workspace (confined)."""
 
     @abstractmethod
     def get_file(self, path: str) -> bytes:
-        """Read ``path`` from the workspace (realpath-confined, no symlink escape)."""
+        """Read ``path`` from the workspace.
+
+        Confined to the workspace. The *strength* of that confinement is
+        backend-dependent: the local backend resolves the real path (symlink
+        escapes blocked), while the ssh backend confines lexically (a remote
+        symlink escape is out of scope on a disposable box — see its docstring).
+        """
 
     @abstractmethod
     def stop(self) -> None:

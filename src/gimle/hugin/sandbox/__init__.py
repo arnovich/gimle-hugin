@@ -35,6 +35,7 @@ from gimle.hugin.sandbox.sandbox import (
     SandboxSpec,
     create_sandbox,
 )
+from gimle.hugin.sandbox.ssh import SSHSandbox
 
 __all__ = [
     "Allow",
@@ -47,6 +48,7 @@ __all__ = [
     "LocalSandbox",
     "Policy",
     "PolicyDenied",
+    "SSHSandbox",
     "Sandbox",
     "SandboxManager",
     "SandboxSpec",

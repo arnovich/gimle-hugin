@@ -55,6 +55,7 @@ from gimle.hugin.sandbox.sandbox import (
     PolicyDenied,
     Sandbox,
     SandboxSpec,
+    classify_timeout_exit,
     truncate_output,
 )
 
@@ -552,21 +553,8 @@ class DockerSandbox(Sandbox):
     def _classify_exit(
         exit_code: int, hung: bool, duration: float, timeout_s: int
     ) -> Tuple[bool, bool]:
-        """Map an exit code to ``(timed_out, oom_killed)``.
-
-        ``timeout`` reports 124 on a wall-clock timeout. Exit 137 is a SIGKILL,
-        which is ambiguous: a memory-cap OOM kill *or* ``timeout``'s kill-after
-        finishing off a SIGTERM-ignoring process — so 137 at/after the deadline
-        is classed as a timeout (the more actionable signal for the model),
-        otherwise as OOM. A host-side abandonment (``hung``) is always a timeout.
-        """
-        if hung or exit_code == 124:
-            return True, False
-        if exit_code == 137 and duration >= timeout_s:
-            return True, False  # kill-after finished off a TERM-ignoring hang
-        if exit_code == 137:
-            return False, True  # SIGKILL well before the deadline — likely OOM
-        return False, False
+        """Map an exit code to ``(timed_out, oom_killed)`` (see the shared rule)."""
+        return classify_timeout_exit(exit_code, hung, duration, timeout_s)
 
     def _exec_capture(
         self,
