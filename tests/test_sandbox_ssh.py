@@ -17,6 +17,7 @@ import pytest
 from gimle.hugin.sandbox import SandboxSpec, SSHSandbox, create_sandbox
 from gimle.hugin.sandbox.policy import Policy
 from gimle.hugin.sandbox.sandbox import PolicyDenied
+from gimle.hugin.sandbox.ssh import _EXIT_SENTINEL
 
 
 def _sandbox(**spec_kwargs) -> SSHSandbox:
@@ -26,6 +27,11 @@ def _sandbox(**spec_kwargs) -> SSHSandbox:
     sandbox = create_sandbox(spec, "sess-1", "/tmp/hugin-sbx")
     assert isinstance(sandbox, SSHSandbox)
     return sandbox
+
+
+def _with_sentinel(stdout: bytes, code: int) -> bytes:
+    """Append the completion sentinel the real remote wrapper prints on exit."""
+    return stdout + f"\n{_EXIT_SENTINEL}={code}\n".encode("ascii")
 
 
 def _started(sandbox: SSHSandbox) -> SSHSandbox:
@@ -99,6 +105,14 @@ class TestCommandConstruction:
         assert "timeout -k 5 15 bash -c" in wrapper
         # The untrusted command travels over stdin, not the argv.
         assert '"$(cat)"' in wrapper
+        # The completion sentinel is printed after the command with its $?.
+        assert f"{_EXIT_SENTINEL}=%s" in wrapper
+        assert wrapper.rstrip().endswith('"$?"')
+
+    def test_remote_wrapper_touches_root_when_started(self):
+        """A started sandbox's wrapper touches the session root (TTL heartbeat)."""
+        wrapper = _started(_sandbox())._remote_wrapper("/home/u/ws", 15)
+        assert wrapper.startswith("touch /home/u/.hugin-sandbox/sess-1 ")
 
     def test_ssh_argv_targets_the_host(self):
         """The argv is ssh <opts> <host> <remote-command>."""
@@ -165,9 +179,14 @@ class TestExec:
             sandbox.exec("echo hi", policy=Policy(), cwd="/x", timeout_s=15)
 
     def test_successful_command_maps_to_result(self):
-        """A clean remote exit maps to a non-error ExecResult with output."""
+        """A clean remote exit maps to a non-error ExecResult with output.
+
+        The wrapper's completion sentinel is stripped from the displayed stdout.
+        """
         sandbox = _started(_sandbox())
-        sandbox._run = _FakeRun((0, b"hello\n", b"", False, False))
+        sandbox._run = _FakeRun(
+            (0, _with_sentinel(b"hello\n", 0), b"", False, False)
+        )
         result = sandbox.exec(
             "echo hello",
             policy=Policy(),
@@ -175,11 +194,30 @@ class TestExec:
             timeout_s=15,
         )
         assert result.exit_code == 0
-        assert result.stdout == "hello\n"
+        assert result.stdout == "hello\n"  # sentinel stripped
         assert result.timed_out is False
 
-    def test_transport_error_is_not_retried(self):
-        """An ssh transport failure (255) raises a do-not-retry error."""
+    def test_real_exit_255_is_trusted_not_treated_as_transport(self):
+        """A command that itself exits 255 (sentinel present) is a normal result.
+
+        The sentinel disambiguates this from a real ssh transport failure, which
+        a bare ``rc == 255`` check could not.
+        """
+        sandbox = _started(_sandbox())
+        sandbox._run = _FakeRun(
+            (0, _with_sentinel(b"", 255), b"boom", False, False)
+        )
+        result = sandbox.exec(
+            "exit 255",
+            policy=Policy(),
+            cwd="/home/u/.hugin-sandbox/sess-1",
+            timeout_s=15,
+        )
+        assert result.exit_code == 255
+        assert result.timed_out is False
+
+    def test_partition_without_sentinel_is_not_retried(self):
+        """No sentinel + un-truncated output = dropped connection: do not retry."""
         sandbox = _started(_sandbox())
         sandbox._run = _FakeRun(
             (255, b"", b"ssh: connect: timed out", False, False)
@@ -192,10 +230,44 @@ class TestExec:
                 timeout_s=15,
             )
 
-    def test_remote_timeout_is_reported(self):
-        """Remote `timeout` exit 124 is surfaced as timed_out."""
+    def test_deadline_hang_without_sentinel_is_not_retried(self):
+        """A wedged pipe hitting the deadline (no sentinel) is a non-retryable partition."""
         sandbox = _started(_sandbox())
-        sandbox._run = _FakeRun((124, b"", b"", False, False))
+        sandbox._run = _FakeRun((-9, b"partial", b"", False, True))
+        with pytest.raises(RuntimeError, match="do not retry"):
+            sandbox.exec(
+                "echo hi",
+                policy=Policy(),
+                cwd="/home/u/.hugin-sandbox/sess-1",
+                timeout_s=15,
+            )
+
+    def test_backgrounded_child_hung_but_completed_is_a_result(self):
+        """Sentinel present despite hung = the command finished; a bg child held the pipe.
+
+        This must NOT be misclassified as a partition or a timeout — the sentinel
+        already proves completion.
+        """
+        sandbox = _started(_sandbox())
+        sandbox._run = _FakeRun(
+            (-9, _with_sentinel(b"started\n", 0), b"", False, True)
+        )
+        result = sandbox.exec(
+            "server & ",
+            policy=Policy(),
+            cwd="/home/u/.hugin-sandbox/sess-1",
+            timeout_s=15,
+        )
+        assert result.exit_code == 0
+        assert result.timed_out is False
+        assert "background process" in result.stderr
+
+    def test_remote_timeout_is_reported(self):
+        """Remote `timeout` exit 124 (carried by the sentinel) is surfaced as timed_out."""
+        sandbox = _started(_sandbox())
+        sandbox._run = _FakeRun(
+            (0, _with_sentinel(b"", 124), b"", False, False)
+        )
         result = sandbox.exec(
             "sleep 99",
             policy=Policy(),
@@ -209,7 +281,7 @@ class TestExec:
         sandbox = _started(_sandbox())
         big = b"x" * 50_000
         sandbox._run = _FakeRun(
-            (0, big, b"", False, False),  # the command
+            (0, _with_sentinel(big, 0), b"", False, False),  # the command
             (0, b"", b"", False, False),  # the spill write
         )
         result = sandbox.exec(
@@ -223,6 +295,23 @@ class TestExec:
         # The spill call wrote the full output to .hugin/last_output.txt.
         spill_call = sandbox._run.calls[-1]
         assert any("last_output.txt" in a for a in spill_call.argv)
+
+    def test_byte_capped_output_is_completed_with_unknown_exit(self):
+        """Output past the byte cap loses the sentinel; report a completed run."""
+        sandbox = _started(_sandbox())
+        flood = b"x" * 2_000_000  # capped before the sentinel is ever read
+        sandbox._run = _FakeRun(
+            (0, flood, b"", True, False),  # the command (capped, no sentinel)
+            (0, b"", b"", False, False),  # the spill write
+        )
+        result = sandbox.exec(
+            "cat huge",
+            policy=Policy(),
+            cwd="/home/u/.hugin-sandbox/sess-1",
+            timeout_s=15,
+        )
+        assert result.exit_code == -1  # sentinel lost past the cap
+        assert result.truncated is True
 
 
 class TestWorkspaceAndFiles:
@@ -238,6 +327,22 @@ class TestWorkspaceAndFiles:
             p1 == p2 == ("/home/u/.hugin-sandbox/sess-1/agents/agent-a/feature")
         )
         assert len(sandbox._run.calls) == 1  # cached the second time
+
+    def test_workspace_for_neutralizes_slashes_in_branch(self):
+        """A traversal-shaped branch is flattened to one component, not an escape."""
+        sandbox = _started(_sandbox())
+        sandbox._run = _FakeRun()
+        path = sandbox.workspace_for("agent-a", "../../../etc")
+        assert path.startswith("/home/u/.hugin-sandbox/sess-1/agents/")
+        assert "/../" not in path
+        assert not path.endswith("/etc")  # the leading slashes became dashes
+
+    def test_workspace_for_rejects_parent_escape(self):
+        """A branch that normalizes above the agents root is refused."""
+        sandbox = _started(_sandbox())
+        sandbox._run = _FakeRun()
+        with pytest.raises(PolicyDenied):
+            sandbox.workspace_for("agent-a", "..")
 
     def test_put_and_get_use_the_confined_remote_path(self):
         """put_file/get_file operate on a confined remote path over ssh."""
@@ -257,6 +362,13 @@ class TestWorkspaceAndFiles:
         sandbox._run = _FakeRun((1, b"", b"No such file", False, False))
         with pytest.raises(RuntimeError, match="get_file failed"):
             sandbox.get_file("missing.txt")
+
+    def test_get_file_over_cap_raises_not_truncates(self):
+        """A file larger than the transfer cap raises, never returns short bytes."""
+        sandbox = _started(_sandbox())
+        sandbox._run = _FakeRun((0, b"x" * 2_000_000, b"", True, False))
+        with pytest.raises(RuntimeError, match="transfer cap"):
+            sandbox.get_file("huge.bin")
 
 
 class TestRunSeam:

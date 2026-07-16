@@ -20,9 +20,15 @@ Two correctness properties the design note calls out:
 - **A partition cannot hang the turn** — the streamed read is bounded by a
   host-side deadline (like the docker backend), and ssh's own keepalive bounds
   the client.
-- **A partition is not silently retried** — an ssh *transport* failure (exit
-  255) raises a clear, do-not-retry error rather than re-running a command whose
-  fate is unknown (a half-run ``rm``/``git push`` must not be blindly repeated).
+- **A partition is not silently retried** — the remote wrapper prints a
+  completion sentinel (``__HUGIN_EXIT_…=<code>``) *after* the command. Its
+  presence means the command ran to completion and we trust the exit code it
+  carries (even ``255``, which a remote command may legitimately return);
+  its *absence* means the connection dropped mid-command, so we raise a clear
+  do-not-retry error rather than re-running a command whose fate is unknown (a
+  half-run ``rm``/``git push`` must not be blindly repeated). This distinguishes
+  a real ssh transport failure from a command that merely exited 255, which a
+  bare ``rc == 255`` check cannot.
 
 The remote command runs under a scrubbed env (``env -i``, ``HOME`` at the
 workspace) and a remote ``timeout`` so the remote job is bounded and killable,
@@ -39,6 +45,7 @@ import json
 import logging
 import os
 import posixpath
+import re
 import shlex
 import subprocess
 import tempfile
@@ -88,8 +95,23 @@ _MAX_CAPTURE_BYTES = 2_000_000
 _TTL_MINUTES = 24 * 60
 
 # ssh exits 255 for its *own* transport failures (host down, auth, dropped
-# connection) — distinct from any exit code the remote command could return.
+# connection) — but a remote command can *also* exit 255, so ``rc == 255`` alone
+# is ambiguous. We disambiguate with the completion sentinel below rather than
+# this exit code.
 SSH_TRANSPORT_EXIT = 255
+
+# The remote wrapper prints this (with the command's ``$?``) *after* the command
+# returns. Seeing it in stdout proves the command completed and tells us the real
+# exit code; not seeing it (and not having truncated output) proves the
+# connection dropped mid-command. The random-looking suffix makes an accidental
+# collision with a command's own output astronomically unlikely, and we always
+# read the *last* occurrence, which is the wrapper's.
+_EXIT_SENTINEL = "__HUGIN_EXIT_b9f2c1a4__"
+# Matched against raw bytes (not decoded text) so byte-exact output — including
+# invalid UTF-8 — is preserved for the spill file.
+_SENTINEL_RE = re.compile(
+    rb"\n" + re.escape(_EXIT_SENTINEL.encode("ascii")) + rb"=(-?\d+)\n?$"
+)
 
 _SPILL_RELATIVE = ".hugin/last_output.txt"
 
@@ -118,14 +140,17 @@ class SSHSandbox(Sandbox):
         self._session_id = session_id
         self._host = spec.host
         self._key = spec.ssh_key
-        # Our ControlMaster socket lives in the system temp dir under a short,
-        # collision-resistant name (unix socket paths have a ~104-char limit).
+        # Our ControlMaster socket lives in a per-user 0700 directory under the
+        # system temp dir (so another local user cannot connect to or hijack the
+        # multiplexed session), under a short collision-resistant name (unix
+        # socket paths have a ~104-char limit).
+        self._control_dir = os.path.join(
+            tempfile.gettempdir(), f"hugin-ssh-{os.getuid()}"
+        )
         digest = hashlib.sha256(
             f"{session_id}|{spec.host}".encode("utf-8")
         ).hexdigest()[:12]
-        self._control_path = os.path.join(
-            tempfile.gettempdir(), f"hugin-cm-{digest}"
-        )
+        self._control_path = os.path.join(self._control_dir, f"cm-{digest}")
         self._remote_root: Optional[str] = None
         self._created: Set[str] = set()
         self._started = False
@@ -165,27 +190,41 @@ class SSHSandbox(Sandbox):
     def _remote_wrapper(self, remote_cwd: str, timeout_s: int) -> str:
         """Return the remote shell string that runs the stdin command safely.
 
-        cd into the workspace, scrub the environment (``env -i`` — no inherited
+        Touch the session root first so its mtime stays fresh and the TTL sweep
+        never reaps a long-lived active session (nested writes do *not* refresh
+        the root dir's mtime, so this heartbeat is what protects it). Then cd
+        into the workspace, scrub the environment (``env -i`` — no inherited
         remote secrets — with ``HOME`` at the workspace), and run under a remote
         ``timeout`` so the job is bounded/killable. The untrusted command is read
         from stdin (``bash -c "$(cat)"``) so it never passes through a second
-        shell-quoting layer.
+        shell-quoting layer. Finally print the completion sentinel carrying the
+        command's ``$?`` — its presence is how :meth:`exec` distinguishes a
+        completed command (any exit code, including 255) from a dropped
+        connection.
         """
         q_cwd = shlex.quote(remote_cwd)
+        touch = ""
+        if self._remote_root:
+            touch = f"touch {shlex.quote(self._remote_root)} 2>/dev/null; "
         return (
+            f"{touch}"
             f"cd {q_cwd} && "
             f"env -i HOME={q_cwd} PATH=/usr/local/bin:/usr/bin:/bin "
             f"LANG=C.UTF-8 TERM=dumb "
-            f'timeout -k {_KILL_AFTER_S} {int(timeout_s)} bash -c "$(cat)"'
+            f'timeout -k {_KILL_AFTER_S} {int(timeout_s)} bash -c "$(cat)"; '
+            f"printf '\\n{_EXIT_SENTINEL}=%s\\n' \"$?\""
         )
 
     def _remote_start_script(self) -> str:
         """Return the one-shot remote script: TTL-sweep, create root, stamp owner.
 
-        Sweeps sibling session dirs not modified within the TTL (an active
-        session's mtime stays fresh, so it is protected), (re)creates this
-        session's root, writes the owner marker (base64 so no quoting games), and
-        prints the resolved absolute root path for the caller to capture.
+        Sweeps sibling session dirs not modified within the TTL. An active
+        session is protected because every :meth:`exec` touches its root (see
+        :meth:`_remote_wrapper`) — a nested file write alone would *not* refresh
+        the root dir's mtime, so the heartbeat touch is load-bearing here.
+        (Re)creates this session's root, writes the owner marker (base64 so no
+        quoting games), and prints the resolved absolute root path for the caller
+        to capture.
         """
         marker = json.dumps(
             {
@@ -211,6 +250,44 @@ class SSHSandbox(Sandbox):
 
     # -- lifecycle --
 
+    def _provision_host(self) -> str:
+        """Return the host to connect to (the provisioner seam for Option B).
+
+        v1 (Option A / BYO host) connects to the operator-supplied host as-is.
+        A future managed-VM provisioner (Option B — see the design note)
+        overrides this to create a fresh VM per session and return its address,
+        pairing with :meth:`_destroy_host` on teardown. Kept as an explicit,
+        no-op seam so the backend does not need reshaping when B lands.
+        """
+        return self._host
+
+    def _destroy_host(self) -> None:
+        """Tear down a host created by :meth:`_provision_host` (Option B seam).
+
+        No-op under Option A: Hugin never created the machine, so it must never
+        destroy it (and therefore cannot leak a VM). A future provisioner
+        overrides this to reap the VM it created.
+        """
+
+    def _prepare_control_dir(self) -> None:
+        """Create the 0700 ControlMaster dir and clear a stale socket.
+
+        The per-user directory keeps other local users out of the multiplexed
+        session. A leftover socket from an abrupt prior run against the same
+        (session, host) is removed first — session ids are unique per process,
+        so no live peer can own it.
+        """
+        try:
+            os.makedirs(self._control_dir, exist_ok=True)
+            os.chmod(self._control_dir, 0o700)
+        except OSError as error:
+            logger.debug("could not prepare control dir: %s", error)
+        try:
+            if os.path.exists(self._control_path):
+                os.remove(self._control_path)
+        except OSError as error:  # best-effort
+            logger.debug("could not remove stale control socket: %s", error)
+
     def start(self) -> None:
         """Open the connection, create the remote workspace, stamp the owner.
 
@@ -223,6 +300,8 @@ class SSHSandbox(Sandbox):
         """
         if self._started:
             return
+        self._host = self._provision_host()
+        self._prepare_control_dir()
         rc, out, err, _capped, hung = self._run(
             self._ssh_argv(self._remote_start_script()),
             deadline_s=_CONTROL_DEADLINE_S,
@@ -254,10 +333,12 @@ class SSHSandbox(Sandbox):
         if not self._started:
             return
         if self._remote_root:
-            # Best-effort: kills the still-running command wrapper for this
-            # session (matched by its unique root path). A backgrounded remote
-            # child that reparented away escapes this and is bounded only by the
-            # box's disposal — documented in the design note.
+            # Best-effort. This matches the wrapper process by its unique root
+            # path, so it kills the current command's wrapper — but the real
+            # bound on a runaway is the remote ``timeout`` the wrapper runs
+            # under (a backgrounded child that reparented away escapes ``pkill``
+            # and is bounded only by that timeout and the box's disposal).
+            # Documented in the design note.
             self._safe_run(
                 self._ssh_argv(
                     f"pkill -f {shlex.quote(self._remote_root)} "
@@ -270,17 +351,31 @@ class SSHSandbox(Sandbox):
                 os.remove(self._control_path)
         except OSError as error:  # best-effort
             logger.debug("could not remove control socket: %s", error)
+        self._destroy_host()
         self._started = False
 
     # -- workspaces --
 
     def workspace_for(self, agent_id: str, branch: Optional[str]) -> str:
-        """Return the remote ``(agent, branch)`` path, creating it once."""
+        """Return the remote ``(agent, branch)`` path, creating it once.
+
+        ``agent_id`` and ``branch`` can carry LLM-chosen text (e.g. a
+        ``create_branch`` name), so both are reduced to a single safe path
+        component — :func:`_safe_component` maps ``/`` to ``-``, which alone
+        defeats traversal — and the joined path is re-checked to be strictly
+        under the session root before it is ever used in a remote ``mkdir``.
+        """
         if self._remote_root is None:
             raise RuntimeError("sandbox not started")
-        path = posixpath.join(
-            self._remote_root, "agents", agent_id, branch or "default"
+        agent = _safe_component(agent_id) or "agent"
+        leaf = _safe_component(branch or "default") or "default"
+        path = posixpath.normpath(
+            posixpath.join(self._remote_root, "agents", agent, leaf)
         )
+        if not path.startswith(self._remote_root + "/agents/"):
+            raise PolicyDenied(
+                f"invalid agent/branch workspace: {agent_id!r}/{branch!r}"
+            )
         if path not in self._created:
             self._safe_run(self._ssh_argv(f"mkdir -p {shlex.quote(path)}"))
             self._created.add(path)
@@ -300,8 +395,23 @@ class SSHSandbox(Sandbox):
         """Run ``command`` on the remote host; enforce policy fail-closed.
 
         Raises :class:`PolicyDenied` on a refused command and ``RuntimeError`` on
-        an ssh transport failure (a partition — not safe to retry). A remote
-        wall-clock timeout / OOM is reported in the result, not raised.
+        a network partition (the command did not complete over the connection —
+        not safe to retry). A remote wall-clock timeout / OOM is reported in the
+        result, not raised.
+
+        The outcome is decided by the completion sentinel the remote wrapper
+        prints after the command, not by ssh's own exit code:
+
+        - **Sentinel present** → the command completed; trust the exit code it
+          carries (even ``255``). ``hung`` in this case only means a backgrounded
+          remote child kept the pipe open past the deadline — the command itself
+          still finished, so it is *not* a partition.
+        - **Sentinel absent, output truncated** → the command ran but its tail
+          (including the sentinel) was past the byte cap; treat as completed with
+          an unknown exit code.
+        - **Sentinel absent, not truncated** → the connection dropped
+          mid-command (transport failure or a wedged pipe hitting the deadline);
+          raise a do-not-retry error.
         """
         decision = evaluate(command, policy)
         if not isinstance(decision, Allow):
@@ -314,25 +424,33 @@ class SSHSandbox(Sandbox):
         host_deadline = effective_timeout + _KILL_AFTER_S + _HOST_GRACE_S
 
         started = time.monotonic()
-        rc, out_bytes, err_bytes, capped, hung = self._run(
+        _rc, out_bytes, err_bytes, capped, hung = self._run(
             argv, input_bytes=command.encode("utf-8"), deadline_s=host_deadline
         )
         duration = time.monotonic() - started
 
-        if rc == SSH_TRANSPORT_EXIT and not hung:
-            # ssh could not run the command at all (host down / dropped
-            # connection / auth). The command may or may not have run remotely —
-            # its fate is unknown, so refuse to retry rather than double-execute.
+        stdout_bytes, remote_exit = self._extract_sentinel(out_bytes)
+        if remote_exit is None and not capped:
+            # No completion sentinel and the output was not truncated: the
+            # command did not finish over the connection (a real ssh transport
+            # failure, or a pipe that wedged until the host deadline). Its remote
+            # effect is unknown, so refuse to retry rather than double-execute.
             raise RuntimeError(
                 f"ssh transport error to {self._host!r}: the command did not "
                 "complete over the connection; do not retry (its remote effect "
                 "is unknown)"
             )
+        # Sentinel absent but output was capped → the command ran; we just lost
+        # its exit code past the byte cap. Report an unknown (-1) exit.
+        exit_code = remote_exit if remote_exit is not None else -1
 
+        # A completed command is never a partition, so classify timeout/OOM on
+        # the real exit code alone (hung here is only a lingering background
+        # child, not an abandonment).
         timed_out, oom_killed = classify_timeout_exit(
-            rc, hung, duration, effective_timeout
+            exit_code, False, duration, effective_timeout
         )
-        stdout_raw = out_bytes.decode("utf-8", "replace")
+        stdout_raw = stdout_bytes.decode("utf-8", "replace")
         stderr_raw = err_bytes.decode("utf-8", "replace")
         if capped:
             stderr_raw += (
@@ -341,18 +459,18 @@ class SSHSandbox(Sandbox):
             )
         if hung:
             stderr_raw += (
-                "\n[hugin: command exceeded its time budget and was abandoned "
-                "(it may have left a background process on the remote)]"
+                "\n[hugin: command finished but left a background process "
+                "holding its output stream on the remote]"
             )
 
         out, out_trunc = truncate_output(stdout_raw, max_output_bytes)
         err, err_trunc = truncate_output(stderr_raw, max_output_bytes)
         truncated = out_trunc or err_trunc or capped
         if truncated:
-            self._spill_remote(cwd, out_bytes, err_bytes)
+            self._spill_remote(cwd, stdout_bytes, err_bytes)
 
         return ExecResult(
-            exit_code=rc,
+            exit_code=exit_code,
             stdout=out,
             stderr=err,
             duration_s=duration,
@@ -360,6 +478,22 @@ class SSHSandbox(Sandbox):
             timed_out=timed_out,
             oom_killed=oom_killed,
         )
+
+    @staticmethod
+    def _extract_sentinel(out_bytes: bytes) -> Tuple[bytes, Optional[int]]:
+        """Split the completion sentinel off stdout.
+
+        Returns ``(stdout_without_sentinel, exit_code)``; ``exit_code`` is
+        ``None`` when no sentinel is present (a dropped connection). The wrapper
+        prints a newline-delimited ``<sentinel>=<code>`` as the *last* thing on
+        stdout, so we anchor the match at the end — the command's own stdout
+        (even if it happens to contain the marker earlier) is preserved ahead of
+        it.
+        """
+        match = _SENTINEL_RE.search(out_bytes)
+        if match is None:
+            return out_bytes, None
+        return out_bytes[: match.start()], int(match.group(1))
 
     def _spill_remote(
         self, remote_cwd: str, stdout: bytes, stderr: bytes
@@ -396,12 +530,23 @@ class SSHSandbox(Sandbox):
             )
 
     def get_file(self, path: str) -> bytes:
-        """Read ``path`` from the remote workspace (confined)."""
+        """Read ``path`` from the remote workspace (confined).
+
+        Raises rather than return a truncated file: the read goes through the
+        byte-capped ``_run`` seam, so a file larger than
+        :data:`_MAX_CAPTURE_BYTES` (or a stalled read) must surface as an error,
+        never as silently short bytes a caller would mistake for the whole file.
+        """
         remote = self._confine(path)
-        rc, out, err, _capped, hung = self._run(
+        rc, out, err, capped, hung = self._run(
             self._ssh_argv(f"cat {shlex.quote(remote)}"),
             deadline_s=_CONTROL_DEADLINE_S,
         )
+        if capped:
+            raise RuntimeError(
+                f"get_file: {path!r} exceeds the {_MAX_CAPTURE_BYTES}-byte "
+                "transfer cap; read it in chunks or via a smaller slice"
+            )
         if hung or rc != 0:
             raise RuntimeError(
                 f"get_file failed for {path!r}: {err.decode('utf-8', 'replace')}"
@@ -461,6 +606,7 @@ class SSHSandbox(Sandbox):
         err = bytearray()
         total = [0]
         capped = threading.Event()
+        lock = threading.Lock()
 
         def feed() -> None:
             try:
@@ -476,11 +622,15 @@ class SSHSandbox(Sandbox):
                     chunk = stream.read(65536)  # type: ignore[attr-defined]
                     if not chunk:
                         break
-                    total[0] += len(chunk)
-                    room = _MAX_CAPTURE_BYTES - len(buf)
-                    if room > 0:
-                        buf.extend(chunk[:room])
-                    if total[0] > _MAX_CAPTURE_BYTES:
+                    # The two reader threads share ``total`` and the cap check;
+                    # guard both so the combined-stream cap is enforced exactly.
+                    with lock:
+                        total[0] += len(chunk)
+                        room = _MAX_CAPTURE_BYTES - len(buf)
+                        if room > 0:
+                            buf.extend(chunk[:room])
+                        over = total[0] > _MAX_CAPTURE_BYTES
+                    if over:
                         capped.set()
                         break
             except (OSError, ValueError):  # pipe closed under us

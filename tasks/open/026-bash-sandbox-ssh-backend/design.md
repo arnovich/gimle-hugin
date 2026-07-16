@@ -1,8 +1,9 @@
 # SSH / remote backend — design note (provisioning, secrets, cost, idempotency)
 
-**Status: DRAFT, awaiting sign-off.** Task 026 makes this note a hard
-prerequisite: the provisioning / secrets / ownership / cost / idempotency story
-is written and signed off *before* any backend code. This is that note.
+**Status: SIGNED OFF (2026-07-16) — Option A (BYO host) for v1.** Task 026 makes
+this note a hard prerequisite: the provisioning / secrets / ownership / cost /
+idempotency story is written and signed off *before* any backend code. This is
+that note.
 
 ## Thesis
 
@@ -123,7 +124,7 @@ Rules:
 | `exec()`         | `ssh <opts> <host> -- <remote timeout wrapper> bash -c <cmd>` in the workspace, streamed under the host-side deadline; policy fail-closed first |
 | `workspace_for()`| return the remote path `~/.hugin-sandbox/<session>/agents/<agent>/<branch>`, `mkdir -p` it over the control socket |
 | `put_file`/`get_file` | `scp` through the control socket, same workspace-confinement contract |
-| `stop()`         | kill this session's remote jobs, remove the ControlMaster socket, best-effort GC the remote workspace |
+| `stop()`         | best-effort kill this session's remote jobs, close + remove the ControlMaster socket. **Does NOT delete the remote workspace** — it persists for resume (like docker keeps its bind mount); the workspace is reaped by TTL on the same-host startup sweep |
 
 ## Config surface (proposed)
 
@@ -135,25 +136,47 @@ options:
     # optional:
     ssh_key: ~/.ssh/hugin_sandbox        # dedicated key; operator-supplied in v1
     remote_docker: true                  # run each command in `docker run …` on the box
-    connect_timeout_s: 10
-    server_alive_interval_s: 15
+    connect_timeout_s: 10                # deferred: fixed at 10s in v1
+    server_alive_interval_s: 15          # deferred: fixed at 15s in v1
     network: true                        # remote boxes usually need egress; documented
     # cpu/memory/pids apply only when remote_docker: true
 ```
 
+> **v1 status:** `host`, `ssh_key`, and `network` are wired. `remote_docker`,
+> the tunable `connect_timeout_s`/`server_alive_interval_s`, and the
+> `cpu`/`memory`/`pids` (which only bind under `remote_docker`) are the deferred
+> seams above — the timeouts ship as fixed constants for now.
+
 ## What v1 ships vs. defers
 
 **Ships:** Option A (BYO host); connect/exec/workspace/put/get/stop over
-ssh/scp with the hardened option set + ControlMaster; remote `timeout`-wrapped,
-killable jobs; host-side deadline so a partition can't hang the turn;
-non-retryable `infra_error` on partition; best-effort remote-workspace GC at
-`stop()` + a same-host startup sweep; optional `remote_docker` composition;
-mocked tests + a documented manual containment gate against a real box.
+ssh/scp with the hardened option set (`ForwardAgent=no`, `BatchMode=yes`,
+`ConnectTimeout`/`ServerAliveInterval`, `StrictHostKeyChecking=accept-new`) +
+a ControlMaster socket we own and clean; remote command run under a scrubbed env
+(`env -i`, `HOME`=workspace) and a remote `timeout` so the remote job is bounded
+and the command travels via stdin (`bash -c "$(cat)"`, no cross-shell quoting
+bugs); host-side deadline so a partition can't hang the turn; a clear
+non-retryable error when a command does not complete over the connection,
+detected by a **completion sentinel** the remote wrapper prints after the
+command (its absence — not a bare `exit 255`, which a remote command may itself
+return — is what proves a partition); a same-host TTL startup sweep of stale
+session workspaces (each `exec` touches the session root so an active session is
+never swept); a remote owner marker mirroring the local/docker stamp. Config:
+`host`, `ssh_key`, `network`. Mocked unit tests
+(command/argv construction, policy fail-closed, exit mapping) + an env-gated
+(`HUGIN_SSH_TEST_HOST`) real-box containment gate.
 
-**Defers (task 030-class / 024 seams):** Option B managed provisioning + VM
-reaper by cloud id; per-session throwaway-key *generation*; the secret-injection
-seam; the general remote-resource reaper; the exit-code-marker partition-recovery
-nicety.
+**Defers (task 030-class / 024 seams):** `remote_docker` composition (run each
+command in a hardened `docker run` *on* the box — the defence-in-depth path;
+v1's bare disposable host is the boundary); Option B managed provisioning + VM
+reaper by cloud id; per-session throwaway-key *generation*; tunable
+timeout/keepalive config; the secret-injection seam; the general remote-resource
+reaper (a proper dead-owner remote reaper vs. v1's mtime-TTL sweep); the
+exit-code-marker partition-recovery nicety. The backend leaves seams for these
+(a `provisioner` hook, a `remote_docker` wrapper point).
+
+**Remote assumption:** a Linux box with `bash`, coreutils (`timeout`, `base64
+-d`, `find`), and `mkdir`/`rm` — the ordinary disposable-VPS baseline.
 
 ## Open question for sign-off
 
@@ -161,3 +184,33 @@ Confirm **Option A (BYO host) for v1**, with the provisioner seam left for a
 future Option B — versus wanting managed ephemeral VMs now (Option B), which is a
 substantially larger build (cloud API, billing-aware VM reaper, secrets). The
 recommendation is A.
+
+## Post-implementation hardening (panel review, 2026-07-16)
+
+A four-judge panel (security / architecture / SRE / usability) reviewed the
+implementation. The injection crux — the untrusted command travelling over
+stdin as `bash -c "$(cat)"` — was verified sound. Load-bearing findings were
+fixed before merge:
+
+- **Partition vs. real exit code (all four judges).** A bare `rc == 255` check
+  conflated a real ssh transport failure with a command that legitimately exits
+  255, and a mid-command partition could be misread as a retryable timeout. Now
+  the remote wrapper prints a **completion sentinel** (`__HUGIN_EXIT_…=<code>`)
+  *after* the command; `exec()` trusts the exit code the sentinel carries (any
+  value) and treats the sentinel's *absence* (with un-truncated output) as the
+  do-not-retry partition. A backgrounded child that holds the pipe past the
+  deadline is no longer misclassified — the sentinel already proved completion.
+- **TTL sweep could reap a live long-running session.** A nested file write does
+  not refresh the session-root mtime, so a >24h session could be swept. Each
+  `exec` now touches the session root as a heartbeat.
+- **`workspace_for` path traversal.** `agent_id`/`branch` (LLM-influenced) are
+  now reduced to a single safe component and re-checked under the session root.
+- **`get_file` silent truncation.** Reading a file larger than the transfer cap
+  now raises instead of returning short bytes.
+- Smaller: provisioner seam made real (`_provision_host`/`_destroy_host`
+  no-ops), 0700 ControlMaster dir + stale-socket cleanup, backend-generic
+  infra-error note, `_run` cap counter locked, honest `stop()`/ABC docstrings.
+
+Deferred to task 030 (noted there): capability/PATH probe, DRY extraction across
+the docker/ssh backends, reaper-seam generalization, `pkill` → process-group
+kill, config nesting, spill-path polish.
