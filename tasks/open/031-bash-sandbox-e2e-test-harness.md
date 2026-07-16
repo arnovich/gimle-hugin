@@ -77,6 +77,36 @@ absent) and `slow`-marked. Delivered here:
   maps a backend-bring-up failure to a clean, non-retryable `infra_error`
   (regression guard for the docker/ssh panel findings) — no runtime needed.
 
+## Panel review (2026-07-16)
+
+Reviewed by a three-judge panel (test-quality / framework-maintainer /
+CI-release). Load-bearing findings fixed before merge:
+
+- **Truncation test proved the flag, not the truncation** — a backend that set
+  `truncated=True` but returned the full output would have passed. Now asserts
+  the returned view is actually shortened (`"x"*300 not in result.stdout`), and
+  the generator is coreutils (`head -c … | tr`) not python, so it runs on a
+  minimal remote box.
+- **`docker_available()` didn't check the image was pulled** — a daemon-up but
+  image-absent CI box would *error* at `start()` instead of skipping, breaking
+  the "green everywhere" promise. The gate now also requires the image present.
+- **`python3` assumed on every backend** — the interpreter-not-denied test now
+  probes and skips on a box without python3 (the ssh baseline is bash+coreutils).
+- **Marker taxonomy** — both new suites now carry `pytestmark = integration`, so
+  `-m integration` no longer silently skips them; `slow` still rides the
+  docker/ssh params.
+- **`_ScriptedModel` was triplicated** — hoisted one `ScriptedToolModel` into
+  `conftest.py`; the two bash suites and `test_bash_example.py` share it.
+- Smaller: two-spec test now asserts distinct spec keys + distinct backend
+  objects (the real per-spec guarantee) rather than relying on the per-agent
+  marker split; fault-injection test asserts `is_error` and the *intent* of the
+  note rather than its exact wording; registry registrations moved inside
+  `try/finally`; per-backend containment classes point at the contract suite as
+  the canonical interchangeable assertion.
+
+The CI crux was verified empirically: 20 docker/ssh params carry `slow`, `0`
+leak into a `-m "not slow"` run, and local always runs.
+
 ## Deferred (follow-ups, noted not built here)
 
 - Real-container/remote **leak & reaper self-heal** assertions on a
@@ -86,6 +116,11 @@ absent) and `slow`-marked. Delivered here:
 - **CI matrix decision** (docker/ssh as a nightly job vs. manual gate). v1 keeps
   `local` always-on and the others `slow`-gated; wiring a daemon/box into CI is a
   separate infra change.
+- **Per-test wall-clock timeout** (panel, LOW). No `pytest-timeout` is installed,
+  so a wedged docker daemon on a `slow` run could hang the job (the sandbox exec
+  paths self-bound, but `containers.run` at `start()` does not). Add a
+  `pytest-timeout` dev dependency + a timeout on the slow params if docker/ssh
+  ever join CI.
 
 ## Cross-refs
 
