@@ -33,11 +33,20 @@ ISOLATING_BACKENDS = [
 
 
 def docker_available() -> bool:
-    """Return whether a docker SDK and a reachable daemon are both present."""
+    """Return whether a docker test can actually *run* here.
+
+    That needs both a reachable daemon and the test image already present: the
+    docker backend does not auto-pull, so a daemon-up-but-image-absent box would
+    fail at ``start()`` rather than skip. Treating a missing image as
+    "unavailable" is what keeps the default suite green on a machine that has
+    docker installed but has never pulled ``python:3.12-slim``.
+    """
     try:
         import docker
 
-        docker.from_env().ping()
+        client = docker.from_env()
+        client.ping()
+        client.images.get(DAEMON_IMAGE)
         return True
     except Exception:
         return False

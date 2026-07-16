@@ -27,9 +27,22 @@ from gimle.hugin.sandbox.sandbox import PolicyDenied
 
 from .sandbox_backends import ALL_BACKENDS, ISOLATING_BACKENDS, spec_for
 
+# Every test starts a real sandbox and runs real commands (local always;
+# docker/ssh when present), so the whole module is integration, not unit. The
+# docker/ssh params additionally carry `slow` (see sandbox_backends), so
+# `-m "not slow"` narrows to the always-available local backend.
+pytestmark = pytest.mark.integration
+
 
 def _started_backend(name: str, tmp_path):
-    """Start a backend rooted under ``tmp_path``; yield it and always tear down."""
+    """Start a backend rooted under ``tmp_path``; yield it and always tear down.
+
+    Written as a generator so the two fixtures below share start/stop. Teardown
+    is reliable: when pytest closes the fixture generator, ``GeneratorExit``
+    propagates through ``yield from`` into the ``yield`` here and the ``finally``
+    runs ``stop()``. ``start()`` is intentionally before the ``try`` — if it
+    raises there is nothing to stop.
+    """
     spec = spec_for(name)
     sandbox = create_sandbox(spec, f"contract-{name}-sess", str(tmp_path))
     sandbox.start()
@@ -37,6 +50,19 @@ def _started_backend(name: str, tmp_path):
         yield SimpleNamespace(box=sandbox, name=name)
     finally:
         sandbox.stop()
+
+
+def _has_python3(box, cwd) -> bool:
+    """Return whether ``python3`` is on PATH inside this backend.
+
+    A minimal ssh box may ship only bash + coreutils (its documented baseline),
+    so tests that genuinely need an interpreter probe first and skip rather than
+    fail with a misleading "truncation broke" message.
+    """
+    probe = box.exec(
+        "command -v python3 || true", policy=Policy(), cwd=cwd, timeout_s=15
+    )
+    return "python3" in probe.stdout
 
 
 @pytest.fixture(params=ALL_BACKENDS)
@@ -81,23 +107,32 @@ class TestBackendContract:
         assert result.timed_out is True
 
     def test_output_truncation_spills_the_full_output(self, backend):
-        """Oversized output sets truncated and spills the whole thing to disk."""
+        """Oversized output truncates the returned view AND spills the full text.
+
+        Uses only coreutils (no interpreter) so it runs on a minimal remote box.
+        Two things must both hold: the view the model receives is actually
+        shortened (not merely flagged), and the whole output is recoverable from
+        the spill file.
+        """
         cwd = backend.box.workspace_for("a", None)
         result = backend.box.exec(
-            "python3 -c \"print('x' * 500)\"",
+            "head -c 500 /dev/zero | tr '\\0' 'x'",
             policy=Policy(),
             cwd=cwd,
             timeout_s=15,
             max_output_bytes=200,
         )
         assert result.truncated is True
+        # The returned view is genuinely shortened, not just flagged — a backend
+        # that set the flag but returned all 500 bytes would flood the context.
+        assert "x" * 300 not in result.stdout
         spilled = backend.box.exec(
             "cat .hugin/last_output.txt",
             policy=Policy(),
             cwd=cwd,
             timeout_s=15,
         )
-        # The spill holds more than the truncated view showed.
+        # ...but the spill holds the full output the view dropped.
         assert "x" * 300 in spilled.stdout
 
     def test_workspaces_are_isolated_per_agent(self, backend):
@@ -138,16 +173,20 @@ class TestBackendContract:
 
         The thesis: the policy is a seatbelt against accidents, not the boundary.
         ``os.system`` inside python is not refused — the runtime, not the policy,
-        is what actually contains it (asserted in TestContainmentContract).
+        is what actually contains it (asserted in TestContainmentContract). Skips
+        on a backend without python3 (a minimal remote box), where the thesis
+        can't be shown with this particular interpreter.
         """
         cwd = backend.box.workspace_for("a", None)
+        if not _has_python3(backend.box, cwd):
+            pytest.skip(f"no python3 on the {backend.name} backend")
         result = backend.box.exec(
             "python3 -c 'import os; os.system(\"id\")'",
             policy=Policy(),
             cwd=cwd,
             timeout_s=15,
         )
-        assert result.exit_code == 0
+        assert result.exit_code == 0, f"interpreter refused on {backend.name}"
         assert "uid=" in result.stdout
 
     def test_put_get_roundtrip_and_confinement(self, backend):
