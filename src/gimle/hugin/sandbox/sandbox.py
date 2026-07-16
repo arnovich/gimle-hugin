@@ -265,11 +265,17 @@ class Sandbox(ABC):
 
     @abstractmethod
     def put_file(self, path: str, content: bytes) -> None:
-        """Write ``content`` to ``path`` inside the workspace."""
+        """Write ``content`` to ``path`` inside the workspace (confined)."""
 
     @abstractmethod
     def get_file(self, path: str) -> bytes:
-        """Read ``path`` from the workspace (realpath-confined, no symlink escape)."""
+        """Read ``path`` from the workspace.
+
+        Confined to the workspace. The *strength* of that confinement is
+        backend-dependent: the local backend resolves the real path (symlink
+        escapes blocked), while the ssh backend confines lexically (a remote
+        symlink escape is out of scope on a disposable box — see its docstring).
+        """
 
     @abstractmethod
     def stop(self) -> None:
