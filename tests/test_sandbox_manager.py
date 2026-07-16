@@ -25,10 +25,12 @@ class TestCreateSandbox:
         box = create_sandbox(SandboxSpec(backend="docker"), "s")
         assert isinstance(box, DockerSandbox)
 
-    def test_ssh_backend_not_yet_implemented(self):
-        """backend='ssh' is a clear NotImplementedError until phase 2."""
-        with pytest.raises(NotImplementedError, match="phase 2"):
-            create_sandbox(SandboxSpec(backend="ssh"), "s")
+    def test_ssh_backend_builds_ssh_sandbox(self):
+        """backend='ssh' constructs an SSHSandbox (no connection made)."""
+        from gimle.hugin.sandbox.ssh import SSHSandbox
+
+        box = create_sandbox(SandboxSpec(backend="ssh", host="user@box"), "s")
+        assert isinstance(box, SSHSandbox)
 
     def test_unknown_backend_is_a_clear_error(self):
         """An unregistered backend fails loud, listing what is known."""
