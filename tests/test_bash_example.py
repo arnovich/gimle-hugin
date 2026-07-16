@@ -9,53 +9,23 @@ in the agent's workspace.
 """
 
 import os
-from typing import Any, Dict, List
 
 import pytest
 
 import gimle.hugin.tools  # noqa: F401  (registers builtins.bash)
 from gimle.hugin.agent.environment import Environment
 from gimle.hugin.agent.session import Session
-from gimle.hugin.llm.models.model import Model, ModelResponse
 from gimle.hugin.llm.models.model_registry import get_model_registry
 from gimle.hugin.sandbox import LocalSandbox, SandboxManager, SandboxSpec
 from gimle.hugin.storage.local import LocalStorage
+
+from .conftest import ScriptedToolModel
 
 pytestmark = pytest.mark.integration
 
 EXAMPLE = "examples/bash_agent"
 MODEL_NAME = "scripted-bash-e2e"
 SPEC = SandboxSpec(backend="local")
-
-
-class _ScriptedModel(Model):
-    """A model that replays a fixed sequence of tool calls (no network)."""
-
-    def __init__(self, script: List[Dict[str, Any]]):
-        """Replay ``script`` entries (``{tool, input}``) one call at a time."""
-        super().__init__(
-            {
-                "model": MODEL_NAME,
-                "temperature": 0,
-                "max_tokens": 100,
-                "tool_choice": {"type": "any"},
-            }
-        )
-        self._script = script
-        self._i = 0
-
-    def chat_completion(self, system_prompt, messages, tools=None):
-        """Return the next scripted tool call as a ModelResponse."""
-        entry = self._script[min(self._i, len(self._script) - 1)]
-        self._i += 1
-        return ModelResponse(
-            role="assistant",
-            content=entry["input"],
-            tool_call=entry["tool"],
-            tool_call_id=f"call-{self._i}",
-            input_tokens=1,
-            output_tokens=1,
-        )
 
 
 def test_bash_example_loads_and_runs(tmp_path):
@@ -74,7 +44,8 @@ def test_bash_example_loads_and_runs(tmp_path):
     registry = get_model_registry()
     registry.register_model(
         MODEL_NAME,
-        _ScriptedModel(
+        ScriptedToolModel(
+            MODEL_NAME,
             [
                 {
                     "tool": "bash",
@@ -88,7 +59,7 @@ def test_bash_example_loads_and_runs(tmp_path):
                         "reason": "task complete",
                     },
                 },
-            ]
+            ],
         ),
     )
     try:

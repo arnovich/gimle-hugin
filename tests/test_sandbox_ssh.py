@@ -478,7 +478,13 @@ def real_sandbox(tmp_path):
 @pytest.mark.slow
 @requires_real_host
 class TestRealHostContainment:
-    """The command runs on the remote machine — that IS the boundary."""
+    """The command runs on the remote machine — that IS the boundary.
+
+    The backend-*interchangeable* containment assertions (command runs, host fs
+    unreachable) are covered for all backends in ``test_sandbox_contract.py``.
+    What stays here is ssh-*specific*: proof the command executes on the remote
+    host and not this machine, and that files round-trip on the remote.
+    """
 
     def test_command_runs_on_the_remote(self, real_sandbox):
         """python3 -c 'os.system("id")' runs (not denied) on the remote box."""

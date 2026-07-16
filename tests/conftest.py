@@ -58,6 +58,47 @@ class MockModel(Model):
         )
 
 
+class ScriptedToolModel(Model):
+    """A model that replays a fixed sequence of tool calls (no network).
+
+    Each script entry is a ``{"tool": name, "input": {...}}`` dict, returned one
+    per ``chat_completion`` call; the last entry repeats once the script is
+    exhausted. Shared by the bash full-loop suites so the scripted-drive pattern
+    lives in exactly one place.
+    """
+
+    def __init__(self, name: str, script: List[Dict[str, Any]]):
+        """Replay ``script`` entries under model id ``name``."""
+        super().__init__(
+            {
+                "model": name,
+                "temperature": 0,
+                "max_tokens": 100,
+                "tool_choice": {"type": "any"},
+            }
+        )
+        self._script = script
+        self._i = 0
+
+    def chat_completion(
+        self,
+        system_prompt: str,
+        messages: List[Dict[str, Any]],
+        tools: List[Any] = None,
+    ) -> ModelResponse:
+        """Return the next scripted tool call as a ModelResponse."""
+        entry = self._script[min(self._i, len(self._script) - 1)]
+        self._i += 1
+        return ModelResponse(
+            role="assistant",
+            content=entry["input"],
+            tool_call=entry["tool"],
+            tool_call_id=f"call-{self._i}",
+            input_tokens=1,
+            output_tokens=1,
+        )
+
+
 @pytest.fixture
 def mock_model_config():
     """Return standard configuration for mock models."""
