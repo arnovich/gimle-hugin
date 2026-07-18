@@ -97,6 +97,12 @@ class TestCommandConstruction:
         assert opts[opts.index("-i") + 1] == "/keys/id"
         assert "-i" not in _sandbox()._ssh_opts()
 
+    def test_port_is_wired_when_configured(self):
+        """A configured port becomes -p <port>; absent -> default (no -p)."""
+        opts = _sandbox(port=2222)._ssh_opts()
+        assert opts[opts.index("-p") + 1] == "2222"
+        assert "-p" not in _sandbox()._ssh_opts()
+
     def test_remote_wrapper_scrubs_env_and_bounds_time(self):
         """The wrapper cds, scrubs env (env -i), and runs under a remote timeout."""
         wrapper = _sandbox()._remote_wrapper("/home/u/ws", 15)
@@ -461,11 +467,17 @@ requires_real_host = pytest.mark.skipif(
 
 @pytest.fixture
 def real_sandbox(tmp_path):
-    """Start a real SSHSandbox against HUGIN_SSH_TEST_HOST; always tear down."""
+    """Start a real SSHSandbox against HUGIN_SSH_TEST_HOST; always tear down.
+
+    ``HUGIN_SSH_TEST_PORT`` targets a non-standard port (e.g. a disposable sshd
+    container mapped to 2222 in CI).
+    """
+    port = os.environ.get("HUGIN_SSH_TEST_PORT")
     spec = SandboxSpec(
         backend="ssh",
         host=REAL_HOST,
         ssh_key=os.environ.get("HUGIN_SSH_TEST_KEY"),
+        port=int(port) if port else None,
     )
     sandbox = create_sandbox(spec, "itest-sess", str(tmp_path))
     sandbox.start()

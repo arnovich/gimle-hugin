@@ -140,6 +140,7 @@ class SSHSandbox(Sandbox):
         self._session_id = session_id
         self._host = spec.host
         self._key = spec.ssh_key
+        self._port = spec.port
         # Our ControlMaster socket lives in a per-user 0700 directory under the
         # system temp dir (so another local user cannot connect to or hijack the
         # multiplexed session), under a short collision-resistant name (unix
@@ -181,6 +182,8 @@ class SSHSandbox(Sandbox):
         ]
         if self._key:
             opts += ["-i", self._key]
+        if self._port:
+            opts += ["-p", str(self._port)]
         return opts
 
     def _ssh_argv(self, remote_command: str) -> List[str]:
