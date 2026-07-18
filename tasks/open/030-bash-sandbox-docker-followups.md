@@ -29,15 +29,21 @@ task is picked up first.
 
 ## Security (do before recommending `docker` for untrusted input at scale)
 
-- [ ] **`network: true` egress control.** *(security, HIGH — effectively
-  CRITICAL on a cloud host)* Today `network:true` attaches the default bridge
-  with unrestricted egress; an injected `curl http://169.254.169.254/...`
-  exfiltrates cloud IAM credentials. The code warns loudly and the default
-  (`network:false`) is safe, but the opt-in path needs real filtering: block
-  link-local/metadata (`169.254.0.0/16`) and RFC1918 by default, ideally via an
-  egress-allowlist proxy (the container has `cap_drop=ALL`, so in-container
-  iptables is out — filter at the network/proxy layer). Until then, consider
-  refusing `network:true` unless an explicit allow-flag is set.
+- [x] **`network: true` egress control — INTERIM DONE (2026-07-16).**
+  *(security, HIGH — effectively CRITICAL on a cloud host)* `network:true`
+  attaches the default bridge with unrestricted egress; an injected `curl
+  http://169.254.169.254/...` exfiltrates cloud IAM credentials. Since the
+  container has `cap_drop=ALL` (in-container iptables is out) and real
+  destination-IP filtering needs host root or an allowlist proxy — neither fits
+  an unprivileged library — `network:true` is now **fail-closed**: it is
+  *refused* at `start()` unless `allow_unrestricted_egress: true` explicitly
+  accepts the risk (and even then it warns). The default `network:false` (no
+  network) is untouched. This converts the silent foot-gun into an explicit,
+  informed choice. **Still deferred (the real filter):** an egress-allowlist
+  proxy that blocks link-local/metadata (`169.254.0.0/16`) + RFC1918 while
+  permitting an allowed set — a whole subsystem (filter at the network/proxy
+  layer). A lightweight interim for operators who need filtered egress today:
+  run your own HTTP(S) proxy allowlist and pass it into the command env.
 - [ ] **True userns-remap.** *(security, HIGH)* The backend runs the container as
   the host uid (non-root *inside* the container) and refuses root-without-userns,
   but it does not itself remap container-root to a subuid — that is a daemon-level

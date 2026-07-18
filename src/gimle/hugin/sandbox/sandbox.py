@@ -180,6 +180,12 @@ class SandboxSpec:
     ssh_key: Optional[str] = None
     port: Optional[int] = None
     network: bool = False
+    # Explicit, informed opt-in to UNFILTERED egress on ``docker`` when
+    # ``network: true``. Off by default: unfiltered egress lets an injected
+    # command read the cloud metadata endpoint (169.254.169.254) and exfiltrate
+    # IAM credentials, so ``network: true`` is refused unless this acknowledges
+    # the risk. Real egress filtering (an allowlist proxy) is task 030.
+    allow_unrestricted_egress: bool = False
     cpu: float = 2.0
     memory: str = "2g"
     pids: int = 512
