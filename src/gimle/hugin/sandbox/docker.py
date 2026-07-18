@@ -188,6 +188,7 @@ class DockerSandbox(Sandbox):
         self._image = spec.image or DEFAULT_IMAGE
         self._client: Any = None
         self._container: Optional["Container"] = None
+        self._started = False
 
     # -- docker SDK access (lazy) --
 
@@ -219,6 +220,14 @@ class DockerSandbox(Sandbox):
         host-side owner stamp so the filesystem reaper treats this like a local
         workspace, and fails closed on an unsafe (root, no userns) configuration.
         """
+        if self._started and self._container is not None:
+            # A re-``get()`` on every command must not re-run ``images.get`` or
+            # reassign ``self._container`` — a background worker may be reading it
+            # mid-``exec`` (a data race). Only refresh the liveness heartbeat,
+            # which is a host-side file write touching no shared handle.
+            self._write_owner_stamp()
+            return
+
         docker = self._docker()
         if self._client is None:
             self._client = docker.from_env()
@@ -240,6 +249,7 @@ class DockerSandbox(Sandbox):
         elif container.status != "running":
             container.start()
         self._container = container
+        self._started = True
 
     def _assert_not_unsafe_root(self) -> None:
         """Fail closed if running as root without daemon userns-remap.
@@ -451,6 +461,7 @@ class DockerSandbox(Sandbox):
         backstop for an abrupt exit that skips this. The bind-mounted host
         directory is intentionally left for the filesystem reaper / resume.
         """
+        self._started = False
         container = self._container
         if container is None:
             return

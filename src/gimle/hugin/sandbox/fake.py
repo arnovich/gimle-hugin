@@ -6,6 +6,7 @@ with no subprocess, no container, and no daemon.
 """
 
 import os
+import threading
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
@@ -30,12 +31,16 @@ class FakeSandbox(Sandbox):
         result: Optional[ExecResult] = None,
         raises: Optional[Exception] = None,
         raises_on_start: Optional[Exception] = None,
+        gate: Optional[threading.Event] = None,
     ) -> None:
         """Return ``result`` (or a benign default) from every exec, or raise.
 
         ``raises`` is raised from ``exec``; ``raises_on_start`` from ``start``
         (modelling a backend that fails to come up — daemon down, image
-        missing, extra not installed).
+        missing, extra not installed). ``gate`` makes ``exec`` block until the
+        event is set, so a test can hold a command "running" to exercise the
+        background deferral path; ``stop`` sets the gate, modelling how stopping
+        a real sandbox interrupts an in-flight ``exec``.
         """
         self._result = result or ExecResult(
             exit_code=0,
@@ -45,6 +50,7 @@ class FakeSandbox(Sandbox):
         )
         self._raises = raises
         self._raises_on_start = raises_on_start
+        self._gate = gate
         self.started = False
         self.stopped = False
         self.calls: List[_ExecCall] = []
@@ -57,8 +63,10 @@ class FakeSandbox(Sandbox):
         self.started = True
 
     def stop(self) -> None:
-        """Record that the sandbox was stopped."""
+        """Record that the sandbox was stopped; release any gated exec."""
         self.stopped = True
+        if self._gate is not None:
+            self._gate.set()
 
     def workspace_for(self, agent_id: str, branch: Optional[str]) -> str:
         """Return a deterministic fake workspace path for the pair."""
@@ -75,10 +83,16 @@ class FakeSandbox(Sandbox):
         timeout_s: int,
         max_output_bytes: int = 16_000,
     ) -> ExecResult:
-        """Record the call and return the canned result (or raise)."""
+        """Record the call and return the canned result (or raise).
+
+        If a ``gate`` was set, block until it is released — so a test can hold
+        the command "running" and observe the parked→resume deferral path.
+        """
         self.calls.append(
             _ExecCall(command, policy, cwd, timeout_s, max_output_bytes)
         )
+        if self._gate is not None:
+            self._gate.wait()
         if self._raises is not None:
             raise self._raises
         return self._result
