@@ -13,6 +13,11 @@ import logging
 import os
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
+from gimle.hugin.sandbox.background import (
+    DEFAULT_DEFER_AFTER_S,
+    BackgroundLimit,
+    result_content,
+)
 from gimle.hugin.sandbox.manager import SandboxManager
 from gimle.hugin.sandbox.policy import (
     UNPARSEABLE_REASON,
@@ -44,8 +49,14 @@ background jobs do NOT carry over between calls. Use the `cwd` argument to run \
 in a subdirectory for a single call.
 
 Commands are killed after ~15s by default; pass a larger `timeout_s` for a \
-slow command (a build, a test run). Only the last few command outputs stay \
-visible to you — write anything you need to keep into a file.
+slow command. Long commands are handled automatically: a command still running \
+after a moment keeps running in the background and its result comes back to \
+this same call once it finishes — you don't have to do anything. For a command \
+you know will take a while (a build, a test suite, an install) and want to keep \
+working during, pass `background: true`: it returns immediately with a `job_id`, \
+and you MUST later call `bash_output` with that `job_id` to get the result (a \
+backgrounded command you never collect is lost). Only the last few command \
+outputs stay visible to you — write anything you need to keep into a file.
 
 Large output is truncated (tail-biased); when that happens the response \
 carries a `full_output` path (`.hugin/last_output.txt`) holding the complete \
@@ -76,6 +87,14 @@ rephrase the command (avoid `[[ ]]`, `$(( ))`, arrays)."""
             "command (default ~15s, capped by policy).",
             "required": False,
         },
+        "background": {
+            "type": "boolean",
+            "description": "Run the command in the background and return a "
+            "job_id immediately so you can keep working; collect the result "
+            "later with bash_output. Use for known-long commands (builds, "
+            "test suites, installs).",
+            "required": False,
+        },
     },
     is_interactive=False,
     options={
@@ -90,15 +109,23 @@ def bash(
     stack: Optional["Stack"] = None,
     cwd: Optional[str] = None,
     timeout_s: Optional[int] = None,
+    background: Optional[bool] = None,
     branch: Optional[str] = None,
 ) -> ToolResponse:
     """Run ``command`` in the agent's sandbox and map the outcome for the model.
+
+    The command runs on a worker thread so it never freezes sibling agents: a
+    fast command returns inline; one still running after a short grace
+    auto-backgrounds and its branch parks (siblings run) until it finishes. With
+    ``background=True`` it returns a ``job_id`` immediately for
+    collect-via-``bash_output``.
 
     Args:
         command: The shell command to run.
         stack: Injected agent stack (gives config, session, env_vars, agent id).
         cwd: Optional workspace-relative subdirectory to run in.
         timeout_s: Optional per-command timeout; clamped to the policy ceiling.
+        background: Return a ``job_id`` immediately instead of waiting.
         branch: Injected branch, so branches get isolated working directories.
 
     Returns:
@@ -206,17 +233,90 @@ def bash(
             content={"error": f"cwd escapes the workspace: {cwd}"},
         )
 
+    background_run = bool(background)
     requested_timeout = (
         timeout_s
         if timeout_s is not None and timeout_s > 0
-        else policy.timeout_s
+        else (policy.max_timeout_s if background_run else policy.timeout_s)
     )
+
+    session = stack.agent.session
+    bg = getattr(session, "background", None)
+    if bg is None:  # a hand-rolled session without the executor: run inline
+        return _run_sync(
+            manager,
+            stack,
+            command,
+            sandbox,
+            policy,
+            effective_cwd,
+            requested_timeout,
+        )
+
+    try:
+        job = bg.submit(
+            sandbox=sandbox,
+            manager=manager,
+            session_id=session.id,
+            agent_id=stack.agent.id,
+            command=command,
+            cwd=effective_cwd,
+            policy=policy,
+            timeout_s=requested_timeout,
+            max_output_bytes=policy.max_output_bytes,
+        )
+    except BackgroundLimit as error:
+        return ToolResponse(
+            is_error=True, content={"error": str(error), "command": command}
+        )
+
+    if background_run:
+        # Fire-and-forget: return the handle now; the agent keeps working and
+        # siblings run. The result (and its audit) are collected via bash_output.
+        return ToolResponse(
+            is_error=False,
+            content={
+                "job_id": job.job_id,
+                "status": "running",
+                "note": "the command is running in the background; call "
+                "bash_output with this job_id to get its result. A "
+                "backgrounded command you never collect is lost.",
+            },
+        )
+
+    # Automatic: block up to the grace, then defer if it is still running so a
+    # long command stops freezing siblings. The parked branch resolves into the
+    # normal result when the command finishes.
+    from gimle.hugin.interaction.bash_waiting import BashWaiting
+
+    if bg.wait(job.job_id, DEFAULT_DEFER_AFTER_S):
+        content, is_error = bg.collect(job.job_id, agent_id=stack.agent.id)
+        return ToolResponse(is_error=is_error, content=content)
+    return ToolResponse(
+        is_error=False,
+        content={"job_id": job.job_id, "status": "running"},
+        response_interaction=BashWaiting(
+            stack=stack, branch=branch, job_id=job.job_id
+        ),
+    )
+
+
+def _run_sync(
+    manager: Optional[SandboxManager],
+    stack: "Stack",
+    command: str,
+    sandbox: Any,
+    policy: Policy,
+    cwd: str,
+    timeout_s: int,
+) -> ToolResponse:
+    """Run the command synchronously (fallback when no background executor)."""
     try:
         result = sandbox.exec(
             command,
             policy=policy,
-            cwd=effective_cwd,
-            timeout_s=requested_timeout,  # sandbox clamps to policy.max_timeout_s
+            cwd=cwd,
+            timeout_s=timeout_s,
             max_output_bytes=policy.max_output_bytes,
         )
     except PolicyDenied as denied:  # backstop; pre-check should have caught it
@@ -232,7 +332,6 @@ def bash(
             is_error=True,
             content={"infra_error": str(error), "command": command},
         )
-
     _record(
         manager,
         stack,
@@ -335,23 +434,12 @@ def _resolve_cwd(workspace: str, cwd: Optional[str]) -> Optional[str]:
 
 
 def _to_response(command: str, result: ExecResult) -> ToolResponse:
-    """Map an ExecResult to a ToolResponse (see the module docstring on errors)."""
-    content: Dict[str, Any] = {
-        "command": command,
-        "exit_code": result.exit_code,
-        "stdout": result.stdout,
-        "stderr": result.stderr,
-        "duration_s": round(result.duration_s, 3),
-        "truncated": result.truncated,
-        "timed_out": result.timed_out,
-        "oom_killed": result.oom_killed,
-    }
-    if result.truncated:
-        # Point the model at the spill so it can read past the cap instead of
-        # re-running with a guessed filter. Path is relative to the command cwd.
-        content["full_output"] = ".hugin/last_output.txt"
-    # An OOM kill returns partial output for a process that did not finish — it
-    # is an error the model must react to, like a timeout (not a plain exit).
+    """Map an ExecResult to a ToolResponse (see the module docstring on errors).
+
+    An OOM kill / timeout returns partial output for a process that did not
+    finish — an error the model must react to, unlike a plain non-zero exit.
+    """
     return ToolResponse(
-        is_error=result.timed_out or result.oom_killed, content=content
+        is_error=result.timed_out or result.oom_killed,
+        content=result_content(command, result),
     )

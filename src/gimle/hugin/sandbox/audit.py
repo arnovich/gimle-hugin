@@ -13,6 +13,7 @@ code), ``timed_out``, ``infra_error``, ``denied``, ``escalated``.
 import json
 import logging
 import os
+import threading
 import time
 from collections import Counter
 from typing import Optional
@@ -27,6 +28,11 @@ class CommandAudit:
         """Record to ``path`` (JSONL) if given; always keep in-memory counters."""
         self.path = path
         self.counters: Counter = Counter()
+        # A background command records its outcome from a worker thread while a
+        # foreground command records from the scheduler thread, so the counter
+        # bump + file append must be serialized (a ``Counter[k] += 1`` is not
+        # atomic across threads).
+        self._lock = threading.Lock()
 
     def record(
         self,
@@ -43,25 +49,26 @@ class CommandAudit:
         reason: Optional[str] = None,
     ) -> None:
         """Count the outcome and, if a path is set, append a JSON line."""
-        self.counters[outcome] += 1
-        if not self.path:
-            return
-        entry = {
-            "ts": time.time(),
-            "session_id": session_id,
-            "agent_id": agent_id,
-            "command": command,
-            "outcome": outcome,
-            "exit_code": exit_code,
-            "duration_s": duration_s,
-            "truncated": truncated,
-            "timed_out": timed_out,
-            "oom_killed": oom_killed,
-            "reason": reason,
-        }
-        try:
-            os.makedirs(os.path.dirname(self.path), exist_ok=True)
-            with open(self.path, "a", encoding="utf-8") as handle:
-                handle.write(json.dumps(entry) + "\n")
-        except OSError as error:  # best-effort; never fail the command over it
-            logger.debug("could not write audit entry: %s", error)
+        with self._lock:
+            self.counters[outcome] += 1
+            if not self.path:
+                return
+            entry = {
+                "ts": time.time(),
+                "session_id": session_id,
+                "agent_id": agent_id,
+                "command": command,
+                "outcome": outcome,
+                "exit_code": exit_code,
+                "duration_s": duration_s,
+                "truncated": truncated,
+                "timed_out": timed_out,
+                "oom_killed": oom_killed,
+                "reason": reason,
+            }
+            try:
+                os.makedirs(os.path.dirname(self.path), exist_ok=True)
+                with open(self.path, "a", encoding="utf-8") as handle:
+                    handle.write(json.dumps(entry) + "\n")
+            except OSError as error:  # best-effort; never fail over it
+                logger.debug("could not write audit entry: %s", error)
