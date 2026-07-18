@@ -25,20 +25,11 @@ from gimle.hugin.sandbox.docker import (
 from gimle.hugin.sandbox.policy import Policy
 from gimle.hugin.sandbox.sandbox import PolicyDenied
 
-
-def _docker_available() -> bool:
-    """Return whether a docker SDK and a reachable daemon are both present."""
-    try:
-        import docker
-
-        docker.from_env().ping()
-        return True
-    except Exception:
-        return False
-
+from .sandbox_backends import docker_available as _docker_available
 
 requires_docker = pytest.mark.skipif(
-    not _docker_available(), reason="requires a reachable docker daemon"
+    not _docker_available(),
+    reason="requires a reachable docker daemon with the test image pulled",
 )
 
 

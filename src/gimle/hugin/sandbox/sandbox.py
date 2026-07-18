@@ -170,14 +170,15 @@ class SandboxSpec:
     runs. The three backends are peers with no Docker dependency: ``local``
     (no isolation, honest about it), ``docker`` (container boundary), ``ssh``
     (the remote machine is the boundary). ``image`` applies to ``docker`` only;
-    ``host`` / ``ssh_key`` to ``ssh`` only; the resource knobs to the container
-    backends only.
+    ``host`` / ``ssh_key`` / ``port`` to ``ssh`` only; the resource knobs to the
+    container backends only.
     """
 
     backend: str
     image: Optional[str] = None
     host: Optional[str] = None
     ssh_key: Optional[str] = None
+    port: Optional[int] = None
     network: bool = False
     cpu: float = 2.0
     memory: str = "2g"
