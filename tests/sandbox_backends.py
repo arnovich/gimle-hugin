@@ -18,6 +18,7 @@ from gimle.hugin.sandbox import SandboxSpec
 DAEMON_IMAGE = "python:3.12-slim"
 SSH_HOST = os.environ.get("HUGIN_SSH_TEST_HOST")
 SSH_KEY = os.environ.get("HUGIN_SSH_TEST_KEY")
+SSH_PORT = os.environ.get("HUGIN_SSH_TEST_PORT")
 
 # local always runs; docker/ssh are slow-marked so `-m "not slow"` narrows the
 # default run to the always-available backend.
@@ -69,7 +70,10 @@ def opts_for(name: str) -> dict:
     if name == "ssh":
         if not SSH_HOST:
             pytest.skip("set HUGIN_SSH_TEST_HOST=user@box to run")
-        return {"backend": "ssh", "host": SSH_HOST, "ssh_key": SSH_KEY}
+        opts: dict = {"backend": "ssh", "host": SSH_HOST, "ssh_key": SSH_KEY}
+        if SSH_PORT:
+            opts["port"] = int(SSH_PORT)
+        return opts
     raise AssertionError(f"unknown backend param: {name}")
 
 
