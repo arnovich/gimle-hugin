@@ -1,6 +1,6 @@
 ---
 title: Bash sandbox — serious end-to-end test harness across all backends
-state: IN_PROGRESS
+state: DONE
 labels: [testing, sandbox]
 priority: high
 ---
