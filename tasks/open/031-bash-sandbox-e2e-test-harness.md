@@ -113,9 +113,21 @@ leak into a `-m "not slow"` run, and local always runs.
   simulated-abrupt exit already exist per-backend (docker lifecycle tests, ssh
   TTL sweep); a unified cross-backend leak sweep waits on the reaper
   generalization (024/030) so it has one seam to drive.
-- **CI matrix decision** (docker/ssh as a nightly job vs. manual gate). v1 keeps
-  `local` always-on and the others `slow`-gated; wiring a daemon/box into CI is a
-  separate infra change.
+- **Run all three backends for real — locally (2026-07-16).** A coverage audit
+  showed CI was only truly exercising the `local` backend: `docker.py` sat at
+  41% in CI (its container-boundary tests are daemon-gated and the self-hosted
+  Hetzner runner has **no docker** — `docker: command not found`), and ssh's real
+  remote path was 0% automated anywhere. Landed a **reusable local harness** so a
+  developer with docker runs all three for real: a throwaway sshd container
+  (`docker/ssh-test.Dockerfile`) reached via a new `port` field on the ssh spec,
+  wired into the real-host fixture and the contract/e2e opts via
+  `HUGIN_SSH_TEST_{HOST,PORT,KEY}`; `docker/README.md` documents the three
+  commands. Validated: **1012 passed** with the container up (vs 976 in CI, where
+  docker/ssh skip). **Wiring this into CI is deferred** — it needs a runner with
+  docker (install docker on the Hetzner runner, or a GitHub-hosted job); the
+  mechanism degrades gracefully either way. Also still deferred: a **real
+  mid-command partition** test for ssh (kill sshd mid-command → assert
+  do-not-retry) — the logic is already unit-tested via the mocked `_run` seam.
 - **Per-test wall-clock timeout** (panel, LOW). No `pytest-timeout` is installed,
   so a wedged docker daemon on a `slow` run could hang the job (the sandbox exec
   paths self-bound, but `containers.run` at `start()` does not). Add a
