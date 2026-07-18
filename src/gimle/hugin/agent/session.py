@@ -7,6 +7,7 @@ from gimle.hugin.agent.agent import Agent
 from gimle.hugin.agent.config import Config
 from gimle.hugin.agent.environment import Environment
 from gimle.hugin.agent.session_state import SessionState
+from gimle.hugin.sandbox.background import BackgroundExecutor
 from gimle.hugin.utils.uuid import with_uuid
 
 if TYPE_CHECKING:
@@ -52,6 +53,10 @@ class Session:
         # first agent to run bash created. Keyed by spec; not serialized (a
         # resumed session recreates them).
         self.sandboxes: Dict["SandboxSpec", "SandboxManager"] = {}
+        # Runs background bash commands off the scheduler thread so one long
+        # command doesn't freeze sibling agents. Lazy (no threads until a command
+        # actually backgrounds); in-memory, not serialized (like sandboxes).
+        self.background = BackgroundExecutor()
 
     @property
     def id(self) -> str:
@@ -203,16 +208,20 @@ class Session:
         return step_count
 
     def close(self) -> None:
-        """Release session-owned resources (the sandboxes).
+        """Release session-owned resources (background jobs, then sandboxes).
 
-        Idempotent and safe to call on a session that never created a sandbox.
-        Every per-spec sandbox is torn down. This is the in-process teardown
-        seam; because it is skipped on an abrupt exit (SIGKILL, laptop sleep),
-        it is a complement to — not a replacement for — the out-of-band reaper.
+        Idempotent and safe on a session that never created a sandbox. Order is
+        load-bearing: stopping a sandbox is what *interrupts* an in-flight
+        background ``exec`` (a ``ThreadPoolExecutor`` cannot cancel a thread
+        already blocked in a command), so tear the sandboxes down first — that
+        kills the running commands — then join the now-unblocking workers. This
+        is the in-process seam; because it is skipped on an abrupt exit
+        (SIGKILL, laptop sleep), it complements — not replaces — the reaper.
         """
         for manager in self.sandboxes.values():
             manager.close()
         self.sandboxes.clear()
+        self.background.shutdown()
 
     def __enter__(self) -> "Session":
         """Enter a context that guarantees ``close`` on exit."""
