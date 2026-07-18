@@ -1,6 +1,6 @@
 ---
 title: Bash sandbox — background exec + per-agent statefulness (Phase 2)
-state: IN_PROGRESS
+state: DONE
 labels: [enhancement, sandbox, concurrency]
 priority: high
 ---
