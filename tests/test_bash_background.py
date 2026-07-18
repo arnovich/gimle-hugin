@@ -110,7 +110,8 @@ class TestBackgroundExecutor:
             assert executor.is_done("nope") is True
             content, is_error = executor.collect("nope")
             assert is_error is True
-            assert "not found" in content["infra_error"]
+            assert "nope" in content["error"]
+            assert "restart" in content["note"]
         finally:
             executor.shutdown()
 
@@ -137,6 +138,20 @@ class TestBackgroundExecutor:
             executor.collect(job.job_id)
             executor.collect(job.job_id)  # a second collect must not re-count
             assert manager.audit.counters["run"] == 1
+        finally:
+            executor.shutdown()
+
+    def test_collected_job_is_evicted(self):
+        """A collected job leaves the registry, so it doesn't accumulate."""
+        executor = BackgroundExecutor()
+        manager = _manager(FakeSandbox())
+        try:
+            job = _submit(executor, manager)
+            executor.wait(job.job_id, timeout=2)
+            executor.collect(job.job_id)
+            content, is_error = executor.collect(job.job_id)  # already gone
+            assert is_error is True
+            assert "already-collected" in content["error"]
         finally:
             executor.shutdown()
 
@@ -329,6 +344,61 @@ class TestResumeFullLoop:
         finally:
             registry.models.pop(model_name, None)
             gate.set()
+
+
+class TestBranchBinding:
+    """The resume must bind to its OWN branch's tool call, not a sibling's."""
+
+    def test_resume_binds_to_the_branch_local_tool_call(self, tmp_path):
+        """A BashWaiting on branch A recovers A's call id, not a later B call.
+
+        Regression guard: a flat (cross-branch) lookup would bind the resumed
+        tool_result to branch B's id — absent from branch A's context, an
+        Anthropic 400 that would wedge the stack.
+        """
+        from gimle.hugin.interaction.tool_call import ToolCall
+
+        storage = LocalStorage(base_path=str(tmp_path / "storage"))
+        env = Environment.load("examples/bash_agent", storage=storage)
+        with Session(environment=env) as session:
+            config = env.config_registry.get("bash_agent")
+            task = env.task_registry.get("explore")
+            session.create_agent_from_task(config, task)
+            stack = session.agents[0].stack
+            stack.add_interaction(
+                ToolCall(
+                    stack=stack,
+                    branch="A",
+                    tool="bash",
+                    args={},
+                    tool_call_id="A1",
+                )
+            )
+            stack.add_interaction(
+                ToolCall(
+                    stack=stack,
+                    branch="B",
+                    tool="other",
+                    args={},
+                    tool_call_id="B1",
+                )
+            )
+            waiting = BashWaiting(stack=stack, branch="A", job_id="j")
+            prompt = waiting._result_prompt()
+            assert prompt.type == "tool_result"
+            assert prompt.tool_use_id == "A1"  # branch-local, never B1
+
+    def test_missing_id_falls_back_to_text(self, tmp_path):
+        """No recoverable id renders as text, not a malformed tool_result."""
+        storage = LocalStorage(base_path=str(tmp_path / "storage"))
+        env = Environment.load("examples/bash_agent", storage=storage)
+        with Session(environment=env) as session:
+            config = env.config_registry.get("bash_agent")
+            task = env.task_registry.get("explore")
+            session.create_agent_from_task(config, task)
+            stack = session.agents[0].stack
+            waiting = BashWaiting(stack=stack, branch="Z", job_id="j")
+            assert waiting._result_prompt().type == "text"
 
 
 def _has_bash_waiting(agent) -> bool:

@@ -133,6 +133,7 @@ class BackgroundExecutor:
                     f"too many background commands in flight ({running}); "
                     "collect one with bash_output before starting another"
                 )
+            self._gc_locked()
             if self._pool is None:
                 self._pool = ThreadPoolExecutor(
                     max_workers=self._max_workers,
@@ -201,9 +202,9 @@ class BackgroundExecutor:
         if job is None:
             return (
                 {
-                    "infra_error": "background job not found (it may have been "
-                    "lost to a session restart)",
-                    "job_id": job_id,
+                    "error": f"unknown or already-collected job_id: {job_id}",
+                    "note": "it was already collected, or lost to a session "
+                    "restart; start a new command, do not retry this id",
                 },
                 True,
             )
@@ -237,6 +238,12 @@ class BackgroundExecutor:
             content = result_content(job.command, result)
             is_error = result.timed_out or result.oom_killed
         job.collected = True
+        # Evict a collected job so a long session doesn't accumulate one entry
+        # per command (every bash call routes through the registry, including
+        # fast inline ones). A later collect of the same id falls through to the
+        # "already-collected" error above.
+        with self._lock:
+            self._jobs.pop(job_id, None)
         return content, is_error
 
     def shutdown(self) -> None:
@@ -252,6 +259,20 @@ class BackgroundExecutor:
             pool.shutdown(wait=True, cancel_futures=True)
 
     # -- internals --
+
+    def _gc_locked(self) -> None:
+        """Evict old finished jobs so the registry stays bounded (lock held).
+
+        Collected jobs are already evicted in ``collect``; this bounds
+        fire-and-forget jobs that finished but the model never collected —
+        keeping at most ``max_jobs`` finished entries, dropping the oldest.
+        """
+        finished = sorted(
+            (j for j in self._jobs.values() if j.future.done()),
+            key=lambda j: j.started_at,
+        )
+        for job in finished[: max(0, len(finished) - self._max_jobs)]:
+            self._jobs.pop(job.job_id, None)
 
     def _get(self, job_id: str) -> Optional[BashJob]:
         """Look a job up under the lock."""
@@ -280,6 +301,9 @@ class BackgroundExecutor:
                 timed_out=result.timed_out,
                 oom_killed=result.oom_killed,
             )
+        except concurrent.futures.CancelledError:
+            # A queued job cancelled at shutdown never ran — nothing to audit.
+            return
         except PolicyDenied as denied:
             job.manager.audit.record(
                 session_id=job.session_id,

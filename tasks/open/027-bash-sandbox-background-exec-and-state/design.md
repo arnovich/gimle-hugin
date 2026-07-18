@@ -228,6 +228,33 @@ all folded in above:
   `Agent` (no stack/config/LLM to step), so a pseudo-child would be strictly more
   machinery. Keep the condition; fix only the *rendering* (H1).
 
+## Implementation review (2026-07-16)
+
+A concurrency-correctness code review of the built feature confirmed the core
+sound — the executor, the audit-exactly-once flag, the lock discipline (no nested
+`self._lock`↔`audit._lock`), and the `close()` ordering all hold, and no
+HIGH crash/hang/deadlock. Two MEDIUMs fixed before merge:
+
+- **Multi-branch `tool_call_id` mis-binding** — `get_last_tool_call_interaction`
+  scans a flat cross-branch list, so a `BashWaiting` on branch A could bind its
+  resumed `tool_result` to a sibling branch's call id (absent from A's context →
+  a 400 that wedges the stack). Now a **branch-filtered** lookup + a `None`-id →
+  text fallback. Covered by a new multi-branch test.
+- **Unbounded `_jobs` growth** — every bash call (incl. fast inline ones) added a
+  job that was never evicted. Now a collected job is evicted on `collect`, and a
+  submit-time GC bounds finished-but-never-collected (fire-and-forget) jobs.
+
+Cheap LOW also taken: an explicit `CancelledError` catch in `_record_completion`
+so a queued job cancelled at shutdown is not miscounted as `infra_error` and
+cannot (on a hypothetical stdlib) crash `shutdown`.
+
+Deferred LOWs (noted, not blocking): docker `exec` reads `self._container` while
+`stop()` nulls it (teardown-only, surfaces a misleading `infra_error`, no
+wedge/hang); local `stop()` has microscopic miss/PID-reuse windows (bounded, the
+same as the pre-existing `_kill_group`); the grace-block is additive across
+siblings firing slow commands in one tick (bounded by the grace per call, per the
+design).
+
 ## Sign-off (2026-07-16)
 
 1. **Automatic deferral default** — CONFIRMED (owner chose "automatic + keep
