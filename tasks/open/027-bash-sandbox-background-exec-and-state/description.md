@@ -1,11 +1,25 @@
 ---
 title: Bash sandbox — background exec + per-agent statefulness (Phase 2)
-state: OPEN
+state: IN_PROGRESS
 labels: [enhancement, sandbox, concurrency]
 priority: high
 ---
 
 # Bash sandbox — background exec + per-agent statefulness (Phase 2)
+
+> **Status (2026-07-16):** background execution is implemented and merged behind
+> the design in `design.md` (signed off + panel-reviewed). **Shipped:** commands
+> run off the scheduler thread (a session worker pool above the Sandbox ABC);
+> automatic deferral (default) + explicit `background:true` + the `bash_output`
+> collect tool; the parked branch resolves into a real `tool_result` bound to the
+> original `tool_call_id`; guarded collect (never wedges the stack); worker-side
+> audit (once) + audit lock; ordered `Session.close`; `LocalSandbox.stop` kills
+> lingering process groups; docker `start()` re-entry guard; the honest-stateless
+> `cd` contract in the tool description. **Deferred (own follow-ups, see
+> design.md):** the persistent shell (§ statefulness — serial-vs-concurrent
+> crux); a scheduler idle-sleep for the single-parked-agent busy-spin; a
+> monitor/interactive surface for a parked-on-background agent; `inherit_workspace`;
+> automatic-threshold tuning after measurement.
 
 Fix the bash tool's **worst operational property**: `Session.run` is
 single-threaded round-robin and `execute_tool` is synchronous, so one long
