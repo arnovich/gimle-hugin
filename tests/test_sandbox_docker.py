@@ -136,6 +136,32 @@ class TestHardeningContract:
         assert kwargs["memswap_limit"] == kwargs["mem_limit"] == "1g"
 
 
+class TestEgressGating:
+    """network:true is fail-closed: unfiltered egress needs explicit opt-in.
+
+    Pure spec checks — no daemon — so they run everywhere and can never silently
+    regress (an accidentally-unfiltered container on a cloud host is the whole
+    metadata-exfil risk).
+    """
+
+    def test_network_true_is_refused_by_default(self, tmp_path):
+        """network:true without the ack raises, naming the metadata risk."""
+        sandbox = _sandbox(tmp_path, network=True)
+        with pytest.raises(RuntimeError, match="169.254.169.254"):
+            sandbox._assert_egress_acknowledged()
+
+    def test_explicit_ack_allows_it(self, tmp_path):
+        """allow_unrestricted_egress:true lets network:true through (with a warn)."""
+        sandbox = _sandbox(
+            tmp_path, network=True, allow_unrestricted_egress=True
+        )
+        sandbox._assert_egress_acknowledged()  # must not raise
+
+    def test_no_network_is_never_gated(self, tmp_path):
+        """The safe default (no network) is unaffected by the gate."""
+        _sandbox(tmp_path)._assert_egress_acknowledged()  # must not raise
+
+
 class TestExitClassification:
     """124/137/hung map to the right (timed_out, oom_killed) signals."""
 
@@ -398,6 +424,18 @@ class TestContainerLifecycle:
         client = docker.from_env()
         with pytest.raises(docker.errors.NotFound):
             client.containers.get(name)
+
+    def test_network_true_is_refused_at_start_with_no_container(self, tmp_path):
+        """A network:true start() fails closed and creates no container."""
+        import docker
+
+        spec = SandboxSpec(backend="docker", image=DAEMON_IMAGE, network=True)
+        sandbox = create_sandbox(spec, "egress-sess", str(tmp_path))
+        with pytest.raises(RuntimeError, match="169.254.169.254"):
+            sandbox.start()
+        client = docker.from_env()
+        with pytest.raises(docker.errors.NotFound):
+            client.containers.get(sandbox._name)
 
     def test_resume_reattaches_the_same_workspace(self, tmp_path):
         """A file written in one session is present after a resume (same id)."""

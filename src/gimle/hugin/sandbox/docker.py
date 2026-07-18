@@ -30,11 +30,12 @@ configuration this code cannot set per-container:
   daemon for defence in depth. As a fail-closed guard, ``start()`` refuses to
   run as uid 0 unless the daemon has userns-remap on (else container-root would
   equal host-root).
-- **``network: true`` is not egress-filtered.** The default (``network: false``)
-  is the safe path — no network at all. Opting in attaches the default bridge
-  with *unrestricted* egress, including the cloud metadata endpoint
-  (169.254.169.254); it warns loudly and must not be used with untrusted input
-  until the egress-allowlist proxy lands (task 025 follow-ups).
+- **``network: true`` is fail-closed (no egress filtering yet).** The default
+  (``network: false``) is the safe path — no network at all. Opting in would
+  attach the default bridge with *unrestricted* egress, including the cloud
+  metadata endpoint (169.254.169.254), so it is **refused** unless
+  ``allow_unrestricted_egress: true`` explicitly accepts the risk (and even then
+  it warns). Real egress filtering (an allowlist proxy) is task 030.
 """
 
 import hashlib
@@ -232,7 +233,7 @@ class DockerSandbox(Sandbox):
         if self._client is None:
             self._client = docker.from_env()
         self._assert_not_unsafe_root()
-        self._warn_if_network_opted_in()
+        self._assert_egress_acknowledged()
         os.makedirs(self._host_root, exist_ok=True)
         self._write_owner_stamp()
         self._ensure_image()
@@ -275,18 +276,41 @@ class DockerSandbox(Sandbox):
             "user, or enable docker userns-remap on the daemon."
         )
 
-    def _warn_if_network_opted_in(self) -> None:
-        """Warn once that ``network: true`` has unrestricted (unsafe) egress."""
+    def _assert_egress_acknowledged(self) -> None:
+        """Refuse unfiltered egress unless the operator explicitly opted in.
+
+        ``network: true`` attaches the default bridge with **no egress
+        filtering** — the container has ``cap_drop=ALL`` so in-container iptables
+        is out, and real destination-IP filtering needs an allowlist proxy (a
+        separate subsystem, task 030). Until that lands, unfiltered egress is a
+        foot-gun: on a cloud host an injected command can read the instance
+        metadata endpoint (169.254.169.254) and exfiltrate IAM credentials. So it
+        is **fail-closed**: ``network: true`` is refused unless
+        ``allow_unrestricted_egress: true`` explicitly accepts the risk (and even
+        then it warns). The default ``network: false`` (no network) is untouched.
+        """
         if not self._spec.network:
             return
+        if not self._spec.allow_unrestricted_egress:
+            raise RuntimeError(
+                "backend: docker network:true attaches UNFILTERED egress "
+                "(no egress filtering is implemented yet), so an injected "
+                "command can read the cloud metadata endpoint 169.254.169.254 "
+                "and exfiltrate IAM credentials — refused by default. Either "
+                "keep network:false (the safe default, no network), or set "
+                "options.bash.allow_unrestricted_egress:true to accept the risk "
+                "explicitly. Real egress filtering (an allowlist proxy) is "
+                "tracked in task 030; for filtered egress today, run an "
+                "operator-provided proxy and pass it via the command env."
+            )
         global _network_warned
         if not _network_warned:
             logger.warning(
                 "DockerSandbox network:true attaches UNRESTRICTED egress "
                 "(including the cloud metadata endpoint 169.254.169.254); an "
-                "injected command can exfiltrate cloud IAM credentials. Do NOT "
-                "use network:true with untrusted input until egress filtering "
-                "lands. The default network:false is the safe path."
+                "injected command can exfiltrate cloud IAM credentials. You "
+                "accepted this with allow_unrestricted_egress:true. Do NOT use "
+                "it with untrusted input until egress filtering lands."
             )
             _network_warned = True
 
