@@ -18,7 +18,7 @@ import signal
 import subprocess
 import threading
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from gimle.hugin.sandbox.policy import Allow, Policy, evaluate
 from gimle.hugin.sandbox.sandbox import (
@@ -99,6 +99,11 @@ class LocalSandbox(Sandbox):
             os.path.join(workspace_root, session_id)
         )
         self._bash = shutil.which("bash") or "/bin/bash"
+        # Live subprocesses, so a background command running on a worker thread
+        # can be killed at teardown (a ThreadPoolExecutor cannot interrupt a
+        # thread blocked in a command, and the reaper only GCs directories).
+        self._active: Set["subprocess.Popen"] = set()
+        self._active_lock = threading.Lock()
         global _isolation_warned
         if not _isolation_warned:
             logger.warning(
@@ -145,7 +150,18 @@ class LocalSandbox(Sandbox):
             logger.debug("could not write owner stamp: %s", error)
 
     def stop(self) -> None:
-        """No persistent resource to release. Idempotent, safe if unstarted."""
+        """Kill any still-running command's process group. Idempotent.
+
+        A foreground command is already gone by the time ``stop`` runs, but a
+        **background** command running on a worker thread is not — so killing its
+        group here is what lets ``Session.close`` interrupt an in-flight ``exec``
+        (the worker's ``_capture`` loop then returns) instead of leaking a live
+        subprocess. Best-effort; safe if never started (empty set).
+        """
+        with self._active_lock:
+            procs = list(self._active)
+        for proc in procs:
+            self._kill_group(proc)
 
     # -- workspaces --
 
@@ -185,9 +201,15 @@ class LocalSandbox(Sandbox):
             stderr=subprocess.PIPE,
             start_new_session=True,  # own process group, so we can kill it all
         )
-        full_stdout, full_stderr, timed_out, capped = self._capture(
-            proc, effective_timeout
-        )
+        with self._active_lock:
+            self._active.add(proc)
+        try:
+            full_stdout, full_stderr, timed_out, capped = self._capture(
+                proc, effective_timeout
+            )
+        finally:
+            with self._active_lock:
+                self._active.discard(proc)
         duration = time.monotonic() - started
 
         if capped:
