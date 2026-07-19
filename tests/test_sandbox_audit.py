@@ -91,3 +91,74 @@ class TestFile:
         audit = CommandAudit(path)
         audit.record(session_id="s", agent_id="a", command="ls", outcome="run")
         assert audit.counters["run"] == 1  # counted despite the write failing
+
+
+class TestBumpAndSummary:
+    """Thread-safe counter increments and snapshots for out-of-record bumps."""
+
+    def test_bump_increments_under_the_lock(self):
+        """bump() tallies a counter not tied to a recorded command outcome."""
+        audit = CommandAudit()
+        audit.bump("sandbox_starts")
+        audit.bump("sandbox_starts")
+        audit.bump("sandbox_start_failures")
+        assert audit.counters["sandbox_starts"] == 2
+        assert audit.counters["sandbox_start_failures"] == 1
+
+    def test_summary_is_a_snapshot_copy(self):
+        """summary() returns a plain dict copy, decoupled from later changes."""
+        audit = CommandAudit()
+        audit.record(session_id="s", agent_id="a", command="ls", outcome="run")
+        snap = audit.summary()
+        audit.record(session_id="s", agent_id="a", command="ls", outcome="run")
+        assert snap == {"run": 1}  # frozen at the moment it was taken
+        assert audit.summary() == {"run": 2}
+
+    def test_empty_summary_is_an_empty_dict(self):
+        """An unused audit summarizes to an empty dict (nothing to log)."""
+        assert CommandAudit().summary() == {}
+
+
+class TestRotation:
+    """The JSONL file is bounded: it rotates to one .1 backup past the cap."""
+
+    def test_rotates_past_the_cap_and_keeps_writing(self, tmp_path):
+        """Once the file exceeds max_bytes it rotates; new lines still land."""
+        path = str(tmp_path / "audit.jsonl")
+        audit = CommandAudit(path, max_bytes=300)
+        for i in range(50):
+            audit.record(
+                session_id="s", agent_id="a", command=f"cmd-{i}", outcome="run"
+            )
+        assert os.path.isfile(path + ".1")  # a backup was rotated out
+        # The live file stays bounded (roughly the cap plus one entry).
+        assert os.path.getsize(path) <= 300 + 1000
+        # The most recent command is in the live file — not lost to rotation.
+        assert _entries(path)[-1]["command"] == "cmd-49"
+
+    def test_no_rotation_under_the_cap(self, tmp_path):
+        """A small log never creates a backup."""
+        path = str(tmp_path / "audit.jsonl")
+        audit = CommandAudit(path, max_bytes=1_000_000)
+        audit.record(session_id="s", agent_id="a", command="ls", outcome="run")
+        assert not os.path.exists(path + ".1")
+
+    def test_rotation_failure_is_swallowed(self, tmp_path, monkeypatch):
+        """A failing rotation never fails the command; it keeps appending."""
+        path = str(tmp_path / "audit.jsonl")
+        audit = CommandAudit(path, max_bytes=10)
+        audit.record(
+            session_id="s", agent_id="a", command="first", outcome="run"
+        )
+
+        def _boom(*_args, **_kwargs):
+            raise OSError("rotate failed")
+
+        monkeypatch.setattr(os, "replace", _boom)
+        # This record is now over the cap, so rotation is attempted and fails —
+        # the command must still be counted and appended, never raise.
+        audit.record(
+            session_id="s", agent_id="a", command="second", outcome="run"
+        )
+        assert audit.counters["run"] == 2
+        assert _entries(path)[-1]["command"] == "second"
