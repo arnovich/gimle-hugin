@@ -17,12 +17,13 @@ from gimle.hugin.tools.builtins.bash import bash
 LOCAL = SandboxSpec(backend="local")
 
 
-def _stack(config_options=None, sandbox_manager=None):
+def _stack(config_options=None, sandbox_manager=None, interactive=False):
     """Build a minimal stack exposing just what the bash tool reads.
 
     When a ``sandbox_manager`` is pre-seeded, the config is given
     ``backend: local`` so the tool resolves the same LOCAL spec the manager is
-    keyed by in ``session.sandboxes``.
+    keyed by in ``session.sandboxes``. ``interactive`` sets ``config.interactive``
+    (whether an escalation can ask a human).
     """
     opts = dict(config_options or {})
     sandboxes = {}
@@ -33,7 +34,7 @@ def _stack(config_options=None, sandbox_manager=None):
         sandboxes[LOCAL] = sandbox_manager
     environment = SimpleNamespace(env_vars={})
     session = SimpleNamespace(id="session-1", sandboxes=sandboxes)
-    config = SimpleNamespace(options=opts)
+    config = SimpleNamespace(options=opts, interactive=interactive)
     agent = SimpleNamespace(
         id="agent-a",
         config=config,
@@ -43,10 +44,14 @@ def _stack(config_options=None, sandbox_manager=None):
     return SimpleNamespace(agent=agent)
 
 
-def _stack_with_fake(fake, config_options=None):
+def _stack_with_fake(fake, config_options=None, interactive=False):
     """Build a stack whose session owns a manager wrapping ``fake``."""
     manager = SandboxManager(LOCAL, "session-1", sandbox=fake)
-    return _stack(config_options=config_options, sandbox_manager=manager)
+    return _stack(
+        config_options=config_options,
+        sandbox_manager=manager,
+        interactive=interactive,
+    )
 
 
 class TestResultMapping:
@@ -170,14 +175,30 @@ class TestPolicyEnforcement:
         assert "denied" in response.content
         assert fake.calls == []
 
-    def test_escalate_maps_to_needs_approval(self):
-        """on_violation=ask_human surfaces a needs_approval response."""
+    def test_escalate_denies_in_a_non_interactive_session(self):
+        """ask_human with no human (config.interactive False) is a clean deny."""
         fake = FakeSandbox()
         options = {"bash": {"policy": {"on_violation": "ask_human"}}}
         response = bash("shutdown now", stack=_stack_with_fake(fake, options))
         assert response.is_error is True
-        assert "needs_approval" in response.content
-        assert fake.calls == []
+        assert "denied" in response.content
+        assert "non-interactive" in response.content["note"]
+        assert fake.calls == []  # never ran
+
+    def test_escalate_defers_to_a_human_when_interactive(self):
+        """ask_human in an interactive session parks on a BashApproval."""
+        from gimle.hugin.interaction.bash_approval import BashApproval
+
+        fake = FakeSandbox()
+        options = {"bash": {"policy": {"on_violation": "ask_human"}}}
+        response = bash(
+            "shutdown now",
+            stack=_stack_with_fake(fake, options, interactive=True),
+        )
+        assert response.is_error is False
+        assert isinstance(response.response_interaction, BashApproval)
+        assert response.response_interaction.command == "shutdown now"
+        assert fake.calls == []  # not run until approved
 
     def test_malformed_policy_config_is_reported(self):
         """A bad policy block is a clear config error, not a silent default."""

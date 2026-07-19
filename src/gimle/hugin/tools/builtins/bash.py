@@ -9,9 +9,10 @@ completion is not an error even if it exited non-zero — ``grep`` finding
 nothing exits 1, and flagging that as a failure just makes the model thrash.
 """
 
+import dataclasses
 import logging
 import os
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, Union
 
 from gimle.hugin.sandbox.background import (
     DEFAULT_DEFER_AFTER_S,
@@ -183,55 +184,45 @@ def bash(
             content={"denied": decision.reason, "command": command},
         )
     if isinstance(decision, Escalate):
-        # Human-approval routing lands in phase 3; until then, refuse cleanly
-        # rather than run an out-of-policy command.
         _record(manager, stack, command, "escalated", reason=decision.reason)
+        if getattr(config, "interactive", False):
+            # Interactive: ask a human. The command parks on a BashApproval;
+            # approval runs exactly this command, denial refuses it.
+            from gimle.hugin.interaction.bash_approval import BashApproval
+
+            return ToolResponse(
+                is_error=False,
+                content={
+                    "awaiting_approval": decision.reason,
+                    "command": command,
+                },
+                response_interaction=BashApproval(
+                    stack=stack,
+                    branch=branch,
+                    command=command,
+                    cwd=cwd,
+                    timeout_s=timeout_s,
+                    reason=decision.reason,
+                ),
+            )
+        # Non-interactive: no human can answer, so refuse cleanly (a park would
+        # stall the run forever). This is a plain policy denial.
         return ToolResponse(
             is_error=True,
             content={
-                "needs_approval": decision.reason,
+                "denied": decision.reason,
                 "command": command,
-                "note": "human approval is unavailable in this session and "
-                "will not become available; do not retry — choose a "
-                "different approach",
+                "note": "this command needs human approval, which a "
+                "non-interactive session cannot provide; choose a permitted "
+                "alternative",
             },
         )
     assert isinstance(decision, Allow)
 
-    if manager is None:
-        return ToolResponse(
-            is_error=True,
-            content={"error": f"sandbox unavailable: {manager_error}"},
-        )
-    try:
-        sandbox = manager.get()
-    except Exception as error:
-        # Bringing a backend up is the classic infra failure: docker daemon
-        # down, image not built, the `sandbox` extra not installed, a remote
-        # host unreachable. Any of these raise here (RuntimeError,
-        # DockerException, ImageNotFound, ...) and must come back as a clean,
-        # actionable tool result — never propagate as an unhandled exception
-        # (which the model can't see) or invite a pointless retry loop.
-        _record(manager, stack, command, "infra_error", reason=str(error))
-        return ToolResponse(
-            is_error=True,
-            content={
-                "infra_error": str(error),
-                "command": command,
-                "note": "the sandbox backend could not start; retrying will "
-                "not fix this — an operator needs to fix the backend (e.g. "
-                "start the docker daemon / build the image / install the "
-                "sandbox extra, or make the ssh host reachable)",
-            },
-        )
-
-    workspace = sandbox.workspace_for(stack.agent.id, branch)
-    effective_cwd = _resolve_cwd(workspace, cwd)
-    if effective_cwd is None:
-        return ToolResponse(
-            is_error=True,
-            content={"error": f"cwd escapes the workspace: {cwd}"},
-        )
+    prepared = _prepare_run(manager, manager_error, stack, command, cwd, branch)
+    if isinstance(prepared, ToolResponse):
+        return prepared
+    sandbox, effective_cwd = prepared
 
     background_run = bool(background)
     requested_timeout = (
@@ -301,6 +292,52 @@ def bash(
     )
 
 
+def _prepare_run(
+    manager: Optional[SandboxManager],
+    manager_error: Optional[str],
+    stack: "Stack",
+    command: str,
+    cwd: Optional[str],
+    branch: Optional[str],
+) -> Union[ToolResponse, Tuple[Any, str]]:
+    """Return the started sandbox + resolved cwd, or a ToolResponse error.
+
+    Shared by the normal allow path and the human-approved run path: bring the
+    backend up (a start failure is a clean, non-retryable ``infra_error``) and
+    resolve the effective cwd inside the workspace (an escape is refused).
+    """
+    if manager is None:
+        return ToolResponse(
+            is_error=True,
+            content={"error": f"sandbox unavailable: {manager_error}"},
+        )
+    try:
+        sandbox = manager.get()
+    except Exception as error:
+        # Bringing a backend up is the classic infra failure (daemon down,
+        # image not built, remote host unreachable); surface it cleanly.
+        _record(manager, stack, command, "infra_error", reason=str(error))
+        return ToolResponse(
+            is_error=True,
+            content={
+                "infra_error": str(error),
+                "command": command,
+                "note": "the sandbox backend could not start; retrying will "
+                "not fix this — an operator needs to fix the backend (e.g. "
+                "start the docker daemon / build the image / install the "
+                "sandbox extra, or make the ssh host reachable)",
+            },
+        )
+    workspace = sandbox.workspace_for(stack.agent.id, branch)
+    effective_cwd = _resolve_cwd(workspace, cwd)
+    if effective_cwd is None:
+        return ToolResponse(
+            is_error=True,
+            content={"error": f"cwd escapes the workspace: {cwd}"},
+        )
+    return sandbox, effective_cwd
+
+
 def _run_sync(
     manager: Optional[SandboxManager],
     stack: "Stack",
@@ -344,6 +381,58 @@ def _run_sync(
         oom_killed=result.oom_killed,
     )
     return _to_response(command, result)
+
+
+def run_approved(
+    stack: "Stack",
+    command: str,
+    cwd: Optional[str],
+    timeout_s: Optional[int],
+    branch: Optional[str],
+) -> ToolResponse:
+    """Run a human-approved command, bypassing the policy for exactly it.
+
+    Called **only** by :class:`BashApproval` after a human approved this exact
+    command — it is a plain function, not a tool parameter, so the model cannot
+    reach it (a model-settable ``_approved`` flag would let it self-approve and
+    bypass the policy: ``execute_tool`` passes a tool_call's args straight to the
+    function, undeclared keys included). Runs synchronously under an
+    ``unrestricted`` policy variant (the human is the authority for this one
+    command string), preserving the policy's timeout/output caps.
+    """
+    config = stack.agent.config
+    bash_opts = dict(getattr(config, "options", {}) or {}).get("bash") or {}
+    try:
+        policy = Policy.from_dict(bash_opts.get("policy"))
+    except ValueError as error:
+        return ToolResponse(
+            is_error=True,
+            content={"error": f"invalid bash policy config: {error}"},
+        )
+    try:
+        manager: Optional[SandboxManager] = _resolve_manager(stack, bash_opts)
+        manager_error: Optional[str] = None
+    except (ValueError, NotImplementedError) as error:
+        manager, manager_error = None, str(error)
+    prepared = _prepare_run(manager, manager_error, stack, command, cwd, branch)
+    if isinstance(prepared, ToolResponse):
+        return prepared
+    sandbox, effective_cwd = prepared
+    run_timeout = (
+        timeout_s
+        if timeout_s is not None and timeout_s > 0
+        else policy.timeout_s
+    )
+    run_policy = dataclasses.replace(policy, mode="unrestricted")
+    return _run_sync(
+        manager,
+        stack,
+        command,
+        sandbox,
+        run_policy,
+        effective_cwd,
+        run_timeout,
+    )
 
 
 def _resolve_manager(
