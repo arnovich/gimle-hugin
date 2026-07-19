@@ -1,9 +1,15 @@
 ---
 title: Docker egress-allowlist proxy — the real network:true filter
-state: OPEN
+state: CLOSED
 labels: [enhancement, sandbox, security, docker, networking]
 priority: high
 ---
+
+**Closed (2026-07-19)** — shipped in PR #70. `network: true` + a non-empty
+`egress_allowlist` now routes egress through a per-session internal network +
+dual-homed proxy sidecar (host allowlist + private-IP/DNS-rebinding deny),
+panel-reviewed and hardened. Deferred follow-ups are recorded in
+`panel-review.md`.
 
 # Docker egress-allowlist proxy
 
