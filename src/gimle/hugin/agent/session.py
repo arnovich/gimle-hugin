@@ -220,8 +220,17 @@ class Session:
         """
         for manager in self.sandboxes.values():
             manager.close()
-        self.sandboxes.clear()
         self.background.shutdown()
+        # Emit the audit counters only *after* the workers are joined, so an
+        # interrupted background command's teardown-time outcome (the very
+        # failure the summary is meant to surface) is already recorded. Guarded:
+        # observability must never break teardown (close's never-raise contract).
+        for manager in self.sandboxes.values():
+            try:
+                manager.log_summary()
+            except Exception as error:  # never let logging break close()
+                logger.warning("sandbox audit summary failed: %s", error)
+        self.sandboxes.clear()
 
     def __enter__(self) -> "Session":
         """Enter a context that guarantees ``close`` on exit."""
