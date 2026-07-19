@@ -134,6 +134,39 @@ a model-supplied `_approved` kwarg fails closed (the command never runs), and
 `bash` has neither the param nor `**kwargs`. (Filed the general
 `execute_tool`-passes-undeclared-kwargs fragility as an observation for 024/030.)
 
+## Security review (2026-07-19)
+
+A focused adversarial security review found **no bypass** — no path for the model
+(or any non-human) to run an unapproved command, and no way to run a command
+different from the one the human saw (`decision`/`command` are set only by the
+human via the CLI; `run_approved` is unreachable by the model; the `unrestricted`
+run still fails-closed on parse errors and preserves backend isolation, cwd
+confinement, and timeouts). **Safe to merge.** Fixed here from its findings:
+
+- **M2 (audit)** — the approved run is now tagged `reason="human-approved"` and a
+  human *denial* is recorded as `denied_by_human` (was: an approved run looked
+  like an ordinary `run`, and a denial wasn't audited at all — bad observability
+  for a policy-bypass feature).
+- **L1** — the approval prompt now shows the `cwd` and the backend, warning
+  loudly when it's `local` (runs unconfined on the host).
+
+Deferred (filed as follow-ups):
+
+- **M1 (framework hardening)** — `execute_tool` passes a tool_call's undeclared
+  args straight to the function; the schema is not enforced as a kwarg allowlist
+  (this is the class of bug that produced the `_approved` hole). No current
+  offender, but it should filter kwargs to `{declared} ∪ {stack, branch, reason}`
+  before calling the function. Cross-cutting — its own task (024-class).
+- **M3 (availability)** — a `BashApproval` parked on a *non-last* branch (parallel
+  branches) or in a headless `interactive:true` run is not surfaced to a human,
+  so the task stalls (fail-safe: the command never runs, but the run ends
+  unresolved). v1's answer surface is the plain interactive CLI on the last
+  interaction; a per-branch scan + a real human-channel presence signal is the
+  follow-up (with the Textual-TUI/monitor answer surface).
+- **L2** — a crash after `decision` persists but before the result is written
+  could re-run the (human-approved) command on reload; same idempotency shape as
+  `BashWaiting`. A resolved-guard would close it.
+
 ## Open questions for sign-off
 
 1. **Option A (dedicated `BashApproval`, approve→auto-run) vs Option B (reuse

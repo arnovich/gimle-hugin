@@ -74,6 +74,16 @@ class BashApproval(Interaction):
     def _resolve(self) -> Tuple[Dict[str, Any], bool]:
         """Run the approved command or render the human's refusal (never raises)."""
         if not self.approved():
+            try:
+                from gimle.hugin.tools.builtins.bash import (
+                    record_denied_by_human,
+                )
+
+                record_denied_by_human(
+                    self.stack, self.command or "", self.reason
+                )
+            except Exception as error:  # audit is best-effort
+                logger.debug("could not audit human denial: %s", error)
             return (
                 {
                     "denied": f"denied by a human: {self.reason}",
