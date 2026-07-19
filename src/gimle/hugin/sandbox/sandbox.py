@@ -186,6 +186,12 @@ class SandboxSpec:
     # IAM credentials, so ``network: true`` is refused unless this acknowledges
     # the risk. Real egress filtering (an allowlist proxy) is task 030.
     allow_unrestricted_egress: bool = False
+    # Docker only: host/domain allowlist for **filtered** egress. When
+    # ``network: true`` and this is non-empty, egress is routed through a
+    # per-session proxy that permits only these hosts (and their subdomains) and
+    # blocks link-local/metadata + private ranges. A tuple so the spec stays
+    # hashable (it keys ``session.sandboxes``). See task 033.
+    egress_allowlist: Tuple[str, ...] = ()
     cpu: float = 2.0
     memory: str = "2g"
     pids: int = 512
@@ -215,6 +221,10 @@ class SandboxSpec:
                 f"invalid backend: {provided['backend']!r} "
                 f"(known: {', '.join(registered_backends())})"
             )
+        if "egress_allowlist" in provided:
+            # YAML gives a list; the spec field is a tuple so the spec stays
+            # hashable (it keys ``session.sandboxes``).
+            provided["egress_allowlist"] = tuple(provided["egress_allowlist"])
         return cls(**provided)
 
 

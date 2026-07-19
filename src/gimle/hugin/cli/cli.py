@@ -297,6 +297,7 @@ def reap_sandboxes_quietly(root: str = DEFAULT_SANDBOX_ROOT) -> None:
 
         from gimle.hugin.sandbox.reaper import (
             reap_abandoned_containers,
+            reap_abandoned_networks,
             reap_local_workspaces,
         )
 
@@ -305,6 +306,9 @@ def reap_sandboxes_quietly(root: str = DEFAULT_SANDBOX_ROOT) -> None:
         # Container reaping is daemon-optional: a no-op without the docker SDK
         # or a running daemon, so local/ssh-only users pay nothing here.
         reap_abandoned_containers(now=now)
+        # Then any egress network the (now-gone) proxy container was on. After
+        # the container sweep so the network is detachable and removable.
+        reap_abandoned_networks(now=now)
     except Exception:  # cleanup is best-effort and must never break a command
         pass
 
@@ -316,6 +320,7 @@ def cmd_sandbox(args: argparse.Namespace) -> int:
     from gimle.hugin.sandbox.reaper import (
         list_local_workspaces,
         reap_abandoned_containers,
+        reap_abandoned_networks,
         reap_local_workspaces,
     )
 
@@ -325,6 +330,7 @@ def cmd_sandbox(args: argparse.Namespace) -> int:
     if args.action == "prune":
         reaped = reap_local_workspaces(root, now=now)
         containers = reap_abandoned_containers(now=now)
+        networks = reap_abandoned_networks(now=now)  # after the containers
         if reaped:
             print(f"Reaped {len(reaped)} abandoned workspace(s):")
             for name in reaped:
@@ -334,6 +340,10 @@ def cmd_sandbox(args: argparse.Namespace) -> int:
         if containers:
             print(f"Reaped {len(containers)} abandoned container(s):")
             for name in containers:
+                print(f"  {name}")
+        if networks:
+            print(f"Reaped {len(networks)} abandoned egress network(s):")
+            for name in networks:
                 print(f"  {name}")
         return 0
 
