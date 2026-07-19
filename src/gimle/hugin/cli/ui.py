@@ -346,17 +346,19 @@ def _get_session_status(session: Any, default: str) -> str:
 
 
 def _find_pending_ask_human(session: Any) -> Optional[Any]:
-    """Find a pending AskHuman interaction in the session.
+    """Find a pending human-input interaction in the session.
 
-    Returns the (agent, AskHuman) tuple if found, None otherwise.
+    Returns the (agent, interaction) tuple for a parked ``AskHuman`` (a general
+    question) or ``BashApproval`` (a command awaiting approval), or None.
     """
     # Import here to avoid circular imports
     from gimle.hugin.interaction.ask_human import AskHuman
+    from gimle.hugin.interaction.bash_approval import BashApproval
 
     for agent in session.agents:
         if agent.stack.interactions:
             last_interaction = agent.stack.interactions[-1]
-            if isinstance(last_interaction, AskHuman):
+            if isinstance(last_interaction, (AskHuman, BashApproval)):
                 return (agent, last_interaction)
     return None
 
@@ -374,9 +376,10 @@ def _handle_ask_human(
         user_prefix: Prefix for user input (default: "👤 ")
     """
     # Import here to avoid circular imports
+    from gimle.hugin.interaction.bash_approval import BashApproval
     from gimle.hugin.interaction.human_response import HumanResponse
 
-    agent, ask_human = ask_human_tuple
+    agent, interaction = ask_human_tuple
 
     # Color setup - high contrast between agent (bold green) and user (dim gray)
     use_color = Colors.enabled()
@@ -384,10 +387,36 @@ def _handle_ask_human(
     user_style = f"{Colors.DIM}{Colors.WHITE}" if use_color else ""
     reset = Colors.RESET if use_color else ""
 
-    # Display the question (agent output in bold green with agent prefix)
     print()
-    if ask_human.question:
-        print(f"{agent_style}{prefix}{ask_human.question}{reset}")
+    if isinstance(interaction, BashApproval):
+        # A command awaiting approval: show what it is, where it runs, and why it
+        # was flagged, then set the decision on the live interaction (it
+        # self-resolves on the next step — no HumanResponse, which would route
+        # text to the model).
+        backend = (
+            dict(getattr(agent.config, "options", {}) or {})
+            .get("bash", {})
+            .get("backend", "local")
+        )
+        print(
+            f"{agent_style}{prefix}Approve running this command? (y/n){reset}"
+        )
+        print(f"  command: {interaction.command}")
+        print(f"  cwd:     {interaction.cwd or '(workspace root)'}")
+        print(f"  reason:  {interaction.reason}")
+        print(f"  backend: {backend}", end="")
+        if backend == "local":
+            print("  ⚠ runs UNCONFINED on this host (no isolation)")
+        else:
+            print()
+        response = input(f"{user_style}{user_prefix}{reset}").strip()
+        interaction.decision = response
+        print()
+        return
+
+    # Display the question (agent output in bold green with agent prefix)
+    if interaction.question:
+        print(f"{agent_style}{prefix}{interaction.question}{reset}")
     else:
         print(f"{agent_style}{prefix}Waiting for input...{reset}")
 
@@ -397,7 +426,7 @@ def _handle_ask_human(
 
     # Add HumanResponse to the agent's stack
     human_response = HumanResponse(
-        stack=agent.stack, response=response, branch=ask_human.branch
+        stack=agent.stack, response=response, branch=interaction.branch
     )
     agent.stack.add_interaction(human_response)
 
