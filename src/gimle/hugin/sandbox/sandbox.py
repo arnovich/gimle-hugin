@@ -210,7 +210,10 @@ class SandboxSpec:
         provided = {k: v for k, v in data.items() if k != "policy"}
         unknown = set(provided) - known
         if unknown:
-            raise ValueError(f"unknown sandbox keys: {sorted(unknown)}")
+            raise ValueError(
+                f"unknown sandbox keys: {sorted(unknown)}"
+                f"{_misplaced_policy_hint(unknown)}"
+            )
         if "backend" not in provided:
             raise ValueError(
                 "options.bash.backend is required "
@@ -226,6 +229,23 @@ class SandboxSpec:
             # hashable (it keys ``session.sandboxes``).
             provided["egress_allowlist"] = tuple(provided["egress_allowlist"])
         return cls(**provided)
+
+
+def _misplaced_policy_hint(unknown: set) -> str:
+    """Suggest nesting under ``policy:`` for keys that are Policy fields.
+
+    A common config mistake is putting a policy knob (``deny``, ``timeout_s``, …)
+    at the top level of ``options.bash`` instead of under
+    ``options.bash.policy``. Turn the bare "unknown sandbox keys" error into an
+    actionable hint when that's what happened; empty otherwise.
+    """
+    misplaced = sorted(unknown & {f.name for f in fields(Policy)})
+    if not misplaced:
+        return ""
+    return (
+        f" — {misplaced} look like policy settings; "
+        "nest them under options.bash.policy"
+    )
 
 
 def create_sandbox(

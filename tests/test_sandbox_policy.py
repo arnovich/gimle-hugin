@@ -107,6 +107,43 @@ class TestDenylistCatchesAccidents:
         assert isinstance(_decision("cat x | mkfs.ext4 /dev/sda1"), Deny)
 
 
+class TestRecursiveRmTargets:
+    """rm -rf of a system top-level dir is denied, like the bare-root targets.
+
+    Fixes the inconsistency where only ``/`` was caught while ``/etc``/``/usr``
+    slipped through. The agent's own files live deeper (under the backend's
+    workspace root), so a relative or deep path stays allowed.
+    """
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "rm -rf /etc",
+            "rm -rf /usr",
+            "rm -rf /var/",  # trailing slash still caught
+            "rm -fr /bin",  # flag order does not matter
+            "rm --recursive --force /home",
+            "ls && rm -rf /lib",  # anywhere in the AST
+        ],
+    )
+    def test_system_dir_removal_is_denied(self, command):
+        """A recursive-force rm of a system top-level directory is refused."""
+        assert isinstance(_decision(command), Deny)
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "rm -rf ./build",  # relative — an accident, not catastrophic
+            "rm -rf /workspace/agents/a/build",  # deep, under the workspace
+            "rm -rf /etc/hosts.d",  # a file/subdir, not the system dir itself
+            "rm file.txt",  # not recursive-force
+        ],
+    )
+    def test_legitimate_removals_stay_allowed(self, command):
+        """Relative, deep, or non-recursive removals are not denied."""
+        assert isinstance(_decision(command), Allow)
+
+
 class TestWrapperPrefixesDoNotBypass:
     """A denied binary run *through* a wrapper (env/timeout/…) is still caught.
 
