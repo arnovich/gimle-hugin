@@ -46,6 +46,50 @@ class TestSessionClose:
         session.close()  # no error on the second call
         Session(environment=Environment()).close()  # never had a sandbox
 
+    def test_close_emits_the_audit_summary(self, caplog):
+        """close() logs each sandbox's audit counters when tearing it down."""
+        session, _ = self._session_with_sandbox()
+        spec = next(iter(session.sandboxes))
+        session.sandboxes[spec].audit.record(
+            session_id=session.id, agent_id="a", command="ls", outcome="run"
+        )
+        with caplog.at_level("INFO"):
+            session.close()
+        assert any(
+            "bash sandbox audit" in r.getMessage() for r in caplog.records
+        )
+
+    def test_summary_includes_teardown_time_outcomes(self, caplog):
+        """An outcome recorded *during* teardown still lands in the summary.
+
+        A background command interrupted by the sandbox stop records its
+        ``infra_error`` during teardown; the summary is emitted after teardown,
+        so it must reflect it (regression: emitting before close() missed it).
+        """
+        session = Session(environment=Environment())
+        spec = SandboxSpec(backend="local")
+
+        class _RecordsOnClose(SandboxManager):
+            def close(self) -> None:
+                self.audit.record(
+                    session_id="s",
+                    agent_id="a",
+                    command="sleep 99",
+                    outcome="infra_error",
+                )
+                super().close()
+
+        manager = _RecordsOnClose(spec, session.id, sandbox=FakeSandbox())
+        manager.get()
+        session.sandboxes[spec] = manager
+        with caplog.at_level("WARNING"):
+            session.close()
+        assert any(
+            "failing outcomes" in r.getMessage()
+            and "infra_error" in r.getMessage()
+            for r in caplog.records
+        )
+
     def test_context_manager_closes_on_exit(self):
         """Leaving a `with Session(...)` block tears the sandboxes down."""
         session = Session(environment=Environment())
