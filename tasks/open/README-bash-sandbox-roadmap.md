@@ -20,7 +20,8 @@ The policy engine is a guardrail against accidents; isolation comes from the
 | 025 | **Phase 2** — Docker backend (container isolation) | **MERGED** (PR #62) |
 | 026 | **Phase 2** — SSH / remote (VPS) backend | **MERGED** (PR #63) |
 | 027 | **Phase 2** — background exec (freeze fix); persistent shell split to 032 | **MERGED** (PR #65) |
-| 028 | **Phase 3** — human escalation (`on_violation: ask_human`) | OPEN (medium) |
+| 028 | **Phase 3** — human escalation (`on_violation: ask_human`) | **MERGED** (PR #69) |
+| 030b | Docker egress-allowlist proxy (the real `network:true` filter; gating was PR #68) | OPEN (**high**) |
 | 029 | **Phase 4** — the harness blend (markdown projection + outbox harvest) | OPEN (design-first, after watching real agents) |
 | 030 | Docker & SSH backend follow-ups (deferred panel findings; incl. `network:true` egress filtering — the one blocking security item) | OPEN (**high**) |
 | 031 | Cross-backend E2E test harness + local real-backend runner (`docker/README.md`) | **MERGED** (PRs #64/#66) |
