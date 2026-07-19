@@ -71,6 +71,19 @@ class TestBackendRegistry:
         with pytest.raises(ValueError, match="invalid backend"):
             SandboxSpec.from_dict({"backend": "nope"})
 
+    def test_from_dict_hints_at_misplaced_policy_keys(self):
+        """A Policy key at the top level suggests nesting under policy:."""
+        with pytest.raises(ValueError, match="options.bash.policy"):
+            SandboxSpec.from_dict(
+                {"backend": "local", "deny": ["rm"], "timeout_s": 30}
+            )
+
+    def test_from_dict_rejects_a_truly_unknown_key_without_the_hint(self):
+        """A key that isn't a Policy field errors plainly, with no policy hint."""
+        with pytest.raises(ValueError, match="unknown sandbox keys") as excinfo:
+            SandboxSpec.from_dict({"backend": "local", "wibble": 1})
+        assert "options.bash.policy" not in str(excinfo.value)
+
 
 class TestSandboxRoot:
     """The sandbox root is derived from the session's storage base path."""
