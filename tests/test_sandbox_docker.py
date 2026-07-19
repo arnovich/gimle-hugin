@@ -50,9 +50,37 @@ class TestHardeningContract:
         assert kwargs["network_mode"] == "none"
 
     def test_network_opt_in_uses_bridge(self, tmp_path):
-        """Only an explicit network:true relaxes to a bridge network."""
-        kwargs = _sandbox(tmp_path, network=True)._container_kwargs()
+        """Only an explicit unrestricted network:true relaxes to a bridge."""
+        kwargs = _sandbox(
+            tmp_path, network=True, allow_unrestricted_egress=True
+        )._container_kwargs()
         assert kwargs["network_mode"] == "bridge"
+
+    def test_filtered_egress_joins_internal_network_via_proxy(self, tmp_path):
+        """network:true + an allowlist joins the internal net and sets HTTP_PROXY.
+
+        The sandbox's ``network_mode`` is the per-session *internal* network (no
+        direct route out), and its env points HTTP(S)_PROXY at the sidecar — so
+        its only exit is the allowlist proxy.
+        """
+        sandbox = _sandbox(
+            tmp_path, network=True, egress_allowlist=("pypi.org",)
+        )
+        kwargs = sandbox._container_kwargs()
+        assert kwargs["network_mode"] == sandbox._egress_net_name
+        assert kwargs["network_mode"].startswith("hugin-egress-")
+        env = kwargs["environment"]
+        expected = f"http://{sandbox._proxy_name}:8080"
+        assert env["HTTP_PROXY"] == expected
+        assert env["HTTPS_PROXY"] == expected
+        assert env["https_proxy"] == expected
+
+    def test_unfiltered_network_sets_no_proxy(self, tmp_path):
+        """An unrestricted bridge sets no proxy env (nothing to route through)."""
+        env = _sandbox(
+            tmp_path, network=True, allow_unrestricted_egress=True
+        )._container_kwargs()["environment"]
+        assert "HTTP_PROXY" not in env
 
     def test_all_capabilities_dropped(self, tmp_path):
         """Every Linux capability is dropped."""
@@ -136,6 +164,54 @@ class TestHardeningContract:
         assert kwargs["memswap_limit"] == kwargs["mem_limit"] == "1g"
 
 
+class TestProxyHardeningContract:
+    """The proxy sidecar IS the egress boundary — pin its kwargs daemon-free.
+
+    Mirrors ``TestHardeningContract`` for the sandbox: ``_proxy_kwargs`` is pure,
+    so a regression that drops a hardening flag on the *proxy* is caught here,
+    not only by the slow end-to-end suite.
+    """
+
+    def _kwargs(self, tmp_path):
+        """Return the proxy run-kwargs for a filtered-egress sandbox."""
+        return _sandbox(
+            tmp_path, network=True, egress_allowlist=("pypi.org",)
+        )._proxy_kwargs()
+
+    def test_runs_the_proxy_script_on_the_internal_network(self, tmp_path):
+        """It runs the bind-mounted proxy script, joined to the internal net."""
+        kwargs = self._kwargs(tmp_path)
+        assert kwargs["command"] == ["python3", "/opt/egress_proxy.py"]
+        assert kwargs["network"].startswith("hugin-egress-")
+
+    def test_hardened_like_the_sandbox(self, tmp_path):
+        """All caps dropped, no-new-privs, read-only rootfs, non-root, capped."""
+        kwargs = self._kwargs(tmp_path)
+        assert kwargs["cap_drop"] == ["ALL"]
+        assert "no-new-privileges:true" in kwargs["security_opt"]
+        assert kwargs["read_only"] is True
+        assert kwargs["user"] == f"{os.getuid()}:{os.getgid()}"
+        assert kwargs["mem_limit"] == kwargs["memswap_limit"] == "128m"
+        assert kwargs["nano_cpus"] > 0
+
+    def test_allowlist_and_port_reach_the_proxy_env(self, tmp_path):
+        """The allowlist is passed comma-joined; the port matches HTTP_PROXY."""
+        env = _sandbox(
+            tmp_path,
+            network=True,
+            egress_allowlist=("pypi.org", "github.com"),
+        )._proxy_kwargs()["environment"]
+        assert env["EGRESS_ALLOWLIST"] == "pypi.org,github.com"
+        assert env["EGRESS_PORT"] == "8080"
+
+    def test_only_the_readonly_script_is_mounted(self, tmp_path):
+        """The proxy's sole mount is the proxy script, read-only."""
+        volumes = self._kwargs(tmp_path)["volumes"]
+        ((host, mapping),) = volumes.items()
+        assert host.endswith("egress_proxy.py")
+        assert mapping == {"bind": "/opt/egress_proxy.py", "mode": "ro"}
+
+
 class TestEgressGating:
     """network:true is fail-closed: unfiltered egress needs explicit opt-in.
 
@@ -157,9 +233,60 @@ class TestEgressGating:
         )
         sandbox._assert_egress_acknowledged()  # must not raise
 
+    def test_filtered_egress_is_not_gated(self, tmp_path):
+        """A non-empty egress_allowlist is the filtered path — never refused."""
+        sandbox = _sandbox(
+            tmp_path, network=True, egress_allowlist=("pypi.org",)
+        )
+        assert sandbox._egress_filtered()
+        sandbox._assert_egress_acknowledged()  # must not raise
+
+    def test_empty_allowlist_is_still_gated(self, tmp_path):
+        """An empty allowlist is not a policy — network:true is still refused."""
+        sandbox = _sandbox(tmp_path, network=True, egress_allowlist=())
+        assert not sandbox._egress_filtered()
+        with pytest.raises(RuntimeError, match="egress_allowlist"):
+            sandbox._assert_egress_acknowledged()
+
     def test_no_network_is_never_gated(self, tmp_path):
         """The safe default (no network) is unaffected by the gate."""
         _sandbox(tmp_path)._assert_egress_acknowledged()  # must not raise
+
+
+class TestTeardownSafety:
+    """The proxy/network teardown runs from stop() (a resume path): never raise.
+
+    A raising ``stop()`` escapes ``ToolResult.step`` and permanently wedges the
+    agent's stack, so a flaky/dead daemon must not turn teardown into an
+    exception — and a non-egress sandbox must not touch the daemon at all.
+    """
+
+    class _AngryClient:
+        """A docker client whose every use raises — proves we don't touch it."""
+
+        @property
+        def containers(self):
+            """Raise on any container access."""
+            raise RuntimeError("daemon down")
+
+        @property
+        def networks(self):
+            """Raise on any network access."""
+            raise RuntimeError("daemon down")
+
+    def test_non_egress_teardown_never_touches_the_daemon(self, tmp_path):
+        """A plain (non-egress) sandbox's proxy/network teardown is a no-op."""
+        sandbox = _sandbox(tmp_path)  # network=False -> not egress-filtered
+        sandbox._client = self._AngryClient()
+        sandbox._remove_proxy_and_network()  # must not raise
+
+    def test_filtered_teardown_swallows_a_dead_daemon(self, tmp_path):
+        """A dead daemon can't make a filtered sandbox's teardown raise."""
+        sandbox = _sandbox(
+            tmp_path, network=True, egress_allowlist=("pypi.org",)
+        )
+        sandbox._client = self._AngryClient()
+        sandbox._remove_proxy_and_network()  # must not raise
 
 
 class TestExitClassification:
@@ -248,6 +375,30 @@ class TestNameAndPaths:
         """The same (session, spec) always resolves to the same container name."""
         spec = SandboxSpec(backend="docker", image="x:1", network=True)
         assert container_name("s", spec) == container_name("s", spec)
+
+    def test_distinct_allowlists_get_distinct_containers(self):
+        """Differing only by egress_allowlist must not collide onto one proxy.
+
+        The allowlist names the proxy + internal network too; two agents that
+        differ only here must get separate infra, or the second silently inherits
+        the first's egress policy.
+        """
+        session = "sess-egress"
+        a = container_name(
+            session,
+            SandboxSpec(
+                backend="docker", network=True, egress_allowlist=("pypi.org",)
+            ),
+        )
+        b = container_name(
+            session,
+            SandboxSpec(
+                backend="docker",
+                network=True,
+                egress_allowlist=("evil.example",),
+            ),
+        )
+        assert a != b
 
     def test_sanitize_collision_is_disambiguated_by_the_hash(self):
         """`weird/id` and `weird-id` sanitize alike but don't share a container."""
@@ -502,3 +653,105 @@ class TestContainerLifecycle:
             timeout_s=5,
         )
         assert "started" in result.stdout
+
+
+@pytest.fixture
+def filtered_sandbox(tmp_path):
+    """Yield a real docker sandbox with FILTERED egress (allowlist proxy)."""
+    spec = SandboxSpec(
+        backend="docker",
+        image=DAEMON_IMAGE,
+        network=True,
+        egress_allowlist=("example.com",),
+        memory="512m",
+    )
+    sandbox = create_sandbox(spec, "egress-e2e-sess", str(tmp_path))
+    sandbox.start()
+    try:
+        yield sandbox
+    finally:
+        sandbox.stop()
+
+
+@pytest.mark.slow
+@requires_docker
+class TestFilteredEgress:
+    """The real egress filter end-to-end: proxy sidecar + internal network.
+
+    Proves the design's headline properties against a live daemon: the metadata
+    endpoint is unreachable, there is no direct egress, a non-allowlisted host is
+    refused, an allowlisted host works, and the proxy + network do not leak. The
+    allow path needs outbound internet (``example.com``) — ``slow`` +
+    daemon-gated, run intentionally.
+    """
+
+    def _run(self, sandbox, script, timeout_s=25):
+        """Run a one-liner ``python3 -c`` snippet in the sandbox."""
+        cwd = sandbox.workspace_for("a", None)
+        return sandbox.exec(
+            f'python3 -c "{script}"',
+            policy=Policy(),
+            cwd=cwd,
+            timeout_s=timeout_s,
+        )
+
+    def test_no_direct_egress(self, filtered_sandbox):
+        """A raw socket bypasses the proxy: the internal net has no route out."""
+        result = self._run(
+            filtered_sandbox,
+            "import socket; socket.setdefaulttimeout(4); "
+            "socket.create_connection(('1.1.1.1', 443))",
+        )
+        assert result.exit_code != 0  # unreachable — no direct egress
+
+    def test_metadata_endpoint_is_blocked(self, filtered_sandbox):
+        """The proxy refuses the link-local metadata endpoint (the headline gate)."""
+        result = self._run(
+            filtered_sandbox,
+            "import urllib.request as u; "
+            "u.urlopen('http://169.254.169.254/latest/meta-data/', timeout=6)",
+        )
+        assert result.exit_code != 0
+        assert "ami-id" not in result.stdout  # no metadata content leaked
+
+    def test_non_allowlisted_host_is_denied(self, filtered_sandbox):
+        """A host not on the allowlist is refused by the proxy (403)."""
+        result = self._run(
+            filtered_sandbox,
+            "import urllib.request as u; u.urlopen('https://pypi.org/', timeout=8)",
+        )
+        assert result.exit_code != 0
+
+    def test_allowlisted_host_is_reachable(self, filtered_sandbox):
+        """An allowlisted host is reachable through the proxy (needs internet)."""
+        result = self._run(
+            filtered_sandbox,
+            "import urllib.request as u; "
+            "print(u.urlopen('https://example.com/', timeout=15).status)",
+        )
+        assert result.exit_code == 0
+        assert "200" in result.stdout
+
+    def test_stop_removes_proxy_and_network(self, tmp_path):
+        """stop() tears down the proxy sidecar and the internal network."""
+        import docker
+
+        spec = SandboxSpec(
+            backend="docker",
+            image=DAEMON_IMAGE,
+            network=True,
+            egress_allowlist=("example.com",),
+            memory="512m",
+        )
+        sandbox = create_sandbox(spec, "egress-teardown-sess", str(tmp_path))
+        sandbox.start()
+        proxy_name = sandbox._proxy_name
+        net_name = sandbox._egress_net_name
+        client = docker.from_env()
+        assert client.containers.get(proxy_name).status == "running"
+        client.networks.get(net_name)  # exists while running
+        sandbox.stop()
+        with pytest.raises(docker.errors.NotFound):
+            client.containers.get(proxy_name)
+        with pytest.raises(docker.errors.NotFound):
+            client.networks.get(net_name)

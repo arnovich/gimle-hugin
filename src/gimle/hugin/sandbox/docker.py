@@ -30,12 +30,18 @@ configuration this code cannot set per-container:
   daemon for defence in depth. As a fail-closed guard, ``start()`` refuses to
   run as uid 0 unless the daemon has userns-remap on (else container-root would
   equal host-root).
-- **``network: true`` is fail-closed (no egress filtering yet).** The default
-  (``network: false``) is the safe path — no network at all. Opting in would
-  attach the default bridge with *unrestricted* egress, including the cloud
-  metadata endpoint (169.254.169.254), so it is **refused** unless
-  ``allow_unrestricted_egress: true`` explicitly accepts the risk (and even then
-  it warns). Real egress filtering (an allowlist proxy) is task 030.
+- **``network: true`` requires an egress policy (three postures).** The default
+  (``network: false``) is the safe path — no network at all. Opting in needs one
+  of: **filtered** egress (a non-empty ``egress_allowlist``) — the sandbox joins
+  a per-session *internal* network with no direct route out, and its only exit
+  is a dual-homed proxy sidecar that permits only the allowlisted hosts and
+  blocks link-local/metadata (169.254.169.254) + private ranges (the
+  recommended path, task 033); or **unrestricted** egress
+  (``allow_unrestricted_egress: true``) — the default bridge, unfiltered, which
+  warns. Anything else is **refused** (fail-closed): an unfiltered bridge would
+  reach the metadata endpoint and exfiltrate IAM credentials. The proxy sidecar
+  + internal network are per-session resources cleaned up by ``stop()`` and the
+  reaper, exactly like the sandbox container. See ``egress_proxy.py``.
 """
 
 import hashlib
@@ -45,6 +51,7 @@ import threading
 import time
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
+from gimle.hugin.sandbox import egress_proxy
 from gimle.hugin.sandbox.local import (
     OWNER_FILE,
     process_start_time,
@@ -74,7 +81,16 @@ DEFAULT_IMAGE = "gimle/hugin-sandbox:latest"
 CONTAINER_WORKSPACE = "/workspace"
 
 _NAME_PREFIX = "hugin-sbx-"
+_PROXY_PREFIX = "hugin-proxy-"
+_EGRESS_NET_PREFIX = "hugin-egress-"
 _SPILL_RELATIVE = os.path.join(".hugin", "last_output.txt")
+
+# The egress proxy listens here inside its sidecar; the sandbox's HTTP_PROXY
+# points at ``http://<proxy-name>:<port>`` (resolved by the internal network's
+# embedded DNS). The proxy script is bind-mounted here in the sidecar.
+_PROXY_PORT = 8080
+_PROXY_SCRIPT_HOST = os.path.abspath(egress_proxy.__file__)
+_PROXY_SCRIPT_MOUNT = "/opt/egress_proxy.py"
 
 # Warn once per process that network:true has unrestricted egress (see start()).
 _network_warned = False
@@ -143,12 +159,18 @@ def _identity_hash(session_id: str, spec: SandboxSpec) -> str:
     """Return a short stable hash of the raw session id and the spec.
 
     Folded into the container name for two reasons: two agents in one session
-    with *different* specs (image / network / cpu / memory / pids) must get
-    *different* containers — an agent's hardening profile follows its own config,
-    not whichever agent started a container first — and the *raw* session id is
-    hashed (not just its sanitized fragment) so two ids that sanitize alike
-    (``weird/id`` and ``weird-id`` both -> ``weird-id``) never collide onto one
-    container.
+    with *different* specs (image / network / cpu / memory / pids / egress
+    posture) must get *different* containers — an agent's hardening profile
+    follows its own config, not whichever agent started a container first — and
+    the *raw* session id is hashed (not just its sanitized fragment) so two ids
+    that sanitize alike (``weird/id`` and ``weird-id`` both -> ``weird-id``)
+    never collide onto one container.
+
+    The egress posture (``egress_allowlist`` + ``allow_unrestricted_egress``) is
+    part of the identity because it also names the *proxy* + *internal network*:
+    two agents that differ only in their allowlist must not share one proxy (the
+    allowlist is baked into the proxy at creation, so sharing would silently give
+    the second agent the first's egress policy).
     """
     identity = "|".join(
         str(part)
@@ -156,6 +178,8 @@ def _identity_hash(session_id: str, spec: SandboxSpec) -> str:
             session_id,
             spec.image,
             spec.network,
+            spec.egress_allowlist,
+            spec.allow_unrestricted_egress,
             spec.cpu,
             spec.memory,
             spec.pids,
@@ -186,10 +210,18 @@ class DockerSandbox(Sandbox):
             os.path.join(workspace_root, session_id)
         )
         self._name = container_name(session_id, spec)
+        ident = _identity_hash(session_id, spec)
+        self._proxy_name = f"{_PROXY_PREFIX}{ident}"
+        self._egress_net_name = f"{_EGRESS_NET_PREFIX}{ident}"
         self._image = spec.image or DEFAULT_IMAGE
         self._client: Any = None
         self._container: Optional["Container"] = None
+        self._proxy: Optional["Container"] = None
         self._started = False
+
+    def _egress_filtered(self) -> bool:
+        """Whether egress is filtered through the per-session allowlist proxy."""
+        return bool(self._spec.network and self._spec.egress_allowlist)
 
     # -- docker SDK access (lazy) --
 
@@ -238,17 +270,31 @@ class DockerSandbox(Sandbox):
         self._write_owner_stamp()
         self._ensure_image()
 
-        container = self._existing_container()
-        if container is not None and not self._owner_is_current(container):
-            # A dead prior owner's container: its frozen labels name a dead PID,
-            # so the reaper would treat this resumed (live) session as abandoned.
-            # Recreate — the bind-mounted files persist, so this is cheap.
-            self._remove_container(container)
-            container = None
-        if container is None:
-            container = self._create_container(docker)
-        elif container.status != "running":
-            container.start()
+        # Filtered egress: bring up the internal network + proxy sidecar *before*
+        # the sandbox, so the sandbox joins the internal network (its only exit)
+        # with the proxy already reachable. If anything from here on fails, tear
+        # down the infra we just created — otherwise a per-session network +
+        # proxy leak (and the network subnet pool is small).
+        try:
+            if self._egress_filtered():
+                self._ensure_egress_infra(docker)
+
+            container = self._existing_container()
+            if container is not None and not self._owner_is_current(container):
+                # A dead prior owner's container: its frozen labels name a dead
+                # PID, so the reaper would treat this resumed (live) session as
+                # abandoned. Recreate — the bind-mounted files persist, cheaply.
+                self._remove_container(container)
+                container = None
+            if container is None:
+                container = self._create_container(docker)
+            elif container.status != "running":
+                container.start()
+        except Exception:
+            # _remove_proxy_and_network never raises (guarded), so it can't mask
+            # the original failure we re-raise.
+            self._remove_proxy_and_network()
+            raise
         self._container = container
         self._started = True
 
@@ -277,42 +323,47 @@ class DockerSandbox(Sandbox):
         )
 
     def _assert_egress_acknowledged(self) -> None:
-        """Refuse unfiltered egress unless the operator explicitly opted in.
+        """Require an explicit egress policy for ``network: true``.
 
-        ``network: true`` attaches the default bridge with **no egress
-        filtering** — the container has ``cap_drop=ALL`` so in-container iptables
-        is out, and real destination-IP filtering needs an allowlist proxy (a
-        separate subsystem, task 030). Until that lands, unfiltered egress is a
-        foot-gun: on a cloud host an injected command can read the instance
-        metadata endpoint (169.254.169.254) and exfiltrate IAM credentials. So it
-        is **fail-closed**: ``network: true`` is refused unless
-        ``allow_unrestricted_egress: true`` explicitly accepts the risk (and even
-        then it warns). The default ``network: false`` (no network) is untouched.
+        The container has ``cap_drop=ALL`` (no in-container iptables), so egress
+        is controlled at the network layer. ``network: true`` needs one of:
+
+        - **filtered** — a non-empty ``egress_allowlist`` routes egress through a
+          per-session proxy that permits only those hosts and blocks link-local/
+          metadata + private ranges (the safe, recommended path); or
+        - **unrestricted** — ``allow_unrestricted_egress: true`` explicitly
+          accepts an unfiltered bridge (an injected command could read the
+          metadata endpoint 169.254.169.254 and exfiltrate IAM credentials); it
+          warns.
+
+        Otherwise ``network: true`` is **refused** (fail-closed). The default
+        ``network: false`` (no network) is untouched.
         """
         if not self._spec.network:
             return
-        if not self._spec.allow_unrestricted_egress:
-            raise RuntimeError(
-                "backend: docker network:true attaches UNFILTERED egress "
-                "(no egress filtering is implemented yet), so an injected "
-                "command can read the cloud metadata endpoint 169.254.169.254 "
-                "and exfiltrate IAM credentials — refused by default. Either "
-                "keep network:false (the safe default, no network), or set "
-                "options.bash.allow_unrestricted_egress:true to accept the risk "
-                "explicitly. Real egress filtering (an allowlist proxy) is "
-                "tracked in task 030; for filtered egress today, run an "
-                "operator-provided proxy and pass it via the command env."
-            )
-        global _network_warned
-        if not _network_warned:
-            logger.warning(
-                "DockerSandbox network:true attaches UNRESTRICTED egress "
-                "(including the cloud metadata endpoint 169.254.169.254); an "
-                "injected command can exfiltrate cloud IAM credentials. You "
-                "accepted this with allow_unrestricted_egress:true. Do NOT use "
-                "it with untrusted input until egress filtering lands."
-            )
-            _network_warned = True
+        if self._egress_filtered():
+            return  # filtered through the allowlist proxy
+        if self._spec.allow_unrestricted_egress:
+            global _network_warned
+            if not _network_warned:
+                logger.warning(
+                    "DockerSandbox network:true attaches UNRESTRICTED egress "
+                    "(including the metadata endpoint 169.254.169.254); an "
+                    "injected command can exfiltrate cloud IAM credentials. You "
+                    "accepted this with allow_unrestricted_egress:true. Prefer "
+                    "egress_allowlist for filtered egress."
+                )
+                _network_warned = True
+            return
+        raise RuntimeError(
+            "backend: docker network:true needs an egress policy — an injected "
+            "command could otherwise read the cloud metadata endpoint "
+            "169.254.169.254 and exfiltrate IAM credentials. Set "
+            "options.bash.egress_allowlist:[hosts] for filtered egress "
+            "(recommended — only those hosts, metadata/private ranges blocked), "
+            "or allow_unrestricted_egress:true to accept UNFILTERED egress. "
+            "Refused by default; network:false (no network) is the safe default."
+        )
 
     def _ensure_image(self) -> None:
         """Verify the image is present locally, or raise a clear build/pull hint.
@@ -371,6 +422,184 @@ class DockerSandbox(Sandbox):
         except Exception as error:  # already gone / daemon down — nothing to do
             logger.debug("container remove failed: %s", error)
 
+    # -- egress-filter proxy + internal network (task 033) --
+
+    def _existing_proxy(self) -> Optional["Container"]:
+        """Return the session's proxy sidecar container if it exists, else None."""
+        docker = self._docker()
+        try:
+            return self._client.containers.get(self._proxy_name)
+        except docker.errors.NotFound:
+            return None
+
+    def _ensure_egress_infra(self, docker: Any) -> None:
+        """Create/reattach the internal network + the allowlist proxy sidecar.
+
+        The sandbox joins the internal network (no direct route out); the proxy
+        is dual-homed (internal + bridge) so it is the sandbox's *only* exit and
+        can reach the allowed hosts. Recreated on a dead prior owner, like the
+        sandbox container.
+        """
+        try:
+            self._client.networks.get(self._egress_net_name)
+        except docker.errors.NotFound:
+            self._create_egress_network(docker)
+        proxy = self._existing_proxy()
+        if proxy is not None and not self._owner_is_current(proxy):
+            self._remove_container(proxy)
+            proxy = None
+        if proxy is None:
+            proxy = self._create_proxy()
+        elif proxy.status != "running":
+            proxy.start()
+        self._proxy = proxy
+        self._wait_for_proxy(proxy)
+
+    def _create_egress_network(self, docker: Any) -> None:
+        """Create the per-session ``internal`` network, with a remediation hint.
+
+        Docker's default address pool is small (~31 ``/24`` subnets), and this
+        feature's workload is many concurrent filtered-egress sessions, so pool
+        exhaustion is a realistic failure — surface it actionably instead of the
+        SDK's raw 500.
+        """
+        try:
+            self._client.networks.create(
+                self._egress_net_name,
+                driver="bridge",
+                internal=True,  # members have no route out on this network
+                labels=self._labels(),
+            )
+        except docker.errors.APIError as error:
+            raise RuntimeError(
+                f"could not create egress network {self._egress_net_name!r}: "
+                f"{error}. Docker's default address pool may be exhausted by "
+                "leaked per-session networks — run `hugin sandbox prune` to "
+                "reclaim abandoned ones, widen the daemon's "
+                "default-address-pools, or lower concurrent filtered-egress "
+                "sandboxes."
+            ) from error
+
+    def _proxy_kwargs(self) -> Dict[str, Any]:
+        """Pure ``containers.run`` kwargs for the proxy sidecar — its boundary.
+
+        Extracted like ``_container_kwargs`` so the proxy's own hardening (it *is*
+        the egress boundary) is pinned by a daemon-free contract test, not only by
+        the slow end-to-end suite. ``image`` is popped by ``_create_proxy`` for
+        the positional arg.
+        """
+        return {
+            "image": self._image,  # has python3; the proxy script is bind-mounted
+            "command": ["python3", _PROXY_SCRIPT_MOUNT],
+            "name": self._proxy_name,
+            "detach": True,
+            "init": True,  # reap the exec-probe children
+            "network": self._egress_net_name,
+            "cap_drop": ["ALL"],
+            "security_opt": ["no-new-privileges:true"],
+            "read_only": True,
+            "tmpfs": {"/tmp": "rw,noexec,nosuid,size=16m"},
+            "user": self._host_uid_gid(),
+            "environment": {
+                "EGRESS_ALLOWLIST": ",".join(self._spec.egress_allowlist),
+                "EGRESS_PORT": str(_PROXY_PORT),
+                "PYTHONDONTWRITEBYTECODE": "1",
+            },
+            "volumes": {
+                _PROXY_SCRIPT_HOST: {"bind": _PROXY_SCRIPT_MOUNT, "mode": "ro"}
+            },
+            "labels": self._labels(),
+            "mem_limit": "128m",
+            "memswap_limit": "128m",
+            "nano_cpus": 500_000_000,  # 0.5 CPU — a forward proxy needs little
+            "pids_limit": 128,  # one thread per tunnel; headroom for parallelism
+            # Survive a transient crash (OOM, a blip) mid-session instead of
+            # silently killing the session's egress.
+            "restart_policy": {"Name": "on-failure", "MaximumRetryCount": 3},
+        }
+
+    def _create_proxy(self) -> "Container":
+        """Run the allowlist proxy sidecar — hardened, dual-homed, bind-mounted.
+
+        Runs on the internal network, then connects the bridge so it (alone) can
+        reach the internet. If the bridge attach fails, the proxy would be
+        internal-only (no egress) yet look reusable next start — so remove it and
+        re-raise rather than leave a silently broken proxy behind.
+        """
+        kwargs = self._proxy_kwargs()
+        image = kwargs.pop("image")
+        proxy = self._client.containers.run(image, **kwargs)
+        try:
+            self._client.networks.get("bridge").connect(proxy)
+        except Exception:
+            self._remove_container(proxy)
+            raise
+        return proxy
+
+    def _wait_for_proxy(
+        self, proxy: "Container", timeout_s: float = 15.0
+    ) -> None:
+        """Block until the proxy is *accepting connections*, or raise.
+
+        Container ``running`` means init is up — not that the Python server has
+        ``bind()``-ed its port. So readiness is verified by connecting to the
+        proxy's own listener *from inside the container* (immune to host<->
+        container routing differences across platforms). Raises on a crash or on
+        the deadline, so a broken proxy surfaces as a clear error here rather than
+        as a cryptic connection-refused on the sandbox's first command.
+        """
+        probe = (
+            "import socket; "
+            f"socket.create_connection(('127.0.0.1', {_PROXY_PORT}), 1).close()"
+        )
+        deadline = time.time() + timeout_s
+        detail = "not running"
+        while time.time() < deadline:
+            proxy.reload()
+            if proxy.status in ("exited", "dead"):
+                raise RuntimeError(
+                    f"egress proxy {self._proxy_name!r} exited during startup "
+                    f"(status={proxy.status})"
+                )
+            if proxy.status == "running":
+                try:
+                    result = proxy.exec_run(["python3", "-c", probe])
+                    if result.exit_code == 0:
+                        return
+                    detail = (result.output or b"").decode("utf-8", "replace")[
+                        -200:
+                    ]
+                except Exception as error:  # daemon blip mid-probe — retry
+                    detail = str(error)
+            time.sleep(0.2)
+        raise RuntimeError(
+            f"egress proxy {self._proxy_name!r} did not become ready within "
+            f"{timeout_s:.0f}s (last probe: {detail})"
+        )
+
+    def _remove_proxy_and_network(self) -> None:
+        """Remove the proxy sidecar then the internal network (best-effort).
+
+        Reached unconditionally from ``stop()`` (a resume path), so it must
+        **never raise** — a raising teardown wedges the agent's stack. Every step
+        is guarded, and it is a no-op for a non-egress-filtered sandbox (which has
+        no proxy or network) so a flaky daemon can't turn a plain sandbox's
+        ``stop()`` into an exception.
+        """
+        if self._client is None or not self._egress_filtered():
+            return
+        try:
+            proxy = self._proxy or self._existing_proxy()
+            if proxy is not None:
+                self._remove_container(proxy)
+        except Exception as error:  # daemon unreachable etc. — never propagate
+            logger.debug("egress proxy remove failed: %s", error)
+        self._proxy = None
+        try:
+            self._client.networks.get(self._egress_net_name).remove()
+        except Exception as error:  # not found / still attached — leave it
+            logger.debug("egress network remove failed: %s", error)
+
     def _container_kwargs(self) -> Dict[str, Any]:
         """Build the container-creation kwargs — the whole hardening contract.
 
@@ -380,14 +609,40 @@ class DockerSandbox(Sandbox):
         here is load-bearing for containment; changing one weakens the boundary.
         """
         uid_gid = self._host_uid_gid()
+        # No network unless opted in. Filtered egress puts the container on a
+        # per-session *internal* network (no direct route out — its only exit is
+        # the dual-homed proxy, reached via HTTP_PROXY below); unrestricted uses
+        # the bridge; the default is no network at all.
+        if self._egress_filtered():
+            network_mode = self._egress_net_name
+        elif self._spec.network:
+            network_mode = "bridge"
+        else:
+            network_mode = "none"
+        environment = {
+            "HOME": CONTAINER_WORKSPACE,
+            "PATH": "/usr/local/bin:/usr/bin:/bin",
+            "LANG": "C.UTF-8",
+            "TERM": "dumb",
+        }
+        if self._egress_filtered():
+            # The internal network has no route out; the sandbox's only exit is
+            # the proxy (resolved by name via the network's embedded DNS).
+            proxy_url = f"http://{self._proxy_name}:{_PROXY_PORT}"
+            environment.update(
+                {
+                    "HTTP_PROXY": proxy_url,
+                    "HTTPS_PROXY": proxy_url,
+                    "http_proxy": proxy_url,
+                    "https_proxy": proxy_url,
+                }
+            )
         return {
             "name": self._name,
             "command": ["sleep", "infinity"],  # idle PID; we exec per command
             "detach": True,
             "init": True,  # PID 1 reaps double-forked children (local can't)
-            # No network at all unless the operator opts in; the default is the
-            # safe path (a container that cannot reach the metadata endpoint).
-            "network_mode": "bridge" if self._spec.network else "none",
+            "network_mode": network_mode,
             "cap_drop": ["ALL"],
             "security_opt": ["no-new-privileges:true"],
             "read_only": True,  # rootfs is immutable; only the mounts below write
@@ -413,13 +668,9 @@ class DockerSandbox(Sandbox):
             "hostname": "sandbox",
             "working_dir": CONTAINER_WORKSPACE,
             # Empty of inherited secrets; HOME is set per-command to the agent's
-            # own workspace in exec().
-            "environment": {
-                "HOME": CONTAINER_WORKSPACE,
-                "PATH": "/usr/local/bin:/usr/bin:/bin",
-                "LANG": "C.UTF-8",
-                "TERM": "dumb",
-            },
+            # own workspace in exec(). HTTP_PROXY is added above when egress is
+            # filtered so the container's only route out is the allowlist proxy.
+            "environment": environment,
             "volumes": {
                 self._host_root: {"bind": CONTAINER_WORKSPACE, "mode": "rw"}
             },
@@ -487,10 +738,13 @@ class DockerSandbox(Sandbox):
         """
         self._started = False
         container = self._container
-        if container is None:
-            return
-        self._remove_container(container)
-        self._container = None
+        if container is not None:
+            self._remove_container(container)
+            self._container = None
+        # Then the egress proxy + its internal network (order matters — a network
+        # can't be removed while a container is attached). Best-effort no-op when
+        # egress wasn't filtered.
+        self._remove_proxy_and_network()
 
     # -- workspaces --
 
@@ -546,6 +800,19 @@ class DockerSandbox(Sandbox):
             "LANG": "C.UTF-8",
             "TERM": "dumb",
         }
+        if self._egress_filtered():
+            # The internal network has no direct route out; a command reaches the
+            # internet only via the allowlist proxy. Set it explicitly per exec
+            # rather than rely on inheriting the container's creation env.
+            proxy_url = f"http://{self._proxy_name}:{_PROXY_PORT}"
+            env.update(
+                {
+                    "HTTP_PROXY": proxy_url,
+                    "HTTPS_PROXY": proxy_url,
+                    "http_proxy": proxy_url,
+                    "https_proxy": proxy_url,
+                }
+            )
 
         host_deadline = effective_timeout + _KILL_AFTER_S + _HOST_GRACE_S
         started = time.monotonic()

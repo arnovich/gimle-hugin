@@ -7,6 +7,7 @@ RFC1918, loopback) — as pure logic and end-to-end against a live proxy, includ
 the DNS-rebinding case (an allowlisted host that resolves to a private IP).
 """
 
+import ipaddress
 import socket
 from typing import List, Tuple
 
@@ -54,6 +55,84 @@ class TestPrivateIpDeny:
         """A globally-routable literal is returned to connect to."""
         addrs = egress_proxy.safe_global_addresses("1.1.1.1", 80)
         assert "1.1.1.1" in [ip for _f, ip in addrs]
+
+
+class TestEmbeddedIpv4Deny:
+    """Embedded-IPv4 forms are unwrapped so ``is_global`` can't be bypassed.
+
+    The subtle SSRF: an allowlisted domain serving an AAAA of the metadata IP in
+    IPv4-mapped or NAT64 form. ``is_global`` on the outer IPv6 passes (always for
+    NAT64, and for IPv4-mapped on pre-CVE-2024-4032 stdlib), but the OS routes it
+    to the embedded IPv4 — so the embedded address must be judged instead.
+    """
+
+    def test_ipv4_mapped_metadata_is_denied(self):
+        """``::ffff:169.254.169.254`` resolves to the embedded metadata IP → deny."""
+        assert (
+            egress_proxy._safe_connect_target(
+                ipaddress.ip_address("::ffff:169.254.169.254")
+            )
+            is None
+        )
+
+    def test_nat64_metadata_is_denied(self):
+        """NAT64 ``64:ff9b::a9fe:a9fe`` embeds 169.254.169.254 → deny."""
+        assert (
+            egress_proxy._safe_connect_target(
+                ipaddress.ip_address("64:ff9b::a9fe:a9fe")
+            )
+            is None
+        )
+
+    def test_ipv4_mapped_private_is_denied(self):
+        """A mapped RFC1918 address (``::ffff:10.0.0.1``) is denied too."""
+        assert (
+            egress_proxy._safe_connect_target(
+                ipaddress.ip_address("::ffff:10.0.0.1")
+            )
+            is None
+        )
+
+    def test_mapped_global_is_unwrapped_to_ipv4(self):
+        """A mapped *global* address connects over clean IPv4 to the embedded IP."""
+        target = egress_proxy._safe_connect_target(
+            ipaddress.ip_address("::ffff:1.1.1.1")
+        )
+        assert target == (int(socket.AF_INET), "1.1.1.1")
+
+    def test_embedded_ipv4_extraction(self):
+        """Both mapped and NAT64 forms unwrap to the same embedded IPv4."""
+        meta = ipaddress.ip_address("169.254.169.254")
+        assert (
+            egress_proxy._embedded_ipv4(
+                ipaddress.ip_address("::ffff:169.254.169.254")
+            )
+            == meta
+        )
+        assert (
+            egress_proxy._embedded_ipv4(
+                ipaddress.ip_address("64:ff9b::a9fe:a9fe")
+            )
+            == meta
+        )
+        assert (
+            egress_proxy._embedded_ipv4(ipaddress.ip_address("1.1.1.1")) is None
+        )
+
+
+class TestPortParsing:
+    """Port parsing is defensive against exotic-unicode ``isdigit`` traps."""
+
+    def test_unicode_superscript_is_rejected(self):
+        """``"²"`` is ``isdigit()`` but not ``int()``-able → None, not a crash."""
+        assert egress_proxy._parse_port("²") is None
+
+    def test_valid_and_out_of_range(self):
+        """A normal port parses; 0 and >65535 are rejected."""
+        assert egress_proxy._parse_port("443") == 443
+        assert egress_proxy._parse_port("0") is None
+        assert egress_proxy._parse_port("70000") is None
+        assert egress_proxy._parse_port("nope") is None
 
 
 def _serve(allowlist: List[str]):
@@ -158,3 +237,55 @@ class TestProxyTunnels:
         finally:
             server.shutdown()
             echo.close()
+
+    def test_plain_http_forwards_origin_form_with_headers(self, monkeypatch):
+        """A plain-HTTP GET reaches upstream in origin-form *with* its headers.
+
+        Regression: reading the request line through a buffered reader stranded
+        the remaining headers, so no ``Host`` reached upstream and the response
+        relay hung. The unbuffered read + explicit header forward fixes it.
+        """
+        captured: dict = {}
+        upstream = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        upstream.bind(("127.0.0.1", 0))
+        upstream.listen(1)
+
+        def _serve_upstream():
+            conn, _ = upstream.accept()
+            data = b""
+            while b"\r\n\r\n" not in data:
+                chunk = conn.recv(1024)
+                if not chunk:
+                    break
+                data += chunk
+            captured["request"] = data
+            conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nhi")
+            conn.close()
+
+        import threading
+
+        threading.Thread(target=_serve_upstream, daemon=True).start()
+
+        def _stub_connect(host, port, allowlist):
+            if egress_proxy.host_allowed(host, allowlist):
+                return socket.create_connection(upstream.getsockname(), 5)
+            return None
+
+        monkeypatch.setattr(egress_proxy, "_connect_checked", _stub_connect)
+        server, addr = _serve(["allowed.test"])
+        try:
+            sock = socket.create_connection(addr, timeout=5)
+            sock.sendall(
+                b"GET http://allowed.test/p HTTP/1.1\r\n"
+                b"Host: allowed.test\r\nX-Custom: v\r\n\r\n"
+            )
+            resp = sock.recv(4096)
+            sock.close()
+            assert b"200 OK" in resp and b"hi" in resp
+            request = captured["request"]
+            assert request.startswith(b"GET /p HTTP/1.1\r\n")  # origin-form
+            assert b"Host: allowed.test\r\n" in request  # header forwarded
+            assert b"X-Custom: v\r\n" in request
+        finally:
+            server.shutdown()
+            upstream.close()

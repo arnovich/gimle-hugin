@@ -216,6 +216,73 @@ def reap_abandoned_containers(
     return reaped
 
 
+def reap_abandoned_networks(
+    *,
+    now: float,
+    pid_alive: Callable[[int], bool] = _pid_alive,
+    start_time_of: Callable[[int], Optional[str]] = process_start_time,
+) -> List[str]:
+    """Remove egress ``internal`` networks whose owner process is gone.
+
+    The network counterpart of :func:`reap_abandoned_containers`: filtered
+    egress creates a per-session internal network labelled with the same owner
+    scheme, and a crashed session (no ``stop()``) leaks it. Docker's
+    bridge-network subnet pool is small, so orphans accumulate into allocation
+    failures — hence a dedicated sweep. The same dead-owner test decides
+    abandonment; a network still attached to a *live* peer's container refuses
+    removal and is simply kept. Call this **after** the container sweep so the
+    proxy container is already gone and the network is detachable.
+
+    Best-effort and daemon-optional (no SDK / daemon down -> ``[]``).
+
+    Returns:
+        The names of the networks that were removed.
+    """
+    from gimle.hugin.sandbox.docker import (
+        LABEL_CREATED,
+        LABEL_OWNER_PID,
+        LABEL_OWNER_START,
+        LABEL_SESSION,
+        LABEL_TTL,
+        REAPER_CLIENT_TIMEOUT_S,
+        import_docker,
+    )
+
+    try:
+        client = import_docker().from_env(timeout=REAPER_CLIENT_TIMEOUT_S)
+        networks = client.networks.list(filters={"label": LABEL_SESSION})
+    except Exception as error:  # no SDK / daemon down — cleanup stays optional
+        logger.debug("network reap skipped (docker unavailable): %s", error)
+        return []
+
+    reaped: List[str] = []
+    for network in networks:
+        try:
+            labels = (network.attrs or {}).get("Labels") or {}
+            if _container_is_abandoned(
+                labels,
+                now=now,
+                pid_alive=pid_alive,
+                start_time_of=start_time_of,
+                created_key=LABEL_CREATED,
+                pid_key=LABEL_OWNER_PID,
+                start_key=LABEL_OWNER_START,
+                ttl_key=LABEL_TTL,
+            ):
+                # Refuses (raises) if a live peer container is still attached —
+                # caught below, so a live session's network is never pulled.
+                network.remove()
+                reaped.append(network.name)
+        except (
+            Exception
+        ) as error:  # one bad/attached network never aborts the sweep
+            logger.debug("could not reap network %s: %s", network, error)
+
+    if reaped:
+        logger.info("reaped %d abandoned egress network(s)", len(reaped))
+    return reaped
+
+
 def _container_is_abandoned(
     labels: dict,
     *,

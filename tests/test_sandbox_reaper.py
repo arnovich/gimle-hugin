@@ -21,6 +21,7 @@ from gimle.hugin.sandbox.reaper import (
     _container_is_abandoned,
     list_local_workspaces,
     reap_abandoned_containers,
+    reap_abandoned_networks,
     reap_local_workspaces,
 )
 
@@ -237,6 +238,80 @@ class TestContainerReaping:
 
         monkeypatch.setattr(builtins, "__import__", no_docker)
         assert reap_abandoned_containers(now=NOW) == []
+
+
+class _FakeNetwork:
+    """A stand-in docker Network: labels via ``attrs``, a recorded remove."""
+
+    def __init__(self, name, labels, on_remove=None):
+        """Record ``name``/``labels``; ``on_remove`` may raise (still attached)."""
+        self.name = name
+        self.attrs = {"Labels": labels}
+        self._on_remove = on_remove
+        self.removed = False
+
+    def remove(self):
+        """Remove the network, invoking ``on_remove`` (which may raise) first."""
+        if self._on_remove is not None:
+            self._on_remove()
+        self.removed = True
+
+
+class _FakeClient:
+    """A docker client exposing only ``networks.list`` over fixed networks."""
+
+    def __init__(self, networks):
+        """Serve ``networks`` from ``networks.list`` regardless of filters."""
+        self.networks = type(
+            "_Nets", (), {"list": lambda _self, filters=None: networks}
+        )()
+
+
+def _patch_docker(monkeypatch, client):
+    """Point the reaper's ``import_docker`` at a module yielding ``client``."""
+    import gimle.hugin.sandbox.docker as docker_mod
+
+    module = type(
+        "_Mod", (), {"from_env": lambda _self, timeout=None: client}
+    )()
+    monkeypatch.setattr(docker_mod, "import_docker", lambda: module)
+
+
+class TestNetworkReaping:
+    """Egress internal networks are reaped by the same dead-owner rule."""
+
+    def test_dead_owner_network_is_removed_live_kept(self, monkeypatch):
+        """Only the dead owner's network is removed; a live peer's is kept."""
+        dead = _FakeNetwork("hugin-egress-dead", _labels(4242))
+        live = _FakeNetwork("hugin-egress-live", _labels(222, start="SAME"))
+        _patch_docker(monkeypatch, _FakeClient([dead, live]))
+        reaped = reap_abandoned_networks(
+            now=NOW, pid_alive=_only(222), start_time_of=lambda pid: "SAME"
+        )
+        assert reaped == ["hugin-egress-dead"]
+        assert dead.removed and not live.removed
+
+    def test_attached_network_removal_is_swallowed(self, monkeypatch):
+        """remove() raising (a live endpoint still attached) never aborts the sweep."""
+
+        def _raise():
+            raise RuntimeError("network has active endpoints")
+
+        stuck = _FakeNetwork("hugin-egress-stuck", _labels(4242), _raise)
+        other = _FakeNetwork("hugin-egress-ok", _labels(4242))
+        _patch_docker(monkeypatch, _FakeClient([stuck, other]))
+        reaped = reap_abandoned_networks(now=NOW, pid_alive=_dead)
+        assert reaped == ["hugin-egress-ok"]  # stuck skipped, sweep continued
+
+    def test_reap_is_a_noop_without_docker(self, monkeypatch):
+        """Without the docker SDK / a daemon, network reaping is a silent no-op."""
+        import gimle.hugin.sandbox.docker as docker_mod
+
+        def _no_docker():
+            raise ImportError("no docker in this env")
+
+        monkeypatch.setattr(docker_mod, "import_docker", _no_docker)
+        assert reap_abandoned_networks(now=NOW) == []
 
 
 class TestCorruptStampIsHandled:
