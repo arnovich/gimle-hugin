@@ -106,6 +106,31 @@ _DANGEROUS_RM_TARGETS = frozenset(
     {"/", "~", "~/", "/*", "*", "/.", "$HOME", "${HOME}"}
 )
 
+# System top-level directories: a recursive-force ``rm`` of one is almost never a
+# legitimate agent action (the agent's own files live deeper, under the backend's
+# workspace root), so deny it like the bare-root targets above — closing the
+# inconsistency where ``/`` was caught but ``/etc`` / ``/usr`` slipped through.
+_SYSTEM_RM_TARGETS = frozenset(
+    {
+        "/etc",
+        "/usr",
+        "/bin",
+        "/sbin",
+        "/lib",
+        "/lib64",
+        "/var",
+        "/boot",
+        "/dev",
+        "/proc",
+        "/sys",
+        "/root",
+        "/opt",
+        "/home",
+        "/srv",
+        "/run",
+    }
+)
+
 # Environment assignments that redirect execution into attacker-controlled code
 # regardless of the (allowlisted) binary being run.
 DANGEROUS_ASSIGNMENTS = frozenset(
@@ -359,7 +384,18 @@ def _is_dangerous_rm(args: List[str]) -> bool:
     if not (recursive and force):
         return False
     targets = [a for a in args if not a.startswith("-")]
-    return any(t in _DANGEROUS_RM_TARGETS for t in targets)
+    return any(_is_dangerous_rm_target(t) for t in targets)
+
+
+def _is_dangerous_rm_target(target: str) -> bool:
+    """Whether ``target`` is a catastrophic recursive-``rm`` destination.
+
+    The exact bare-root set, or a system top-level directory (normalized so a
+    trailing slash — ``/etc/`` — is still caught).
+    """
+    if target in _DANGEROUS_RM_TARGETS:
+        return True
+    return target.rstrip("/") in _SYSTEM_RM_TARGETS
 
 
 def _is_force_push(args: List[str]) -> bool:
