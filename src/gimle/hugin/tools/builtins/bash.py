@@ -346,8 +346,13 @@ def _run_sync(
     policy: Policy,
     cwd: str,
     timeout_s: int,
+    reason: Optional[str] = None,
 ) -> ToolResponse:
-    """Run the command synchronously (fallback when no background executor)."""
+    """Run the command synchronously (fallback when no background executor).
+
+    ``reason`` tags the audit entry (e.g. ``"human-approved"`` for a policy-
+    bypass run, so the audit distinguishes it from an ordinarily-allowed one).
+    """
     try:
         result = sandbox.exec(
             command,
@@ -379,6 +384,7 @@ def _run_sync(
         truncated=result.truncated,
         timed_out=result.timed_out,
         oom_killed=result.oom_killed,
+        reason=reason,
     )
     return _to_response(command, result)
 
@@ -432,7 +438,25 @@ def run_approved(
         run_policy,
         effective_cwd,
         run_timeout,
+        reason="human-approved",
     )
+
+
+def record_denied_by_human(
+    stack: "Stack", command: str, reason: Optional[str]
+) -> None:
+    """Audit a command a human explicitly refused (best-effort).
+
+    Called by :class:`BashApproval` on a deny, so the audit distinguishes a human
+    "no" from an escalation that was never answered (a stall).
+    """
+    config = stack.agent.config
+    bash_opts = dict(getattr(config, "options", {}) or {}).get("bash") or {}
+    try:
+        manager: Optional[SandboxManager] = _resolve_manager(stack, bash_opts)
+    except (ValueError, NotImplementedError):
+        return
+    _record(manager, stack, command, "denied_by_human", reason=reason)
 
 
 def _resolve_manager(

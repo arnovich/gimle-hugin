@@ -389,15 +389,26 @@ def _handle_ask_human(
 
     print()
     if isinstance(interaction, BashApproval):
-        # A command awaiting approval: show what it is and why it was flagged,
-        # then set the decision on the live interaction (it self-resolves on the
-        # next step — no HumanResponse, which would route text to the model).
+        # A command awaiting approval: show what it is, where it runs, and why it
+        # was flagged, then set the decision on the live interaction (it
+        # self-resolves on the next step — no HumanResponse, which would route
+        # text to the model).
+        backend = (
+            dict(getattr(agent.config, "options", {}) or {})
+            .get("bash", {})
+            .get("backend", "local")
+        )
         print(
-            f"{agent_style}{prefix}Approve running this command? "
-            f"(y/n){reset}"
+            f"{agent_style}{prefix}Approve running this command? (y/n){reset}"
         )
         print(f"  command: {interaction.command}")
+        print(f"  cwd:     {interaction.cwd or '(workspace root)'}")
         print(f"  reason:  {interaction.reason}")
+        print(f"  backend: {backend}", end="")
+        if backend == "local":
+            print("  ⚠ runs UNCONFINED on this host (no isolation)")
+        else:
+            print()
         response = input(f"{user_style}{user_prefix}{reset}").strip()
         interaction.decision = response
         print()

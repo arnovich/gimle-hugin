@@ -116,6 +116,9 @@ class TestHumanEscalation:
             result = _bash_tool_result(ctx.agent)
             assert result is not None
             assert result.template_inputs.get("stdout") == "RAN-IT"
+            # The approved run is audited (distinct from an ordinary run via the
+            # "human-approved" reason on the record).
+            assert ctx.session.sandboxes[LOCAL].audit.counters["run"] == 1
         finally:
             get_model_registry().models.pop(ctx.name, None)
             ctx.session.close()
@@ -145,6 +148,11 @@ class TestHumanEscalation:
                 "denied", ""
             )
             assert result.template_inputs.get("is_error") is True
+            # A human "no" is audited distinctly from an unanswered escalation.
+            assert (
+                ctx.session.sandboxes[LOCAL].audit.counters["denied_by_human"]
+                == 1
+            )
         finally:
             get_model_registry().models.pop(ctx.name, None)
             ctx.session.close()
