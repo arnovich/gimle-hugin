@@ -1,6 +1,6 @@
 ---
 title: Bash sandbox — human escalation (Phase 3)
-state: OPEN
+state: DONE
 labels: [enhancement, sandbox, human-in-the-loop]
 priority: medium
 ---
