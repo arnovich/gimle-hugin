@@ -55,6 +55,8 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 from gimle.hugin.sandbox import egress_proxy
 from gimle.hugin.sandbox.local import (
     OWNER_FILE,
+    boot_id,
+    current_hostname,
     process_start_time,
 )
 from gimle.hugin.sandbox.policy import Allow, Policy, evaluate
@@ -103,6 +105,11 @@ LABEL_OWNER_PID = "hugin.owner_pid"
 LABEL_OWNER_START = "hugin.owner_start"
 LABEL_CREATED = "hugin.created"
 LABEL_TTL = "hugin.ttl"
+# Which host + boot created the container, so the reaper only judges an owner
+# PID against the process table it actually belongs to: never another host's
+# container (a shared daemon), and a prior boot's owner PID (recycled) is dead.
+LABEL_HOST = "hugin.host"
+LABEL_BOOT = "hugin.boot"
 
 # Backstop lifetime for a container whose owner we can no longer positively
 # identify (PID reused, start-time unreadable). Owner-liveness is the primary
@@ -696,6 +703,8 @@ class DockerSandbox(Sandbox):
             LABEL_OWNER_START: process_start_time(pid) or "",
             LABEL_CREATED: str(int(time.time())),
             LABEL_TTL: str(DEFAULT_TTL_S),
+            LABEL_HOST: current_hostname(),
+            LABEL_BOOT: boot_id(),
         }
 
     def _write_owner_stamp(self) -> None:
