@@ -10,7 +10,7 @@ here the manager is the single object that holds the live backend handle.
 import logging
 import os
 import threading
-from typing import Optional
+from typing import Optional, Set
 
 from gimle.hugin.sandbox.audit import CommandAudit
 from gimle.hugin.sandbox.sandbox import (
@@ -59,6 +59,9 @@ class SandboxManager:
         # this is defensive — but background exec already runs off-thread, so
         # keep the invariant explicit rather than load-bearing on call order.
         self._lock = threading.Lock()
+        # Agents that have already received the one-time environment note (the
+        # manager is shared across same-spec agents, so track per agent id).
+        self._announced: Set[str] = set()
         audit_path = None
         if record_audit_to_file:
             audit_path = os.path.join(
@@ -103,6 +106,23 @@ class SandboxManager:
             self._sandbox = sandbox
             self.audit.bump("sandbox_starts")
             return sandbox
+
+    @property
+    def spec(self) -> SandboxSpec:
+        """The spec this manager runs — read-only; the env note renders from it."""
+        return self._spec
+
+    def announce_once(self, agent_id: str) -> bool:
+        """Return True the first time an agent should get the environment note.
+
+        Thread-safe and idempotent per agent id: True exactly once per agent
+        (the manager is shared across same-spec agents), False thereafter.
+        """
+        with self._lock:
+            if agent_id in self._announced:
+                return False
+            self._announced.add(agent_id)
+            return True
 
     def log_summary(self) -> None:
         """Emit the audit outcome counters as a structured log line.
