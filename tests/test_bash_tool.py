@@ -429,3 +429,66 @@ class TestSandboxResolution:
         """Called without a stack, the tool errors instead of crashing."""
         response = bash("echo hi", stack=None)
         assert response.is_error is True
+
+
+class TestEnvironmentAffordance:
+    """The first successful bash use per agent carries a one-time env note."""
+
+    def test_first_use_announces_environment_then_stops(self):
+        """The first result carries an `environment` note; the second does not."""
+        fake = FakeSandbox(
+            ExecResult(exit_code=0, stdout="hi", stderr="", duration_s=0.0)
+        )
+        manager = SandboxManager(LOCAL, "session-1", sandbox=fake)
+        stack = _stack(sandbox_manager=manager)
+
+        first = bash("echo hi", stack=stack)
+        assert "environment" in first.content
+        env = first.content["environment"]
+        assert env["backend"] == "local"
+        assert "network" in env
+        assert env["workspace"].startswith("/workspace/agents/agent-a")
+
+        second = bash("echo again", stack=stack)
+        assert "environment" not in second.content
+
+    def test_error_result_does_not_carry_or_consume_the_note(self):
+        """An infra_error first result gets no note (and doesn't consume it)."""
+        fake = FakeSandbox(raises=RuntimeError("daemon down"))
+        manager = SandboxManager(LOCAL, "session-1", sandbox=fake)
+        first = bash("echo hi", stack=_stack(sandbox_manager=manager))
+        assert first.is_error is True
+        assert "environment" not in first.content
+        assert manager.announce_once("agent-a") is True  # still un-announced
+
+    def test_network_note_is_rendered_from_the_spec(self):
+        """The network line is derived from the spec (no probe, never drifts)."""
+        from gimle.hugin.tools.builtins.bash import _environment_note
+
+        ws = "/workspace/agents/a/default"
+        local = _environment_note(SandboxSpec(backend="local"), ws)["network"]
+        assert "host network" in local
+
+        off = _environment_note(SandboxSpec(backend="docker"), ws)["network"]
+        assert "OFF" in off
+
+        filtered = _environment_note(
+            SandboxSpec(
+                backend="docker", network=True, egress_allowlist=("pypi.org",)
+            ),
+            ws,
+        )["network"]
+        assert "filtered" in filtered and "pypi.org" in filtered
+
+        unrestricted = _environment_note(
+            SandboxSpec(
+                backend="docker", network=True, allow_unrestricted_egress=True
+            ),
+            ws,
+        )["network"]
+        assert "unrestricted" in unrestricted
+
+        remote = _environment_note(SandboxSpec(backend="ssh", host="h"), ws)[
+            "network"
+        ]
+        assert "remote host" in remote
