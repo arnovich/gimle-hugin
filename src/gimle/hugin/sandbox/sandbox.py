@@ -323,17 +323,27 @@ class Sandbox(ABC):
         """Absolute working directory for this ``(agent, branch)``; created."""
 
     @abstractmethod
-    def put_file(self, path: str, content: bytes) -> None:
-        """Write ``content`` to ``path`` inside the workspace (confined)."""
+    def put_file(
+        self, agent_id: str, branch: Optional[str], path: str, content: bytes
+    ) -> None:
+        """Write ``content`` to ``path`` in the ``(agent, branch)`` workspace.
+
+        ``path`` is confined to *that agent's own* workspace, the same scope as
+        ``exec``'s cwd — so a traversal out of it, including into a sibling
+        agent's workspace under the same session, is refused.
+        """
 
     @abstractmethod
-    def get_file(self, path: str) -> bytes:
-        """Read ``path`` from the workspace.
+    def get_file(
+        self, agent_id: str, branch: Optional[str], path: str
+    ) -> bytes:
+        """Read ``path`` from the ``(agent, branch)`` workspace.
 
-        Confined to the workspace. The *strength* of that confinement is
-        backend-dependent: the local backend resolves the real path (symlink
-        escapes blocked), while the ssh backend confines lexically (a remote
-        symlink escape is out of scope on a disposable box — see its docstring).
+        Confined to that agent's own workspace. The *strength* of that
+        confinement is backend-dependent: the local/docker backends resolve the
+        real path (symlink escapes blocked), while the ssh backend confines
+        lexically (a remote symlink escape is out of scope on a disposable box —
+        see its docstring).
         """
 
     @abstractmethod

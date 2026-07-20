@@ -245,9 +245,9 @@ class TestFileAccess:
     """put_file/get_file and workspace confinement."""
 
     def test_put_and_get_file_round_trip(self, sandbox):
-        """A file written into the workspace reads back byte-for-byte."""
-        sandbox.put_file("notes/todo.txt", b"remember milk")
-        assert sandbox.get_file("notes/todo.txt") == b"remember milk"
+        """A file written into the agent workspace reads back byte-for-byte."""
+        sandbox.put_file("a", None, "notes/todo.txt", b"remember milk")
+        assert sandbox.get_file("a", None, "notes/todo.txt") == b"remember milk"
 
     def test_get_file_rejects_symlink_escape(self, sandbox, tmp_path):
         """A symlink pointing outside the workspace cannot be read."""
@@ -257,9 +257,14 @@ class TestFileAccess:
         link = os.path.join(root, "escape")
         os.symlink(str(secret), link)
         with pytest.raises(PolicyDenied):
-            sandbox.get_file(
-                os.path.join("agents", "agent-a", "main", "escape")
-            )
+            sandbox.get_file("agent-a", "main", "escape")
+
+    def test_file_ops_are_confined_to_the_agent(self, sandbox):
+        """A path that climbs into a sibling agent's workspace is refused."""
+        sandbox.put_file("owner", None, "secret.txt", b"mine")
+        sandbox.workspace_for("intruder", None)
+        with pytest.raises(PolicyDenied):
+            sandbox.get_file("intruder", None, "../owner/secret.txt")
 
 
 def test_stop_is_idempotent(tmp_path):

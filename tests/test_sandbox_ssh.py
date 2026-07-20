@@ -9,7 +9,6 @@ real disposable box: the command executes on the remote machine, not locally.
 """
 
 import os
-import posixpath
 from types import SimpleNamespace
 
 import pytest
@@ -140,24 +139,30 @@ class TestCommandConstruction:
 class TestConfinement:
     """put_file/get_file resolve within the remote workspace only."""
 
-    def test_relative_path_joins_the_root(self):
-        """A relative path resolves under the remote root."""
+    def test_relative_path_joins_the_agent_root(self):
+        """A relative path resolves under the agent's own remote workspace."""
         sandbox = _started(_sandbox())
-        assert sandbox._confine("notes.txt") == (
-            "/home/u/.hugin-sandbox/sess-1/notes.txt"
+        assert sandbox._confine("a", None, "notes.txt") == (
+            "/home/u/.hugin-sandbox/sess-1/agents/a/default/notes.txt"
         )
 
     def test_dotdot_escape_is_refused(self):
-        """A traversal outside the workspace is rejected."""
+        """A traversal outside the agent workspace is rejected."""
         sandbox = _started(_sandbox())
         with pytest.raises(PolicyDenied):
-            sandbox._confine("../../etc/passwd")
+            sandbox._confine("a", None, "../../etc/passwd")
 
     def test_absolute_outside_is_refused(self):
-        """An absolute path outside the root is rejected."""
+        """An absolute path outside the workspace is rejected."""
         sandbox = _started(_sandbox())
         with pytest.raises(PolicyDenied):
-            sandbox._confine("/etc/passwd")
+            sandbox._confine("a", None, "/etc/passwd")
+
+    def test_sibling_agent_is_refused(self):
+        """A path climbing into another agent's workspace is rejected."""
+        sandbox = _started(_sandbox())
+        with pytest.raises(PolicyDenied):
+            sandbox._confine("a", None, "../other/secret.txt")
 
 
 class TestExec:
@@ -361,24 +366,24 @@ class TestWorkspaceAndFiles:
             (0, b"", b"", False, False),  # put
             (0, b"stored", b"", False, False),  # get
         )
-        sandbox.put_file("out.txt", b"data")
-        assert sandbox.get_file("out.txt") == b"stored"
+        sandbox.put_file("a", None, "out.txt", b"data")
+        assert sandbox.get_file("a", None, "out.txt") == b"stored"
         put_argv = " ".join(sandbox._run.calls[0].argv)
-        assert "sess-1/out.txt" in put_argv
+        assert "agents/a/default/out.txt" in put_argv
 
     def test_get_file_failure_raises(self):
         """A non-zero remote cat (missing file) raises."""
         sandbox = _started(_sandbox())
         sandbox._run = _FakeRun((1, b"", b"No such file", False, False))
         with pytest.raises(RuntimeError, match="get_file failed"):
-            sandbox.get_file("missing.txt")
+            sandbox.get_file("a", None, "missing.txt")
 
     def test_get_file_over_cap_raises_not_truncates(self):
         """A file larger than the transfer cap raises, never returns short bytes."""
         sandbox = _started(_sandbox())
         sandbox._run = _FakeRun((0, b"x" * 2_000_000, b"", True, False))
         with pytest.raises(RuntimeError, match="transfer cap"):
-            sandbox.get_file("huge.bin")
+            sandbox.get_file("a", None, "huge.bin")
 
 
 class TestRunSeam:
@@ -523,13 +528,11 @@ class TestRealHostContainment:
         assert result.stdout.strip() != os.uname().nodename
 
     def test_files_roundtrip_on_the_remote(self, real_sandbox):
-        """put_file then a remote cat sees the same bytes."""
-        real_sandbox.workspace_for("a", None)
-        real_sandbox.put_file("marker.txt", b"remote-hello")
+        """put_file then a remote cat of the agent's own file sees the bytes."""
+        real_sandbox.put_file("a", None, "marker.txt", b"remote-hello")
         cwd = real_sandbox.workspace_for("a", None)
         result = real_sandbox.exec(
-            "cat ../../marker.txt || cat "
-            + posixpath.join(real_sandbox._remote_root, "marker.txt"),
+            "cat marker.txt",  # the file lives in the agent's own workspace
             policy=Policy(),
             cwd=cwd,
             timeout_s=20,

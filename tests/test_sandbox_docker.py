@@ -436,25 +436,28 @@ class TestFileConfinement:
     def test_put_then_get_roundtrips(self, tmp_path):
         """A file written through put_file reads back through get_file."""
         sandbox = _sandbox(tmp_path)
-        sandbox.put_file("notes.txt", b"hello")
-        assert sandbox.get_file("notes.txt") == b"hello"
+        sandbox.put_file("a", None, "notes.txt", b"hello")
+        assert sandbox.get_file("a", None, "notes.txt") == b"hello"
 
-    def test_container_path_is_accepted(self, tmp_path):
-        """A /workspace-absolute path is mapped to the host side, not rejected."""
+    def test_container_path_under_the_agent_workspace_is_accepted(
+        self, tmp_path
+    ):
+        """A /workspace-absolute path in the agent's own tree maps host-side."""
         sandbox = _sandbox(tmp_path)
-        sandbox.put_file(f"{CONTAINER_WORKSPACE}/a.txt", b"x")
-        assert sandbox.get_file("a.txt") == b"x"
+        container = f"{sandbox.workspace_for('a', None)}/a.txt"
+        sandbox.put_file("a", None, container, b"x")
+        assert sandbox.get_file("a", None, "a.txt") == b"x"
 
     def test_symlink_escape_is_refused(self, tmp_path):
         """A symlink pointing outside the workspace cannot be read through."""
         sandbox = _sandbox(tmp_path)
-        host_root = sandbox._host_root
-        os.makedirs(host_root, exist_ok=True)
+        agent_host = sandbox._host_path(sandbox.workspace_for("a", None))
+        os.makedirs(agent_host, exist_ok=True)
         secret = tmp_path / "outside.txt"
         secret.write_text("secret")
-        os.symlink(str(secret), os.path.join(host_root, "link"))
+        os.symlink(str(secret), os.path.join(agent_host, "link"))
         with pytest.raises(PolicyDenied):
-            sandbox.get_file("link")
+            sandbox.get_file("a", None, "link")
 
 
 class TestBackendRegistration:
