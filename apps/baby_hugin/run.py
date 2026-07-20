@@ -158,6 +158,10 @@ def main() -> int:
             monitor_process.terminate()
             monitor_process.wait()
         raise e
+    finally:
+        # Release session-owned resources (sandboxes, background workers) on
+        # every exit path; a no-op until this app uses the bash tool.
+        session.close()
 
 
 if __name__ == "__main__":

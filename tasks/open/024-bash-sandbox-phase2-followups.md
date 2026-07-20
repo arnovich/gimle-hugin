@@ -14,6 +14,35 @@ findings were fixed before the Phase 1 PR, and the items below — genuinely
 phase-2 design decisions or low-severity polish — were deferred here so they are
 tracked rather than lost.
 
+## Status (2026-07-20) — most items shipped
+
+The substantive items landed across six focused PRs:
+
+- **PR #61** — per-spec ownership, backend registry, storage-derived root.
+- **PR #72** — thread-safe `SandboxManager.get()`, audit counters emitted at
+  `Session.close`, `audit.jsonl` size-bounded.
+- **PR #73** — consistent `rm`-target deny, `from_dict` policy-key hint.
+- **PR #74** — one-time environment affordance on first bash use.
+- **PR #75** — unique, absolute per-command spill path (also task 030).
+- **PR #76** — `put_file`/`get_file` confined to the agent's workspace.
+- **This PR** — `Session.close()` wired into the create-run-local entry points
+  (`hugin create`, `data_analyst`, `baby_hugin`).
+
+**Deferred (with pointers):**
+- **`_resolve_cwd` realpath** — belongs in each backend's path model (realpath is
+  host-relative; the tool sees container/remote paths), not the shared resolver;
+  local exec is unconfined anyway. Do with the per-backend confinement work.
+- **`Session.close()` for the escaping-session apps** (`financial_newspaper`,
+  `rap_machine`, `the_hugins`) — they return the session to an orchestrator with
+  monitor threads / loops; wire `with Session(...)` at that boundary when the app
+  first adopts bash (a no-op until then).
+- **"Earlier output elided" marker** — lives in the core `stack.py` render loop
+  and is generic to any `context_window` tool (LOW; the tool description already
+  tells the model to persist to files).
+- **Remote lifecycle + secrets seam** — cross-backend phase-2; tracked in task
+  030 (secret seam + reaper generalization).
+- **bash-vs-structured-tools routing guidance** (LOW) — doc polish.
+
 ## Phase 2 design (do before docker/ssh backends land)
 
 **Status:** the three de-risking foundation items — per-spec ownership, the
@@ -36,12 +65,12 @@ open.
   `bash_sandbox_phase2_foundation`): backends are registered as lazy-import
   loader thunks keyed by name (`register_backend` / `registered_backends`);
   `SandboxSpec.backend` is a free `str` validated against the registry.
-- [ ] **`put_file`/`get_file` need agent context.** *(architect, MEDIUM)* They
-  take no agent/branch and `_confine` resolves against the *session* root, while
-  `exec` cwd is agent-scoped — three confinement scopes under one "workspace"
-  word. Docker will need per-agent host↔container path mapping. Give the file
-  methods an explicit workspace/agent argument, or drop them until a caller
-  exists (currently unused speculative API).
+- [x] **`put_file`/`get_file` need agent context.** *(architect, MEDIUM)* **Done
+  (PR #76):** the file methods now take `(agent_id, branch, path)` and confine to
+  the agent's own workspace like `exec`'s cwd (a shared pure `_agent_root` per
+  backend; docker maps the container path to the host bind-mount first) — a
+  traversal into a sibling agent's tree is refused, proven by a cross-backend
+  contract test.
 - [ ] **Remote lifecycle + secrets seam.** *(SRE, MEDIUM)* Liveness is a host
   PID and the workspace is a local dir — neither transfers to a container/VM on
   another host; the reaper is local-only (can't reap containers/SSH). Phase 2
@@ -54,30 +83,28 @@ open.
   backends will inherit. Mirror `LocalSandbox._confine`'s realpath check (share
   a helper) — but realpath is host-relative, so it belongs with the isolating
   backend's path model.
-- [ ] **Wire `Session.close()` into app entry points and `hugin create`.**
-  *(SRE/architect)* Phase 1 wired the two `hugin run` paths; `apps/*/run.py` and
-  `create_agent.py` still don't call it (they don't use bash yet, so nothing
-  leaks today). Convert to `with Session(...)` / try-finally when phase-2 stop()
-  becomes non-trivial.
-- [ ] **Thread-safety.** *(architect, latent)* `SandboxManager.get()` (check-
-  then-act) and the audit (`counters += 1`, JSONL append) are unguarded; correct
-  only because the step loop is single-threaded and `Tool.execute_tool` is sync.
-  Add a lock, or document the single-threaded-scheduler precondition loudly,
-  before anyone parallelizes stepping.
+- [~] **Wire `Session.close()` into app entry points and `hugin create`.**
+  *(SRE/architect)* **Partly done:** `hugin create`, `data_analyst`, and
+  `baby_hugin` (create-run-finish locally) now close via try/finally. Deferred:
+  the apps that *return* the session to an orchestrator with monitors/loops
+  (`financial_newspaper`, `rap_machine`, `the_hugins`) — wire at that boundary
+  when they first adopt bash (a no-op until then).
+- [x] **Thread-safety.** *(architect, latent)* **Done (PR #72):**
+  `SandboxManager.get()` serializes first-creation with double-checked locking,
+  and the lifecycle counters go through the audit lock (`audit.bump`) instead of
+  a raw `Counter += 1`; the JSONL append was already lock-guarded (PR #65).
 
 ## Observability / ops
 
-- [ ] **Emit the audit counters somewhere.** *(SRE, HIGH)* `run / denied /
-  timed_out / infra_error / escalated / sandbox_starts / sandbox_start_failures`
-  live only in memory and are discarded at exit — no alerting surface for a
-  misbehaving agent (e.g. a loop of timeouts). Emit them at `Session.close` as a
-  structured log line/metric; consider a "hot" WARN threshold. Add the per-
-  session commands view to `hugin monitor` / `hugin interactive` (spec §8).
-- [ ] **Bound `audit.jsonl` and workspace growth.** *(SRE, MEDIUM)* The audit
-  file is append-only with no rotation; per-`(agent,branch)` workspaces and spill
-  files accumulate for the session lifetime (reaper is session-granularity).
-  Rotate the audit by size; reap idle agent/branch subdirs or at least account
-  their size.
+- [x] **Emit the audit counters somewhere.** *(SRE, HIGH)* **Done (PR #72):**
+  `Session.close` logs each sandbox's outcome counters (INFO), plus a WARNING
+  naming the "hot" failing outcomes (`denied`/`timed_out`/`infra_error`/
+  `sandbox_start_failures`). The `hugin monitor`/`interactive` per-session
+  commands view (spec §8) is still open.
+- [~] **Bound `audit.jsonl` and workspace growth.** *(SRE, MEDIUM)* **Partly done
+  (PR #72):** the audit file rotates to one `.1` backup past a size cap. Still
+  open: per-`(agent,branch)` workspaces and spill files accumulate for the
+  session lifetime (reaper is session-granularity) — reap/account idle subdirs.
 - [x] **Derive the sandbox root from session storage.** *(SRE/architect,
   MEDIUM)* ~~`"./storage/sandboxes"` is duplicated in four places and is cwd-
   relative, decoupled from `--storage-path`; run from a different dir or with a
@@ -90,24 +117,26 @@ open.
 
 ## Usability / low severity
 
-- [ ] **"Here is your environment" affordance.** *(harness, MEDIUM)* The agent
-  discovers OS / available binaries / whether network works by trial and error
-  (`sed` GNU-vs-BSD, `rg` may be absent). Inject a short probe (uname, key binary
-  presence, workspace path, network-permitted) on first use or in the system
-  prompt; don't recommend tools in the template the backend may lack.
+- [x] **"Here is your environment" affordance.** *(harness, MEDIUM)* **Done
+  (PR #74):** the first successful bash result per agent carries an `environment`
+  note rendered from the resolved spec — backend, network on/off-and-how,
+  workspace path, fresh-shell reminder. Spec-derived (no probe) so it can't
+  drift. (A binary-presence probe could still be layered on later.)
 - [ ] **"Earlier output elided" marker.** *(harness, LOW)* `context_window: 5`
   silently drops whole older bash interactions with no trace; the model re-runs
   or hallucinates. (Description now tells it to persist what it needs — a marker
   would still help.)
 - [ ] **bash-vs-structured-tools routing guidance** when bash is composed with
   other tools. *(harness, LOW)*
-- [ ] **`rm` denied-target set is inconsistent** (`/` denied, `/etc` `/usr`
-  allowed). *(security, LOW)* Either match any absolute non-workspace top-level
-  target or rely on confinement once it's real.
-- [ ] **`from_dict` misplaced-key error** — a valid policy key at the top level
+- [x] **`rm` denied-target set is inconsistent** (`/` denied, `/etc` `/usr`
+  allowed). *(security, LOW)* **Done (PR #73):** a recursive-force `rm` of any
+  system top-level dir is now denied too; relative/deep/non-recursive stay
+  allowed.
+- [x] **`from_dict` misplaced-key error** — a valid policy key at the top level
   of `options.bash` (not nested under `policy:`) reports "unknown sandbox keys";
-  a targeted hint would help. *(architect, LOW)*
-- [ ] **Spill file is single/overwritten and follows `cwd`.** *(harness,
-  MEDIUM)* A later truncated command overwrites `.hugin/last_output.txt`, so a
-  deferred read gets the wrong output; and with `cwd: subdir` it lands under the
-  subdir. Consider a unique per-call spill name returned in the response.
+  a targeted hint would help. *(architect, LOW)* **Done (PR #73):** the error now
+  names the misplaced policy keys and points at `options.bash.policy`.
+- [x] **Spill file is single/overwritten and follows `cwd`.** *(harness,
+  MEDIUM)* **Done (PR #75):** each truncated command spills to a unique file and
+  `ExecResult.spill_path` carries its absolute path (host/container/remote),
+  reported as `full_output` — no overwrite, findable from any cwd.
