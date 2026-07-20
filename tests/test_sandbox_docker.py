@@ -147,10 +147,14 @@ class TestHardeningContract:
         assert mapping == {"bind": CONTAINER_WORKSPACE, "mode": "rw"}
 
     def test_labels_identify_the_owner_for_the_reaper(self, tmp_path):
-        """Labels carry owner PID + created + ttl so the reaper can judge it."""
+        """Labels carry owner PID + created + ttl + host/boot so it can judge it."""
+        from gimle.hugin.sandbox.docker import LABEL_BOOT, LABEL_HOST
+
         labels = _sandbox(tmp_path)._container_kwargs()["labels"]
         assert labels[LABEL_OWNER_PID] == str(os.getpid())
         assert LABEL_CREATED in labels and LABEL_TTL in labels
+        # Host + boot scope the owner-PID test to this host+boot (task 030).
+        assert labels[LABEL_HOST] and labels[LABEL_BOOT]
 
     def test_dev_shm_is_hardened_too(self, tmp_path):
         """/dev/shm is a noexec,nosuid tmpfs (docker mounts it rw+exec by default)."""

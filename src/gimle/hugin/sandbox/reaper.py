@@ -27,9 +27,17 @@ import shutil
 from dataclasses import dataclass
 from typing import Callable, List, Optional, Tuple
 
-from gimle.hugin.sandbox.local import OWNER_FILE, process_start_time
+from gimle.hugin.sandbox.local import (
+    OWNER_FILE,
+    UNKNOWN_BOOT,
+    boot_id,
+    current_hostname,
+    process_start_time,
+)
 
 logger = logging.getLogger(__name__)
+
+_BOOT_UNKNOWN = UNKNOWN_BOOT
 
 
 @dataclass(frozen=True)
@@ -170,7 +178,9 @@ def reap_abandoned_containers(
         The names of the containers that were removed.
     """
     from gimle.hugin.sandbox.docker import (
+        LABEL_BOOT,
         LABEL_CREATED,
+        LABEL_HOST,
         LABEL_OWNER_PID,
         LABEL_OWNER_START,
         LABEL_SESSION,
@@ -190,6 +200,7 @@ def reap_abandoned_containers(
         logger.debug("container reap skipped (docker unavailable): %s", error)
         return []
 
+    this_host, this_boot = current_hostname(), boot_id()
     reaped: List[str] = []
     for container in containers:
         try:
@@ -203,6 +214,10 @@ def reap_abandoned_containers(
                 pid_key=LABEL_OWNER_PID,
                 start_key=LABEL_OWNER_START,
                 ttl_key=LABEL_TTL,
+                host_key=LABEL_HOST,
+                boot_key=LABEL_BOOT,
+                current_host=this_host,
+                current_boot=this_boot,
             ):
                 # force=True SIGKILLs and removes in one step (the owner is
                 # already dead — no graceful stop to wait on).
@@ -239,7 +254,9 @@ def reap_abandoned_networks(
         The names of the networks that were removed.
     """
     from gimle.hugin.sandbox.docker import (
+        LABEL_BOOT,
         LABEL_CREATED,
+        LABEL_HOST,
         LABEL_OWNER_PID,
         LABEL_OWNER_START,
         LABEL_SESSION,
@@ -255,6 +272,7 @@ def reap_abandoned_networks(
         logger.debug("network reap skipped (docker unavailable): %s", error)
         return []
 
+    this_host, this_boot = current_hostname(), boot_id()
     reaped: List[str] = []
     for network in networks:
         try:
@@ -268,6 +286,10 @@ def reap_abandoned_networks(
                 pid_key=LABEL_OWNER_PID,
                 start_key=LABEL_OWNER_START,
                 ttl_key=LABEL_TTL,
+                host_key=LABEL_HOST,
+                boot_key=LABEL_BOOT,
+                current_host=this_host,
+                current_boot=this_boot,
             ):
                 # Refuses (raises) if a live peer container is still attached —
                 # caught below, so a live session's network is never pulled.
@@ -293,6 +315,10 @@ def _container_is_abandoned(
     pid_key: str,
     start_key: str,
     ttl_key: str,
+    host_key: Optional[str] = None,
+    boot_key: Optional[str] = None,
+    current_host: Optional[str] = None,
+    current_boot: Optional[str] = None,
 ) -> bool:
     """Decide whether a labelled container is abandoned (dead owner, or past TTL).
 
@@ -302,7 +328,28 @@ def _container_is_abandoned(
     container whose owner cannot be identified at all (missing/garbled PID
     label) is kept until its TTL elapses, never removed while its owner is
     provably alive.
+
+    Host/boot scoping (when the container carries a host label — older ones
+    predate it and fall through to the PID/TTL judgment) keeps the owner-PID test
+    sound: a container created by a *different host* (a shared daemon) is never
+    judged or reaped here — the local process table says nothing about its owner,
+    so that host's own reaper owns it (cross-host reaping is out of scope). A
+    container from *this host but a prior boot* is abandoned outright: PIDs
+    recycle across reboots, so its owner PID is meaningless.
     """
+    label_host = labels.get(host_key) if host_key else None
+    if label_host is not None and current_host is not None:
+        if label_host != current_host:
+            return False  # another host's container — not ours to judge or reap
+        label_boot = labels.get(boot_key) if boot_key else None
+        if (
+            label_boot
+            and current_boot
+            and _BOOT_UNKNOWN not in (label_boot, current_boot)
+            and label_boot != current_boot
+        ):
+            return True  # this host rebooted since — the owner PID is dead
+
     try:
         pid = int(labels[pid_key])
     except (KeyError, ValueError, TypeError):

@@ -15,6 +15,7 @@ import logging
 import os
 import shutil
 import signal
+import socket
 import subprocess
 import threading
 import time
@@ -68,6 +69,53 @@ def process_start_time(pid: int) -> Optional[str]:
         return result.stdout.strip() or None
     except (OSError, ValueError, IndexError, subprocess.SubprocessError):
         return None
+
+
+# Sentinel boot token when a host's boot id cannot be determined; callers treat
+# it as "unknown" and fall back to the PID/TTL judgment (pre-scoping behaviour).
+UNKNOWN_BOOT = "unknown"
+
+
+def current_hostname() -> str:
+    """Return this host's name — labels a container so the reaper scopes to it."""
+    try:
+        return socket.gethostname() or "unknown-host"
+    except OSError:
+        return "unknown-host"
+
+
+def boot_id() -> str:
+    """Return an opaque per-boot token for this host, or :data:`UNKNOWN_BOOT`.
+
+    Lets the reaper tell one boot from another: a container's owner PID is only
+    meaningful within the boot that created it (PIDs recycle across reboots), so
+    a container labelled with a *different* boot has a definitely-dead owner.
+    Best-effort and dependency-free — Linux reads the kernel boot UUID; macOS/BSD
+    read ``kern.boottime``; otherwise ``UNKNOWN_BOOT`` (callers then fall back to
+    the PID/TTL judgment rather than risk a false reap).
+    """
+    try:
+        with open(
+            "/proc/sys/kernel/random/boot_id", encoding="utf-8"
+        ) as handle:
+            token = handle.read().strip()
+        if token:
+            return token
+    except OSError:
+        pass
+    try:
+        result = subprocess.run(
+            ["sysctl", "-n", "kern.boottime"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        token = result.stdout.strip()
+        if token:
+            return token
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return UNKNOWN_BOOT
 
 
 # Hard ceiling on output *buffered in this process* per command, across stdout
