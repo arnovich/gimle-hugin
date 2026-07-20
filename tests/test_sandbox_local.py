@@ -202,6 +202,26 @@ class TestOutputTruncation:
         with open(second.spill_path, encoding="utf-8") as handle:
             assert "beta-1000" in handle.read()
 
+    def test_runaway_file_write_is_size_capped(self, sandbox, monkeypatch):
+        """A single file a command writes is bounded by the fsize cap, not the disk.
+
+        `yes > f` would fill the host disk; the fsize rlimit kills it (SIGXFSZ)
+        with the file bounded near the cap — not a timeout, not a success.
+        """
+        import os
+
+        from gimle.hugin.sandbox import sandbox as sandbox_mod
+
+        monkeypatch.setattr(sandbox_mod, "MAX_FILE_BYTES", 1_048_576)  # 1 MiB
+        cwd = _cwd(sandbox)
+        result = sandbox.exec(
+            "yes > big.txt", policy=Policy(), cwd=cwd, timeout_s=10
+        )
+        assert result.exit_code != 0  # killed by the file-size cap
+        assert result.timed_out is False  # the cap stopped it, not the clock
+        size = os.path.getsize(os.path.join(cwd, "big.txt"))
+        assert size <= 1_048_576 + 65_536  # bounded near the cap, not unbounded
+
     def test_runaway_output_is_capped_without_hanging(self, sandbox):
         """Unbounded output is bounded in memory and the process is killed.
 

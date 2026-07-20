@@ -103,9 +103,12 @@ class TestCommandConstruction:
         assert "-p" not in _sandbox()._ssh_opts()
 
     def test_remote_wrapper_scrubs_env_and_bounds_time(self):
-        """The wrapper cds, scrubs env (env -i), and runs under a remote timeout."""
+        """The wrapper caps file size, cds, scrubs env, and bounds time."""
         wrapper = _sandbox()._remote_wrapper("/home/u/ws", 15)
-        assert wrapper.startswith("cd /home/u/ws && ")
+        # A single file the command writes is size-capped (rlimit inherits
+        # across env -i / exec), so a runaway can't fill the remote disk.
+        assert wrapper.startswith("ulimit -f ")
+        assert "cd /home/u/ws && " in wrapper
         assert "env -i HOME=/home/u/ws" in wrapper
         assert "timeout -k 5 15 bash -c" in wrapper
         # The untrusted command travels over stdin, not the argv.
@@ -117,7 +120,7 @@ class TestCommandConstruction:
     def test_remote_wrapper_touches_root_when_started(self):
         """A started sandbox's wrapper touches the session root (TTL heartbeat)."""
         wrapper = _started(_sandbox())._remote_wrapper("/home/u/ws", 15)
-        assert wrapper.startswith("touch /home/u/.hugin-sandbox/sess-1 ")
+        assert "touch /home/u/.hugin-sandbox/sess-1 " in wrapper
 
     def test_ssh_argv_targets_the_host(self):
         """The argv is ssh <opts> <host> <remote-command>."""
