@@ -193,12 +193,23 @@ class TestBackendContract:
         assert "uid=" in result.stdout
 
     def test_put_get_roundtrip_and_confinement(self, backend):
-        """put_file/get_file round-trip bytes; a traversal path is refused."""
-        backend.box.workspace_for("a", None)  # ensure the root exists
-        backend.box.put_file("note.txt", b"payload-bytes")
-        assert backend.box.get_file("note.txt") == b"payload-bytes"
+        """put_file/get_file round-trip bytes in the agent workspace; traversal refused."""
+        backend.box.put_file("a", None, "note.txt", b"payload-bytes")
+        assert backend.box.get_file("a", None, "note.txt") == b"payload-bytes"
         with pytest.raises(PolicyDenied):
-            backend.box.get_file("../../../etc/passwd")
+            backend.box.get_file("a", None, "../../../etc/passwd")
+
+    def test_file_ops_are_confined_to_the_agent_workspace(self, backend):
+        """One agent cannot read another agent's file via put/get_file.
+
+        The file ops confine to ``(agent, branch)`` like ``exec``'s cwd, so a
+        path that reaches out of the agent's own workspace is refused — even
+        though a sibling agent's workspace exists under the same session root.
+        """
+        backend.box.put_file("owner", None, "secret.txt", b"top-secret")
+        backend.box.workspace_for("intruder", None)  # sibling exists
+        with pytest.raises(PolicyDenied):
+            backend.box.get_file("intruder", None, "../owner/secret.txt")
 
 
 class TestContainmentContract:

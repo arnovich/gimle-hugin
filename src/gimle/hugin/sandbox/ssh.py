@@ -358,14 +358,14 @@ class SSHSandbox(Sandbox):
 
     # -- workspaces --
 
-    def workspace_for(self, agent_id: str, branch: Optional[str]) -> str:
-        """Return the remote ``(agent, branch)`` path, creating it once.
+    def _agent_root(self, agent_id: str, branch: Optional[str]) -> str:
+        """Compute the remote ``(agent, branch)`` path (pure, no remote I/O).
 
         ``agent_id`` and ``branch`` can carry LLM-chosen text (e.g. a
         ``create_branch`` name), so both are reduced to a single safe path
         component — :func:`_safe_component` maps ``/`` to ``-``, which alone
         defeats traversal — and the joined path is re-checked to be strictly
-        under the session root before it is ever used in a remote ``mkdir``.
+        under the session root.
         """
         if self._remote_root is None:
             raise RuntimeError("sandbox not started")
@@ -378,6 +378,11 @@ class SSHSandbox(Sandbox):
             raise PolicyDenied(
                 f"invalid agent/branch workspace: {agent_id!r}/{branch!r}"
             )
+        return path
+
+    def workspace_for(self, agent_id: str, branch: Optional[str]) -> str:
+        """Return the remote ``(agent, branch)`` path, creating it once."""
+        path = self._agent_root(agent_id, branch)
         if path not in self._created:
             self._safe_run(self._ssh_argv(f"mkdir -p {shlex.quote(path)}"))
             self._created.add(path)
@@ -531,9 +536,11 @@ class SSHSandbox(Sandbox):
 
     # -- files --
 
-    def put_file(self, path: str, content: bytes) -> None:
-        """Write ``content`` into the remote workspace (confined)."""
-        remote = self._confine(path)
+    def put_file(
+        self, agent_id: str, branch: Optional[str], path: str, content: bytes
+    ) -> None:
+        """Write ``content`` into the agent's remote workspace (confined)."""
+        remote = self._confine(agent_id, branch, path)
         parent = posixpath.dirname(remote)
         rc, _out, err, _capped, hung = self._run(
             self._ssh_argv(
@@ -547,15 +554,17 @@ class SSHSandbox(Sandbox):
                 f"put_file failed for {path!r}: {err.decode('utf-8', 'replace')}"
             )
 
-    def get_file(self, path: str) -> bytes:
-        """Read ``path`` from the remote workspace (confined).
+    def get_file(
+        self, agent_id: str, branch: Optional[str], path: str
+    ) -> bytes:
+        """Read ``path`` from the agent's remote workspace (confined).
 
         Raises rather than return a truncated file: the read goes through the
         byte-capped ``_run`` seam, so a file larger than
         :data:`_MAX_CAPTURE_BYTES` (or a stalled read) must surface as an error,
         never as silently short bytes a caller would mistake for the whole file.
         """
-        remote = self._confine(path)
+        remote = self._confine(agent_id, branch, path)
         rc, out, err, capped, hung = self._run(
             self._ssh_argv(f"cat {shlex.quote(remote)}"),
             deadline_s=_CONTROL_DEADLINE_S,
@@ -571,16 +580,16 @@ class SSHSandbox(Sandbox):
             )
         return bytes(out)
 
-    def _confine(self, path: str) -> str:
-        """Resolve ``path`` within the remote workspace root or raise.
+    def _confine(self, agent_id: str, branch: Optional[str], path: str) -> str:
+        """Resolve ``path`` within the ``(agent, branch)`` remote workspace, or raise.
 
-        Lexical (posix) confinement only — a remote ``realpath`` per call is a
-        round-trip we skip on a disposable box; a remote symlink escape is out of
-        scope for v1 (documented). ``..`` traversal is rejected.
+        Confined to the *agent's own* workspace (not the whole session), so a
+        traversal into a sibling agent's tree is refused. Lexical (posix)
+        confinement only — a remote ``realpath`` per call is a round-trip we skip
+        on a disposable box; a remote symlink escape is out of scope for v1
+        (documented). ``..`` traversal is rejected.
         """
-        if self._remote_root is None:
-            raise RuntimeError("sandbox not started")
-        root = self._remote_root
+        root = self._agent_root(agent_id, branch)
         candidate = (
             path if posixpath.isabs(path) else posixpath.join(root, path)
         )
