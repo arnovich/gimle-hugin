@@ -69,15 +69,17 @@ task is picked up first.
 
 ## Architecture / ops
 
-- [ ] **Reaper generalization + scoping.** *(architect/SRE, MEDIUM)* Backend
-  reap logic (`reap_abandoned_containers`) is a bespoke free function in
-  `reaper.py`; SSH will add a third. Give the backend registry a reap seam so the
-  CLI iterates it. Also the container sweep is daemon-global: it lists *every*
-  `hugin.session` container and judges the owner PID against the *local* process
-  table — wrong for a remote/shared daemon, and it can reap another
-  `--storage-path`'s containers. Label the container with a host/boot-id and its
-  workspace-root and filter on both; document the local-daemon assumption.
-  Overlaps task 024's reaper-generalization item.
+- [~] **Reaper generalization + scoping.** *(architect/SRE, MEDIUM)* **Scoping
+  done:** containers/networks are now labelled with `hugin.host` + `hugin.boot`,
+  and the reaper only judges an owner PID against the process table it belongs
+  to — a *different host*'s container (shared daemon) is never reaped here (its
+  own host owns it), and a *prior boot*'s container is abandoned outright (PIDs
+  recycle across reboots). Older unlabelled containers fall through to the
+  pre-scoping PID/TTL judgment. `boot_id()`/`current_hostname()` in `local.py`.
+  **Still open:** the *generalization* — `reap_abandoned_containers` is still a
+  bespoke free function; give the backend registry a reap seam so the CLI
+  iterates backends (SSH will add a third). Cross-host reaping of a genuinely
+  dead host's containers stays out of scope (documented). Overlaps task 024.
 - [ ] **Capped / backgrounded exec: explicit state + kill.** *(SRE/architect/
   usability, MEDIUM)* On the output cap or a host-side abandonment the exec'd
   process keeps running in-container until its `timeout` fires, and the next

@@ -10,13 +10,15 @@ import os
 import time
 
 from gimle.hugin.sandbox.docker import (
+    LABEL_BOOT,
     LABEL_CREATED,
+    LABEL_HOST,
     LABEL_OWNER_PID,
     LABEL_OWNER_START,
     LABEL_SESSION,
     LABEL_TTL,
 )
-from gimle.hugin.sandbox.local import OWNER_FILE
+from gimle.hugin.sandbox.local import OWNER_FILE, UNKNOWN_BOOT, boot_id
 from gimle.hugin.sandbox.reaper import (
     _container_is_abandoned,
     list_local_workspaces,
@@ -163,15 +165,20 @@ class TestPidReuseDisambiguation:
         assert reaped == []
 
 
-def _labels(pid, start="SAME", created=NOW, ttl=3600):
+def _labels(pid, start="SAME", created=NOW, ttl=3600, host=None, boot=None):
     """Build the container labels a DockerSandbox would stamp."""
-    return {
+    labels = {
         LABEL_SESSION: "sess",
         LABEL_OWNER_PID: str(pid),
         LABEL_OWNER_START: start,
         LABEL_CREATED: str(created),
         LABEL_TTL: str(ttl),
     }
+    if host is not None:
+        labels[LABEL_HOST] = host
+    if boot is not None:
+        labels[LABEL_BOOT] = boot
+    return labels
 
 
 def _abandoned(labels, *, now=NOW, pid_alive=_dead, start_time_of=None):
@@ -185,6 +192,26 @@ def _abandoned(labels, *, now=NOW, pid_alive=_dead, start_time_of=None):
         pid_key=LABEL_OWNER_PID,
         start_key=LABEL_OWNER_START,
         ttl_key=LABEL_TTL,
+    )
+
+
+def _abandoned_scoped(
+    labels, *, current_host, current_boot, pid_alive=_dead, start_time_of=None
+):
+    """Call _container_is_abandoned with host/boot scoping enabled."""
+    return _container_is_abandoned(
+        labels,
+        now=NOW,
+        pid_alive=pid_alive,
+        start_time_of=start_time_of or (lambda pid: "SAME"),
+        created_key=LABEL_CREATED,
+        pid_key=LABEL_OWNER_PID,
+        start_key=LABEL_OWNER_START,
+        ttl_key=LABEL_TTL,
+        host_key=LABEL_HOST,
+        boot_key=LABEL_BOOT,
+        current_host=current_host,
+        current_boot=current_boot,
     )
 
 
@@ -223,6 +250,82 @@ class TestContainerReaping:
         stale = _labels("not-an-int", created=NOW - 7200, ttl=3600)
         assert _abandoned(fresh) is False
         assert _abandoned(stale) is True
+
+
+class TestHostBootScoping:
+    """The owner-PID test is only applied to *this* host+boot's containers."""
+
+    def test_same_host_and_boot_still_judges_by_pid(self):
+        """Own host+boot: a dead owner is reaped, a live one kept (as before)."""
+        dead = _labels(4242, host="h1", boot="b1")
+        live = _labels(222, start="SAME", host="h1", boot="b1")
+        assert (
+            _abandoned_scoped(dead, current_host="h1", current_boot="b1")
+            is True
+        )
+        assert (
+            _abandoned_scoped(
+                live,
+                current_host="h1",
+                current_boot="b1",
+                pid_alive=_only(222),
+            )
+            is False
+        )
+
+    def test_a_different_hosts_container_is_never_reaped(self):
+        """A shared daemon: another host's container is left to that host.
+
+        Its owner PID is dead *here* (our table), which without scoping would
+        reap it — but it may be a live session on the other host, so we must not.
+        """
+        other = _labels(4242, host="h2", boot="b1")  # dead PID locally
+        assert (
+            _abandoned_scoped(other, current_host="h1", current_boot="b1")
+            is False
+        )
+
+    def test_a_prior_boot_on_this_host_is_reaped(self):
+        """Same host, earlier boot: the owner PID is meaningless (recycled)."""
+        stale = _labels(222, host="h1", boot="b0")
+        # Even if that PID looks alive now, a reboot means the owner is gone.
+        assert (
+            _abandoned_scoped(
+                stale,
+                current_host="h1",
+                current_boot="b1",
+                pid_alive=_only(222),
+                start_time_of=lambda pid: "SAME",
+            )
+            is True
+        )
+
+    def test_unknown_boot_falls_back_to_pid(self):
+        """When boot can't be determined, don't reap on it — judge by PID."""
+        dead = _labels(4242, host="h1", boot=UNKNOWN_BOOT)
+        assert (
+            _abandoned_scoped(
+                dead, current_host="h1", current_boot=UNKNOWN_BOOT
+            )
+            is True  # PID dead, so still reaped — but on PID, not boot
+        )
+
+    def test_container_without_host_label_is_pid_judged(self):
+        """An older container (no host label) keeps the pre-scoping behaviour."""
+        old = _labels(4242)  # no host/boot labels
+        assert (
+            _abandoned_scoped(old, current_host="h1", current_boot="b1") is True
+        )
+
+
+class TestHostBootHelpers:
+    """The host/boot identity used to stamp and scope containers."""
+
+    def test_boot_id_is_a_nonempty_string(self):
+        """boot_id() returns a stable token (or the 'unknown' sentinel)."""
+        token = boot_id()
+        assert isinstance(token, str) and token
+        assert token == boot_id()  # stable within a boot
 
     def test_reap_is_a_noop_without_docker(self, monkeypatch):
         """Without the docker SDK / a daemon, reaping is a silent no-op."""
