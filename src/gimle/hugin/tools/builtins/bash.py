@@ -555,7 +555,7 @@ def _to_response(command: str, result: ExecResult) -> ToolResponse:
     finish — an error the model must react to, unlike a plain non-zero exit.
     """
     return ToolResponse(
-        is_error=result.timed_out or result.oom_killed,
+        is_error=result.timed_out or result.oom_killed or result.output_capped,
         content=result_content(command, result),
     )
 

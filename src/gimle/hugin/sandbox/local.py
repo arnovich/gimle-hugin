@@ -30,7 +30,10 @@ from gimle.hugin.sandbox.sandbox import (
     SandboxSpec,
     fsize_ulimit_blocks,
     new_spill_relpath,
+    read_file_nofollow,
+    reject_symlink_swap,
     truncate_output,
+    write_file_nofollow,
 )
 
 logger = logging.getLogger(__name__)
@@ -289,6 +292,7 @@ class LocalSandbox(Sandbox):
             truncated=truncated,
             timed_out=timed_out,
             oom_killed=False,  # a bare subprocess cannot bound or detect OOM
+            output_capped=capped,
             spill_path=spill_path,
         )
 
@@ -413,16 +417,20 @@ class LocalSandbox(Sandbox):
         """Write ``content`` to ``path`` inside the agent's workspace."""
         target = self._confine(agent_id, branch, path)
         os.makedirs(os.path.dirname(target), exist_ok=True)
-        with open(target, "wb") as handle:
-            handle.write(content)
+        try:
+            write_file_nofollow(target, content)
+        except OSError as error:
+            reject_symlink_swap(path, error)
 
     def get_file(
         self, agent_id: str, branch: Optional[str], path: str
     ) -> bytes:
         """Read ``path`` from the agent's workspace, refusing a symlink escape."""
         target = self._confine(agent_id, branch, path)
-        with open(target, "rb") as handle:
-            return handle.read()
+        try:
+            return read_file_nofollow(target)
+        except OSError as error:
+            reject_symlink_swap(path, error)
 
     def _confine(self, agent_id: str, branch: Optional[str], path: str) -> str:
         """Resolve ``path`` within the ``(agent, branch)`` workspace, or raise.

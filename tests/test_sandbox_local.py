@@ -241,6 +241,7 @@ class TestOutputTruncation:
         )
         elapsed = time.monotonic() - start
         assert result.truncated
+        assert result.output_capped is True  # cut off mid-stream, not a success
         assert not result.timed_out  # killed for output, not for wall-clock
         assert elapsed < 8
         assert len(result.stdout.encode()) <= 600  # cap + marker slack
@@ -285,6 +286,24 @@ class TestFileAccess:
         sandbox.workspace_for("intruder", None)
         with pytest.raises(PolicyDenied):
             sandbox.get_file("intruder", None, "../owner/secret.txt")
+
+    def test_get_file_refuses_a_symlink_swapped_after_the_check(
+        self, sandbox, tmp_path, monkeypatch
+    ):
+        """O_NOFOLLOW closes the TOCTOU a plain realpath-then-open would leave.
+
+        A symlink appearing at the final component *after* the confinement check
+        (simulated by returning it straight from ``_confine``) is refused at the
+        open, not read through.
+        """
+        secret = tmp_path / "outside.txt"
+        secret.write_text("classified")
+        root = sandbox.workspace_for("a", None)
+        swapped = os.path.join(root, "swapped")
+        os.symlink(str(secret), swapped)
+        monkeypatch.setattr(sandbox, "_confine", lambda *a, **k: swapped)
+        with pytest.raises(PolicyDenied):
+            sandbox.get_file("a", None, "swapped")
 
 
 def test_stop_is_idempotent(tmp_path):
