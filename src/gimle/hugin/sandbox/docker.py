@@ -749,6 +749,11 @@ class DockerSandbox(Sandbox):
 
     # -- workspaces --
 
+    def _agent_root(self, agent_id: str, branch: Optional[str]) -> str:
+        """Container path for ``(agent, branch)`` (pure, no host dir created)."""
+        rel = posixpath.join("agents", agent_id, branch or "default")
+        return f"{CONTAINER_WORKSPACE}/{rel}"
+
     def workspace_for(self, agent_id: str, branch: Optional[str]) -> str:
         """Return the container path for ``(agent, branch)``; create it host-side.
 
@@ -756,9 +761,9 @@ class DockerSandbox(Sandbox):
         matching host directory (visible in the container through the bind
         mount) is created so a command has somewhere to run.
         """
-        rel = os.path.join("agents", agent_id, branch or "default")
-        os.makedirs(os.path.join(self._host_root, rel), exist_ok=True)
-        return f"{CONTAINER_WORKSPACE}/{rel}"
+        container = self._agent_root(agent_id, branch)
+        os.makedirs(self._host_path(container), exist_ok=True)
+        return container
 
     # -- execution --
 
@@ -991,31 +996,39 @@ class DockerSandbox(Sandbox):
 
     # -- files --
 
-    def put_file(self, path: str, content: bytes) -> None:
-        """Write ``content`` into the workspace (host-side, confined)."""
-        target = self._confine(path)
+    def put_file(
+        self, agent_id: str, branch: Optional[str], path: str, content: bytes
+    ) -> None:
+        """Write ``content`` into the agent's workspace (host-side, confined)."""
+        target = self._confine(agent_id, branch, path)
         os.makedirs(os.path.dirname(target), exist_ok=True)
         with open(target, "wb") as handle:
             handle.write(content)
 
-    def get_file(self, path: str) -> bytes:
-        """Read ``path`` from the workspace, refusing a symlink escape."""
-        target = self._confine(path)
+    def get_file(
+        self, agent_id: str, branch: Optional[str], path: str
+    ) -> bytes:
+        """Read ``path`` from the agent's workspace, refusing a symlink escape."""
+        target = self._confine(agent_id, branch, path)
         with open(target, "rb") as handle:
             return handle.read()
 
-    def _confine(self, path: str) -> str:
-        """Resolve ``path`` within the host workspace root or raise PolicyDenied.
+    def _confine(self, agent_id: str, branch: Optional[str], path: str) -> str:
+        """Resolve ``path`` within the ``(agent, branch)`` host workspace, or raise.
 
-        Accepts either a container ``/workspace/...`` path or a host/relative
-        one, mapping the former to the host side first, then realpath-checks the
-        result so a symlink planted in the workspace cannot point outside it.
+        Confined to the *agent's own* workspace (not the whole session), so a
+        traversal into a sibling agent's tree is refused. Accepts either a
+        container ``/workspace/...`` path or a host/relative one, mapping the
+        former to the host side first, then realpath-checks the result so a
+        symlink planted in the workspace cannot point outside it.
         """
+        root = os.path.realpath(
+            self._host_path(self._agent_root(agent_id, branch))
+        )
         if path == CONTAINER_WORKSPACE or path.startswith(
             CONTAINER_WORKSPACE + "/"
         ):
             path = self._host_path(path)
-        root = os.path.realpath(self._host_root)
         candidate = path if os.path.isabs(path) else os.path.join(root, path)
         resolved = os.path.realpath(candidate)
         if resolved != root and not resolved.startswith(root + os.sep):

@@ -164,11 +164,15 @@ class LocalSandbox(Sandbox):
 
     # -- workspaces --
 
-    def workspace_for(self, agent_id: str, branch: Optional[str]) -> str:
-        """Return this ``(agent, branch)`` directory, creating it if absent."""
-        path = os.path.join(
+    def _agent_root(self, agent_id: str, branch: Optional[str]) -> str:
+        """Compute this ``(agent, branch)`` directory path (pure, no I/O)."""
+        return os.path.join(
             self._session_root, "agents", agent_id, branch or "default"
         )
+
+    def workspace_for(self, agent_id: str, branch: Optional[str]) -> str:
+        """Return this ``(agent, branch)`` directory, creating it if absent."""
+        path = self._agent_root(agent_id, branch)
         os.makedirs(path, exist_ok=True)
         return path
 
@@ -350,27 +354,33 @@ class LocalSandbox(Sandbox):
 
     # -- files --
 
-    def put_file(self, path: str, content: bytes) -> None:
-        """Write ``content`` to ``path`` inside the workspace."""
-        target = self._confine(path)
+    def put_file(
+        self, agent_id: str, branch: Optional[str], path: str, content: bytes
+    ) -> None:
+        """Write ``content`` to ``path`` inside the agent's workspace."""
+        target = self._confine(agent_id, branch, path)
         os.makedirs(os.path.dirname(target), exist_ok=True)
         with open(target, "wb") as handle:
             handle.write(content)
 
-    def get_file(self, path: str) -> bytes:
-        """Read ``path`` from the workspace, refusing a symlink escape."""
-        target = self._confine(path)
+    def get_file(
+        self, agent_id: str, branch: Optional[str], path: str
+    ) -> bytes:
+        """Read ``path`` from the agent's workspace, refusing a symlink escape."""
+        target = self._confine(agent_id, branch, path)
         with open(target, "rb") as handle:
             return handle.read()
 
-    def _confine(self, path: str) -> str:
-        """Resolve ``path`` within the session workspace or raise PolicyDenied.
+    def _confine(self, agent_id: str, branch: Optional[str], path: str) -> str:
+        """Resolve ``path`` within the ``(agent, branch)`` workspace, or raise.
 
-        ``realpath`` dereferences symlinks first, so a link planted inside the
-        workspace that points outside it resolves to an outside path and is
-        rejected — the harvest/escape hole the security review flagged.
+        Confined to the *agent's own* workspace (not the whole session), so a
+        traversal into a sibling agent's tree is refused. ``realpath``
+        dereferences symlinks first, so a link planted inside the workspace that
+        points outside it resolves to an outside path and is rejected — the
+        harvest/escape hole the security review flagged.
         """
-        root = os.path.realpath(self._session_root)
+        root = os.path.realpath(self._agent_root(agent_id, branch))
         candidate = path if os.path.isabs(path) else os.path.join(root, path)
         resolved = os.path.realpath(candidate)
         if resolved != root and not resolved.startswith(root + os.sep):
