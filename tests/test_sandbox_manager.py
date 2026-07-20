@@ -191,6 +191,24 @@ class TestLifecycleCounters:
         assert manager.audit.counters["sandbox_start_failures"] == 0
 
 
+class TestAnnounceOnce:
+    """First-use tracking for the per-agent one-time environment note."""
+
+    def test_true_only_the_first_time_per_agent(self):
+        """announce_once returns True once per agent id, then False."""
+        manager = SandboxManager(LOCAL, "s")
+        assert manager.announce_once("agent-a") is True
+        assert manager.announce_once("agent-a") is False
+        # A different agent sharing the manager gets its own first announcement.
+        assert manager.announce_once("agent-b") is True
+        assert manager.announce_once("agent-b") is False
+
+    def test_spec_is_exposed(self):
+        """The manager exposes its spec (the env note is rendered from it)."""
+        manager = SandboxManager(LOCAL, "s")
+        assert manager.spec is LOCAL
+
+
 class TestAuditSummaryLogging:
     """log_summary emits counters at teardown, escalating on failing outcomes."""
 

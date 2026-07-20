@@ -234,7 +234,7 @@ def bash(
     session = stack.agent.session
     bg = getattr(session, "background", None)
     if bg is None:  # a hand-rolled session without the executor: run inline
-        return _run_sync(
+        response = _run_sync(
             manager,
             stack,
             command,
@@ -243,6 +243,7 @@ def bash(
             effective_cwd,
             requested_timeout,
         )
+        return _with_env_note(response, manager, stack, sandbox, branch)
 
     try:
         job = bg.submit(
@@ -282,7 +283,8 @@ def bash(
 
     if bg.wait(job.job_id, DEFAULT_DEFER_AFTER_S):
         content, is_error = bg.collect(job.job_id, agent_id=stack.agent.id)
-        return ToolResponse(is_error=is_error, content=content)
+        response = ToolResponse(is_error=is_error, content=content)
+        return _with_env_note(response, manager, stack, sandbox, branch)
     return ToolResponse(
         is_error=False,
         content={"job_id": job.job_id, "status": "running"},
@@ -556,3 +558,71 @@ def _to_response(command: str, result: ExecResult) -> ToolResponse:
         is_error=result.timed_out or result.oom_killed,
         content=result_content(command, result),
     )
+
+
+def _network_note(spec: SandboxSpec) -> str:
+    """Return a one-line, spec-derived description of what the shell can reach.
+
+    The load-bearing field of the environment note: an agent that doesn't know
+    the network is off wastes turns on ``curl``/``pip``/``npm`` that can't
+    connect. Derived from the resolved spec so it can never drift from reality.
+    """
+    if spec.backend == "local":
+        return "on (host network — the local backend has no isolation)"
+    if spec.backend == "ssh":
+        return "the remote host's network (whatever that host can reach)"
+    # docker
+    if not spec.network:
+        return "OFF — curl/uv/pip/npm cannot reach the internet; work offline"
+    if spec.egress_allowlist:
+        allowed = ", ".join(spec.egress_allowlist)
+        return f"filtered — only these hosts are reachable: {allowed}"
+    if spec.allow_unrestricted_egress:
+        return "on (unrestricted egress)"
+    return "OFF"  # network:true without a policy is refused at start()
+
+
+def _environment_note(spec: SandboxSpec, workspace: str) -> Dict[str, Any]:
+    """Return a one-time description of the shell's environment for the agent.
+
+    Rendered from the resolved spec (no probe command), so it never drifts: the
+    backend, whether the network is reachable (and how), where files persist,
+    and the fresh-shell reminder.
+    """
+    return {
+        "backend": spec.backend,
+        "network": _network_note(spec),
+        "workspace": workspace,
+        "note": "Each call is a FRESH shell — cd/export/source do not persist. "
+        "Write files in the workspace to keep state between calls.",
+    }
+
+
+def _with_env_note(
+    response: ToolResponse,
+    manager: Optional[SandboxManager],
+    stack: "Stack",
+    sandbox: Any,
+    branch: Optional[str],
+) -> ToolResponse:
+    """Attach a one-time environment note to an agent's first successful bash use.
+
+    Only on a non-error, dict-content result, and the announcement is consumed
+    (``announce_once``) *only* when the note is actually attached — so a first
+    command that errored or was backgrounded still gets the note next time.
+    """
+    if (
+        manager is None
+        or response.is_error
+        or not isinstance(response.content, dict)
+    ):
+        return response
+    try:
+        workspace = sandbox.workspace_for(stack.agent.id, branch)
+        note = _environment_note(manager.spec, workspace)
+    except Exception as error:  # the note is a nicety; never break the result
+        logger.debug("environment note skipped: %s", error)
+        return response
+    if manager.announce_once(stack.agent.id):
+        response.content["environment"] = note
+    return response

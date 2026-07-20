@@ -417,3 +417,23 @@ def _resolved_tool_result(agent):
         ):
             return interaction
     return None
+
+
+class TestBackgroundEnvironmentNote:
+    """The one-time environment note also lands on the grace-completed path."""
+
+    def test_grace_completed_first_command_carries_the_note(self):
+        """A fast command (no defer) collects with the env note on first use."""
+        executor = BackgroundExecutor()
+        fake = FakeSandbox(
+            ExecResult(exit_code=0, stdout="ok", stderr="", duration_s=0.0)
+        )
+        stack = _bg_stack(fake, executor)
+        try:
+            # Completes within the grace window, so it collects synchronously
+            # (path 2), not parked — the env note attaches there too.
+            response = bash("echo hi", stack=stack)
+            assert response.is_error is False
+            assert response.content["environment"]["backend"] == "local"
+        finally:
+            executor.shutdown()
