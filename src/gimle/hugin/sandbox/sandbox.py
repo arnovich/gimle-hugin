@@ -28,6 +28,19 @@ DEFAULT_STORAGE_BASE = "./storage"
 # backend joins it onto its own base and returns the absolute result.
 SPILL_DIR = ".hugin"
 
+# Hard cap on the size of any *single* file a sandbox command may create, enforced
+# as an ``fsize`` rlimit on every backend (docker container ulimit; ``ulimit -f``
+# in the local/ssh bash wrapper). Stops a runaway ``yes > f`` from filling the
+# host disk and taking down the orchestrator. Generous (2 GiB) so a legitimate
+# build artifact isn't broken. This bounds one file, NOT total workspace usage —
+# a size-limited workspace volume is the stronger, deferred control (task 030).
+MAX_FILE_BYTES = 2 * 1024**3
+
+
+def fsize_ulimit_blocks() -> int:
+    """Return :data:`MAX_FILE_BYTES` as ``ulimit -f`` 1024-byte blocks."""
+    return MAX_FILE_BYTES // 1024
+
 
 def new_spill_relpath() -> str:
     """Return a unique, workspace-relative spill filename for one command.

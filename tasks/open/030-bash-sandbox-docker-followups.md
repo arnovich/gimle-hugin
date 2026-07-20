@@ -55,11 +55,15 @@ task is picked up first.
   Default to a digest, verify digest/signature on pull (cosign), pin `FROM` by
   digest, replace `curl|sh` with a checksum-verified artifact, and add a
   Trivy/Grype scan + cosign sign step to the image build/publish pipeline.
-- [ ] **Workspace disk quota.** *(security, MEDIUM)* cpu/memory/pids are capped
-  but the bind-mounted `/workspace` is unquota'd host storage; `yes > f` (not on
-  the denylist) fills the host disk and takes down the orchestrator. Mount the
-  workspace on a size-limited volume or enforce a quota / `fsize` ulimit (chosen
-  generously so legit builds aren't broken).
+- [~] **Workspace disk quota.** *(security, MEDIUM)* **Per-file cap done:** an
+  `fsize` rlimit (2 GiB, `MAX_FILE_BYTES`) bounds any *single* file a command
+  writes, on all three backends — docker via the container ulimit, local/ssh via
+  `ulimit -f` in the bash wrapper (rlimits inherit across `env -i`/`exec`). A
+  runaway `yes > f` now hits SIGXFSZ (verified: docker caps at exactly 2 GiB;
+  local end-to-end test with a small cap). **Still open (stronger control):**
+  *total* workspace usage is still unbounded (`for i in …; do yes > f$i; done`) —
+  mount the workspace on a size-limited volume (loopback/xfs project quota) for a
+  real total quota. Deferred as heavier + platform-specific.
 - [ ] **`put_file`/`get_file` TOCTOU / `O_NOFOLLOW`.** *(security, MEDIUM,
   latent — no production caller yet)* `_confine` realpath-checks then does a
   plain `open`; because the container writes the same tree as the host uid, a
