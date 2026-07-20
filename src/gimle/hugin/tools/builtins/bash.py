@@ -60,8 +60,8 @@ backgrounded command you never collect is lost). Only the last few command \
 outputs stay visible to you — write anything you need to keep into a file.
 
 Large output is truncated (tail-biased); when that happens the response \
-carries a `full_output` path (`.hugin/last_output.txt`) holding the complete \
-output — inspect it with `rg` or `sed -n`. A non-zero exit code is normal \
+carries a `full_output` path holding the complete output — inspect that path \
+with `rg` or `sed -n`. A non-zero exit code is normal \
 information (e.g. `grep` finding no matches), not a tool failure. A command \
 refused by policy comes back with a `denied` reason — try a permitted \
 alternative; an `unparseable` reason means the guard's parser choked, so \

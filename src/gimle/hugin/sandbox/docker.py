@@ -47,6 +47,7 @@ configuration this code cannot set per-container:
 import hashlib
 import logging
 import os
+import posixpath
 import threading
 import time
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
@@ -64,6 +65,7 @@ from gimle.hugin.sandbox.sandbox import (
     Sandbox,
     SandboxSpec,
     classify_timeout_exit,
+    new_spill_relpath,
     truncate_output,
 )
 
@@ -83,7 +85,6 @@ CONTAINER_WORKSPACE = "/workspace"
 _NAME_PREFIX = "hugin-sbx-"
 _PROXY_PREFIX = "hugin-proxy-"
 _EGRESS_NET_PREFIX = "hugin-egress-"
-_SPILL_RELATIVE = os.path.join(".hugin", "last_output.txt")
 
 # The egress proxy listens here inside its sidecar; the sandbox's HTTP_PROXY
 # points at ``http://<proxy-name>:<port>`` (resolved by the internal network's
@@ -838,8 +839,9 @@ class DockerSandbox(Sandbox):
         out, out_trunc = truncate_output(stdout_raw, max_output_bytes)
         err, err_trunc = truncate_output(stderr_raw, max_output_bytes)
         truncated = out_trunc or err_trunc or capped
-        if truncated:
-            self._spill(cwd, stdout_raw, stderr_raw)
+        spill_path = (
+            self._spill(cwd, stdout_raw, stderr_raw) if truncated else None
+        )
 
         return ExecResult(
             exit_code=exit_code,
@@ -849,6 +851,7 @@ class DockerSandbox(Sandbox):
             truncated=truncated,
             timed_out=timed_out,
             oom_killed=oom_killed,
+            spill_path=spill_path,
         )
 
     @staticmethod
@@ -956,24 +959,30 @@ class DockerSandbox(Sandbox):
         except Exception:  # pragma: no cover - if we can't tell, assume running
             return True
 
-    def _spill(self, cwd: str, stdout: str, stderr: str) -> None:
+    def _spill(self, cwd: str, stdout: str, stderr: str) -> Optional[str]:
         """Write full output host-side so the agent can read past the cap.
 
         ``cwd`` is a container path under ``/workspace``; it maps to the host
         bind-mount root, so the file is visible both to the host and, at the
-        same relative path, to the agent inside the container.
+        same relative path, to the agent inside the container. Returns the
+        *container* absolute path (what the agent reads, from any cwd), or None
+        if the best-effort write failed.
         """
+        relpath = new_spill_relpath()
         try:
-            host_cwd = self._host_path(cwd)
-            spill_path = os.path.join(host_cwd, _SPILL_RELATIVE)
-            os.makedirs(os.path.dirname(spill_path), exist_ok=True)
-            with open(spill_path, "w", encoding="utf-8") as handle:
+            host_spill = os.path.join(self._host_path(cwd), relpath)
+            os.makedirs(os.path.dirname(host_spill), exist_ok=True)
+            with open(host_spill, "w", encoding="utf-8") as handle:
                 handle.write(stdout)
                 if stderr:
                     handle.write("\n--- stderr ---\n")
                     handle.write(stderr)
+            # The agent reads it inside the container: the same relative path
+            # under the container-side cwd (posix, absolute).
+            return posixpath.join(cwd, relpath)
         except OSError as error:  # best-effort; never fail the command over it
             logger.debug("could not spill full output: %s", error)
+            return None
 
     def _host_path(self, container_path: str) -> str:
         """Map a ``/workspace/...`` container path to its host bind-mount path."""
