@@ -64,12 +64,15 @@ task is picked up first.
   *total* workspace usage is still unbounded (`for i in …; do yes > f$i; done`) —
   mount the workspace on a size-limited volume (loopback/xfs project quota) for a
   real total quota. Deferred as heavier + platform-specific.
-- [ ] **`put_file`/`get_file` TOCTOU / `O_NOFOLLOW`.** *(security, MEDIUM,
-  latent — no production caller yet)* `_confine` realpath-checks then does a
-  plain `open`; because the container writes the same tree as the host uid, a
-  symlink swap between check and open escapes. Open with `O_NOFOLLOW` /
-  `openat2(RESOLVE_NO_SYMLINKS)` walking from a dirfd. Overlaps task 024's
-  `put_file`/`get_file` item.
+- [~] **`put_file`/`get_file` TOCTOU / `O_NOFOLLOW`.** *(security, MEDIUM)*
+  **Final-component done:** local/docker put/get now open through
+  `read_file_nofollow`/`write_file_nofollow` (`O_NOFOLLOW`), so a symlink swapped
+  into the *last* path component after the realpath check is refused (`ELOOP` →
+  `PolicyDenied` via `reject_symlink_swap`) instead of read/written through.
+  **Still open:** an *intermediate*-directory swap between check and open — the
+  full guard is `openat2(RESOLVE_NO_SYMLINKS)` (Linux-only) walking from a dirfd;
+  deferred as platform-specific. (ssh confines lexically — remote symlink escape
+  is out of scope on a disposable box, documented.)
 
 ## Architecture / ops
 
@@ -84,17 +87,20 @@ task is picked up first.
   bespoke free function; give the backend registry a reap seam so the CLI
   iterates backends (SSH will add a third). Cross-host reaping of a genuinely
   dead host's containers stays out of scope (documented). Overlaps task 024.
-- [ ] **Capped / backgrounded exec: explicit state + kill.** *(SRE/architect/
-  usability, MEDIUM)* On the output cap or a host-side abandonment the exec'd
-  process keeps running in-container until its `timeout` fires, and the next
-  command runs as a second concurrent exec competing for pids/cpu. `exit_code`
-  is `-1` and `is_error` is `False`, so a capped runaway reads as success. Add an
-  explicit `output_capped`/`abandoned` field to `ExecResult` (treat as
-  `is_error`) and proactively terminate the lingering exec before returning.
-- [ ] **`start()` atomicity.** *(architect/SRE, MEDIUM)* Assign `self._container`
-  immediately after `containers.run` and wrap the post-create steps so a failure
-  after create stops the container instead of orphaning a live one the manager
-  never learned about.
+- [~] **Capped / backgrounded exec: explicit state + kill.** *(SRE/architect/
+  usability, MEDIUM)* **Explicit state done:** `ExecResult.output_capped` is set
+  by every backend when the byte-ceiling cuts a command off mid-stream, and the
+  tool maps it to `is_error` (+ an `output_capped` field in the result) — a
+  capped runaway no longer reads as success. **Still open:** proactively *kill*
+  the lingering docker exec on cap (local already terminates the process group;
+  docker relies on the in-container `timeout` to bound it, so it's not
+  immediately reaped).
+- [x] **`start()` atomicity.** *(architect/SRE, MEDIUM)* **Done:** `start()`
+  publishes `self._container` only once the container is up, and a failure rolls
+  back via `_rollback_failed_start` — a container *this call* created (including
+  one a failed `containers.run` left under our name) is removed; a *pre-existing*
+  one is left as-is; then the egress infra. Best-effort so it can't mask the
+  original error.
 - [ ] **Observability.** *(SRE, MEDIUM)* Differentiate `sandbox_start_failures`
   by exception class (daemon-down vs image-missing vs create-rejected); add
   `sandbox_containers_reaped`, start/pull duration, and a live labelled-container
