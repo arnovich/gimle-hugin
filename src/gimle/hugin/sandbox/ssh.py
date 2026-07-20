@@ -62,6 +62,7 @@ from gimle.hugin.sandbox.sandbox import (
     Sandbox,
     SandboxSpec,
     classify_timeout_exit,
+    new_spill_relpath,
     truncate_output,
 )
 
@@ -112,8 +113,6 @@ _EXIT_SENTINEL = "__HUGIN_EXIT_b9f2c1a4__"
 _SENTINEL_RE = re.compile(
     rb"\n" + re.escape(_EXIT_SENTINEL.encode("ascii")) + rb"=(-?\d+)\n?$"
 )
-
-_SPILL_RELATIVE = ".hugin/last_output.txt"
 
 
 def _safe_component(value: str) -> str:
@@ -469,8 +468,11 @@ class SSHSandbox(Sandbox):
         out, out_trunc = truncate_output(stdout_raw, max_output_bytes)
         err, err_trunc = truncate_output(stderr_raw, max_output_bytes)
         truncated = out_trunc or err_trunc or capped
-        if truncated:
+        spill_path = (
             self._spill_remote(cwd, stdout_bytes, err_bytes)
+            if truncated
+            else None
+        )
 
         return ExecResult(
             exit_code=exit_code,
@@ -480,6 +482,7 @@ class SSHSandbox(Sandbox):
             truncated=truncated,
             timed_out=timed_out,
             oom_killed=oom_killed,
+            spill_path=spill_path,
         )
 
     @staticmethod
@@ -500,19 +503,31 @@ class SSHSandbox(Sandbox):
 
     def _spill_remote(
         self, remote_cwd: str, stdout: bytes, stderr: bytes
-    ) -> None:
-        """Write the full output to the remote workspace so the agent can read it."""
+    ) -> Optional[str]:
+        """Write the full output to the remote workspace so the agent can read it.
+
+        Returns the absolute remote path written (readable from any cwd), or None
+        if the best-effort write failed — never fails the command over it.
+        """
         blob = stdout
         if stderr:
             blob = blob + b"\n--- stderr ---\n" + stderr
-        spill = posixpath.join(remote_cwd, _SPILL_RELATIVE)
+        spill = posixpath.join(remote_cwd, new_spill_relpath())
         parent = posixpath.dirname(spill)
-        self._safe_run(
-            self._ssh_argv(
-                f"mkdir -p {shlex.quote(parent)} && cat > {shlex.quote(spill)}"
-            ),
-            input_bytes=blob,
-        )
+        try:
+            self._safe_run(
+                self._ssh_argv(
+                    f"mkdir -p {shlex.quote(parent)} && "
+                    f"cat > {shlex.quote(spill)}"
+                ),
+                input_bytes=blob,
+            )
+            return spill
+        except (
+            Exception
+        ) as error:  # best-effort; never fail the command over it
+            logger.debug("could not spill full output remotely: %s", error)
+            return None
 
     # -- files --
 
