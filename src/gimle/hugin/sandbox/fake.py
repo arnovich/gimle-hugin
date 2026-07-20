@@ -8,7 +8,7 @@ with no subprocess, no container, and no daemon.
 import os
 import threading
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from gimle.hugin.sandbox.policy import Policy
 from gimle.hugin.sandbox.sandbox import ExecResult, Sandbox
@@ -54,7 +54,7 @@ class FakeSandbox(Sandbox):
         self.started = False
         self.stopped = False
         self.calls: List[_ExecCall] = []
-        self.files: Dict[str, bytes] = {}
+        self.files: Dict[Tuple[str, Optional[str], str], bytes] = {}
 
     def start(self) -> None:
         """Record that the sandbox was started, or raise if configured to fail."""
@@ -97,13 +97,17 @@ class FakeSandbox(Sandbox):
             raise self._raises
         return self._result
 
-    def put_file(self, path: str, content: bytes) -> None:
-        """Store ``content`` in the in-memory file map."""
-        self.files[path] = content
+    def put_file(
+        self, agent_id: str, branch: Optional[str], path: str, content: bytes
+    ) -> None:
+        """Store ``content`` in the in-memory file map, keyed per agent."""
+        self.files[(agent_id, branch, path)] = content
 
-    def get_file(self, path: str) -> bytes:
-        """Return previously stored content for ``path``."""
-        return self.files[path]
+    def get_file(
+        self, agent_id: str, branch: Optional[str], path: str
+    ) -> bytes:
+        """Return previously stored content for this agent's ``path``."""
+        return self.files[(agent_id, branch, path)]
 
     @property
     def last_call(self) -> Optional[_ExecCall]:
