@@ -107,14 +107,14 @@ class TestHardeningContract:
         assert kwargs["pids_limit"] == 256
 
     def test_ulimits_present(self, tmp_path):
-        """nproc/nofile ulimits are set (as plain tuples, SDK-free)."""
+        """nproc/nofile/fsize ulimits are set (as plain tuples, SDK-free)."""
         names = {
             name
             for (name, _s, _h) in _sandbox(tmp_path)._container_kwargs()[
                 "ulimits"
             ]
         }
-        assert names == {"nofile", "nproc"}
+        assert names == {"nofile", "nproc", "fsize"}
 
     def test_init_reaps_children(self, tmp_path):
         """--init gives PID 1 that reaps double-forked children."""
@@ -166,6 +166,13 @@ class TestHardeningContract:
         """memswap_limit == mem_limit so the memory cap can't be doubled via swap."""
         kwargs = _sandbox(tmp_path, memory="1g")._container_kwargs()
         assert kwargs["memswap_limit"] == kwargs["mem_limit"] == "1g"
+
+    def test_single_file_size_is_capped(self, tmp_path):
+        """An fsize ulimit bounds any one file (a runaway `yes > f` can't fill disk)."""
+        from gimle.hugin.sandbox.sandbox import MAX_FILE_BYTES
+
+        ulimits = _sandbox(tmp_path)._container_kwargs()["ulimits"]
+        assert ("fsize", MAX_FILE_BYTES, MAX_FILE_BYTES) in ulimits
 
 
 class TestProxyHardeningContract:

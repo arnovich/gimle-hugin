@@ -62,6 +62,7 @@ from gimle.hugin.sandbox.local import (
 from gimle.hugin.sandbox.policy import Allow, Policy, evaluate
 from gimle.hugin.sandbox.sandbox import (
     DEFAULT_SANDBOX_ROOT,
+    MAX_FILE_BYTES,
     ExecResult,
     PolicyDenied,
     Sandbox,
@@ -669,6 +670,9 @@ class DockerSandbox(Sandbox):
             "ulimits": [
                 ("nofile", 1024, 4096),
                 ("nproc", self._spec.pids, self._spec.pids),
+                # Cap any single file so a runaway `yes > f` can't fill the host
+                # disk through the bind mount (RLIMIT_FSIZE is in bytes).
+                ("fsize", MAX_FILE_BYTES, MAX_FILE_BYTES),
             ],
             # Run as the host user so bind-mounted files stay host-readable and
             # the process is provably non-root inside the container.
