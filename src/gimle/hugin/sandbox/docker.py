@@ -69,7 +69,10 @@ from gimle.hugin.sandbox.sandbox import (
     SandboxSpec,
     classify_timeout_exit,
     new_spill_relpath,
+    read_file_nofollow,
+    reject_symlink_swap,
     truncate_output,
+    write_file_nofollow,
 )
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
@@ -284,6 +287,8 @@ class DockerSandbox(Sandbox):
         # with the proxy already reachable. If anything from here on fails, tear
         # down the infra we just created — otherwise a per-session network +
         # proxy leak (and the network subnet pool is small).
+        container: Optional["Container"] = None
+        created = False
         try:
             if self._egress_filtered():
                 self._ensure_egress_infra(docker)
@@ -296,16 +301,40 @@ class DockerSandbox(Sandbox):
                 self._remove_container(container)
                 container = None
             if container is None:
+                created = True
                 container = self._create_container(docker)
             elif container.status != "running":
                 container.start()
+            # Publish the handle only once the container is up, so a failure
+            # can't leave a half-brought-up sandbox that stop() can't reach.
+            self._container = container
+            self._started = True
         except Exception:
-            # _remove_proxy_and_network never raises (guarded), so it can't mask
-            # the original failure we re-raise.
-            self._remove_proxy_and_network()
+            self._rollback_failed_start(created, container)
             raise
-        self._container = container
-        self._started = True
+
+    def _rollback_failed_start(
+        self, created: bool, container: Optional["Container"]
+    ) -> None:
+        """Undo a failed ``start`` so it leaves nothing orphaned. Never raises.
+
+        A container this call created (including one a failed ``containers.run``
+        left behind under our name) is removed — a *pre-existing* one is not ours
+        to remove. Then the egress infra. Best-effort throughout so it can't mask
+        the original failure being re-raised.
+        """
+        self._started = False
+        self._container = None
+        if created:
+            leftover = container
+            if leftover is None:
+                try:  # a failed containers.run may have left one under our name
+                    leftover = self._existing_container()
+                except Exception:  # daemon unreachable — nothing more to do
+                    leftover = None
+            if leftover is not None:
+                self._remove_container(leftover)
+        self._remove_proxy_and_network()
 
     def _assert_not_unsafe_root(self) -> None:
         """Fail closed if running as root without daemon userns-remap.
@@ -869,6 +898,7 @@ class DockerSandbox(Sandbox):
             truncated=truncated,
             timed_out=timed_out,
             oom_killed=oom_killed,
+            output_capped=capped,
             spill_path=spill_path,
         )
 
@@ -1015,16 +1045,20 @@ class DockerSandbox(Sandbox):
         """Write ``content`` into the agent's workspace (host-side, confined)."""
         target = self._confine(agent_id, branch, path)
         os.makedirs(os.path.dirname(target), exist_ok=True)
-        with open(target, "wb") as handle:
-            handle.write(content)
+        try:
+            write_file_nofollow(target, content)
+        except OSError as error:
+            reject_symlink_swap(path, error)
 
     def get_file(
         self, agent_id: str, branch: Optional[str], path: str
     ) -> bytes:
         """Read ``path`` from the agent's workspace, refusing a symlink escape."""
         target = self._confine(agent_id, branch, path)
-        with open(target, "rb") as handle:
-            return handle.read()
+        try:
+            return read_file_nofollow(target)
+        except OSError as error:
+            reject_symlink_swap(path, error)
 
     def _confine(self, agent_id: str, branch: Optional[str], path: str) -> str:
         """Resolve ``path`` within the ``(agent, branch)`` host workspace, or raise.

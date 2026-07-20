@@ -68,6 +68,7 @@ def result_content(command: str, result: ExecResult) -> Dict[str, Any]:
         "truncated": result.truncated,
         "timed_out": result.timed_out,
         "oom_killed": result.oom_killed,
+        "output_capped": result.output_capped,
     }
     if result.truncated and result.spill_path:
         content["full_output"] = result.spill_path
@@ -236,7 +237,9 @@ class BackgroundExecutor:
             )
         else:
             content = result_content(job.command, result)
-            is_error = result.timed_out or result.oom_killed
+            is_error = (
+                result.timed_out or result.oom_killed or result.output_capped
+            )
         job.collected = True
         # Evict a collected job so a long session doesn't accumulate one entry
         # per command (every bash call routes through the registry, including

@@ -130,6 +130,22 @@ class TestResultMapping:
         assert response.is_error is True
         assert response.content["oom_killed"] is True
 
+    def test_capped_output_is_an_error_not_a_silent_success(self):
+        """A command cut off at the byte ceiling is an error, not a success."""
+        fake = FakeSandbox(
+            ExecResult(
+                exit_code=-1,
+                stdout="floods",
+                stderr="[hugin: output exceeded ...]",
+                duration_s=0.3,
+                truncated=True,
+                output_capped=True,
+            )
+        )
+        response = bash("yes", stack=_stack_with_fake(fake))
+        assert response.is_error is True
+        assert response.content["output_capped"] is True
+
     def test_truncated_output_carries_the_spill_path(self):
         """A truncated result reports the exact spill path the backend wrote."""
         fake = FakeSandbox(
