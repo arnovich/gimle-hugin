@@ -126,13 +126,16 @@ class TestBackendContract:
         # The returned view is genuinely shortened, not just flagged — a backend
         # that set the flag but returned all 500 bytes would flood the context.
         assert "x" * 300 not in result.stdout
+        # The result names exactly where the full output was spilled, and that
+        # path is usable as-is (absolute, so it reads from any cwd).
+        assert result.spill_path is not None
         spilled = backend.box.exec(
-            "cat .hugin/last_output.txt",
+            f"cat {result.spill_path}",
             policy=Policy(),
             cwd=cwd,
             timeout_s=15,
         )
-        # ...but the spill holds the full output the view dropped.
+        # ...and the spill holds the full output the view dropped.
         assert "x" * 300 in spilled.stdout
 
     def test_workspaces_are_isolated_per_agent(self, backend):

@@ -131,7 +131,7 @@ class TestResultMapping:
         assert response.content["oom_killed"] is True
 
     def test_truncated_output_carries_the_spill_path(self):
-        """When output is truncated, the response tells the model where to read."""
+        """A truncated result reports the exact spill path the backend wrote."""
         fake = FakeSandbox(
             ExecResult(
                 exit_code=0,
@@ -139,10 +139,29 @@ class TestResultMapping:
                 stderr="",
                 duration_s=0.1,
                 truncated=True,
+                spill_path="/workspace/agents/a/default/.hugin/output-abc123.txt",
             )
         )
         response = bash("cat big", stack=_stack_with_fake(fake))
-        assert response.content["full_output"] == ".hugin/last_output.txt"
+        assert (
+            response.content["full_output"]
+            == "/workspace/agents/a/default/.hugin/output-abc123.txt"
+        )
+
+    def test_truncated_without_a_spill_path_omits_full_output(self):
+        """If the spill write failed (no path), no full_output is advertised."""
+        fake = FakeSandbox(
+            ExecResult(
+                exit_code=0,
+                stdout="tail",
+                stderr="",
+                duration_s=0.1,
+                truncated=True,
+                spill_path=None,
+            )
+        )
+        response = bash("cat big", stack=_stack_with_fake(fake))
+        assert "full_output" not in response.content
 
     def test_timeout_argument_is_passed_to_exec(self):
         """A caller-supplied timeout_s reaches the sandbox exec."""

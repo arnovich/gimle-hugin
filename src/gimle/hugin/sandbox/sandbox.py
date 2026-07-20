@@ -12,6 +12,7 @@ a fake backend first.
 """
 
 import os
+import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, fields
 from typing import Any, Callable, Dict, Optional, Tuple, Type, cast
@@ -20,6 +21,21 @@ from gimle.hugin.sandbox.policy import Policy
 
 # Default storage base when a session has no explicit path (in-memory storage).
 DEFAULT_STORAGE_BASE = "./storage"
+
+# Directory (relative to a workspace) that per-command output spills land in, and
+# a factory for a unique spill filename. Forward slashes so the one relative path
+# is valid on the host, in a Linux container, and on a remote box alike; each
+# backend joins it onto its own base and returns the absolute result.
+SPILL_DIR = ".hugin"
+
+
+def new_spill_relpath() -> str:
+    """Return a unique, workspace-relative spill filename for one command.
+
+    Unique per call so a later truncated command never clobbers an earlier
+    command's spilled output (a fixed ``last_output.txt`` did).
+    """
+    return f"{SPILL_DIR}/output-{uuid.uuid4().hex[:12]}.txt"
 
 
 def sandbox_root_for(storage_base: Optional[str]) -> str:
@@ -160,6 +176,12 @@ class ExecResult:
     truncated: bool = False
     timed_out: bool = False
     oom_killed: bool = False
+    # When ``truncated``, the absolute path (in the command's own namespace —
+    # host / container / remote) of the file the full output was spilled to, so
+    # a follow-up can read past the cap. Unique per command (so a later
+    # truncation doesn't clobber an earlier one) and absolute (so it reads from
+    # any cwd). None if nothing was spilled or the spill write failed.
+    spill_path: Optional[str] = None
 
 
 @dataclass(frozen=True)

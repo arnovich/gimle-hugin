@@ -27,6 +27,7 @@ from gimle.hugin.sandbox.sandbox import (
     PolicyDenied,
     Sandbox,
     SandboxSpec,
+    new_spill_relpath,
     truncate_output,
 )
 
@@ -35,8 +36,6 @@ logger = logging.getLogger(__name__)
 # Warn once per process that the local backend is not a sandbox — an operator
 # selecting ``backend: local`` should see it, not have to read a docstring.
 _isolation_warned = False
-
-_SPILL_RELATIVE = os.path.join(".hugin", "last_output.txt")
 # Owner stamp read by the reaper to decide whether a workspace is abandoned.
 OWNER_FILE = ".hugin_owner.json"
 
@@ -221,8 +220,9 @@ class LocalSandbox(Sandbox):
         out, out_trunc = truncate_output(full_stdout, max_output_bytes)
         err, err_trunc = truncate_output(full_stderr, max_output_bytes)
         truncated = out_trunc or err_trunc or capped
-        if truncated:
-            self._spill(cwd, full_stdout, full_stderr)
+        spill_path = (
+            self._spill(cwd, full_stdout, full_stderr) if truncated else None
+        )
 
         return ExecResult(
             exit_code=proc.returncode if proc.returncode is not None else -1,
@@ -232,6 +232,7 @@ class LocalSandbox(Sandbox):
             truncated=truncated,
             timed_out=timed_out,
             oom_killed=False,  # a bare subprocess cannot bound or detect OOM
+            spill_path=spill_path,
         )
 
     def _capture(
@@ -328,18 +329,24 @@ class LocalSandbox(Sandbox):
         except (ProcessLookupError, PermissionError):
             pass  # already gone, or not ours to kill
 
-    def _spill(self, cwd: str, stdout: str, stderr: str) -> None:
-        """Write full output to the workspace so the agent can read past the cap."""
+    def _spill(self, cwd: str, stdout: str, stderr: str) -> Optional[str]:
+        """Write full output under ``cwd`` so the agent can read past the cap.
+
+        Returns the absolute path written (readable from any cwd), or None if the
+        best-effort write failed — never fails the command over it.
+        """
+        spill_path = os.path.join(cwd, new_spill_relpath())
         try:
-            spill_path = os.path.join(cwd, _SPILL_RELATIVE)
             os.makedirs(os.path.dirname(spill_path), exist_ok=True)
             with open(spill_path, "w", encoding="utf-8") as handle:
                 handle.write(stdout)
                 if stderr:
                     handle.write("\n--- stderr ---\n")
                     handle.write(stderr)
+            return spill_path
         except OSError as error:  # best-effort; never fail the command over it
             logger.debug("could not spill full output: %s", error)
+            return None
 
     # -- files --
 

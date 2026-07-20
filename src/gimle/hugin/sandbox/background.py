@@ -69,8 +69,8 @@ def result_content(command: str, result: ExecResult) -> Dict[str, Any]:
         "timed_out": result.timed_out,
         "oom_killed": result.oom_killed,
     }
-    if result.truncated:
-        content["full_output"] = ".hugin/last_output.txt"
+    if result.truncated and result.spill_path:
+        content["full_output"] = result.spill_path
     return content
 
 

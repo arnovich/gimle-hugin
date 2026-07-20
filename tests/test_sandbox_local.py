@@ -171,6 +171,36 @@ class TestOutputTruncation:
             "echo small", policy=Policy(), cwd=_cwd(sandbox), timeout_s=10
         )
         assert not result.truncated
+        assert result.spill_path is None  # nothing spilled, nothing to point at
+
+    def test_each_truncation_spills_a_distinct_readable_file(self, sandbox):
+        """Two truncated commands spill to different files, both recoverable.
+
+        Regression: a single overwritten ``last_output.txt`` meant a deferred
+        read of the earlier command got the later command's output.
+        """
+        import os
+
+        cwd = _cwd(sandbox)
+
+        def big(marker: str):
+            return sandbox.exec(
+                f"for i in $(seq 1 1000); do echo {marker}-$i; done",
+                policy=Policy(max_output_bytes=300),
+                cwd=cwd,
+                timeout_s=10,
+                max_output_bytes=300,
+            )
+
+        first = big("alpha")
+        second = big("beta")
+        assert first.spill_path and second.spill_path
+        assert first.spill_path != second.spill_path  # unique per call
+        assert os.path.isabs(first.spill_path)  # usable from any cwd
+        with open(first.spill_path, encoding="utf-8") as handle:
+            assert "alpha-1000" in handle.read()  # earlier output not clobbered
+        with open(second.spill_path, encoding="utf-8") as handle:
+            assert "beta-1000" in handle.read()
 
     def test_runaway_output_is_capped_without_hanging(self, sandbox):
         """Unbounded output is bounded in memory and the process is killed.
