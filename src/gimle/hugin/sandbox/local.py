@@ -28,6 +28,7 @@ from gimle.hugin.sandbox.sandbox import (
     PolicyDenied,
     Sandbox,
     SandboxSpec,
+    fsize_ulimit_blocks,
     new_spill_relpath,
     truncate_output,
 )
@@ -242,10 +243,14 @@ class LocalSandbox(Sandbox):
 
         effective_timeout = min(timeout_s, policy.max_timeout_s)
         env = self._scrubbed_env(cwd)
+        # Cap any single file the command writes (a runaway `yes > f` would
+        # otherwise fill the host disk — local has no container to bound it).
+        # `ulimit -f` sets soft+hard, so the command can't raise it back.
+        wrapped = f"ulimit -f {fsize_ulimit_blocks()}; {command}"
 
         started = time.monotonic()
         proc = subprocess.Popen(
-            [self._bash, "-c", command],
+            [self._bash, "-c", wrapped],
             cwd=cwd,
             env=env,
             stdout=subprocess.PIPE,

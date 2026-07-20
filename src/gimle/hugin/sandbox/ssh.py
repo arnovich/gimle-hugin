@@ -62,6 +62,7 @@ from gimle.hugin.sandbox.sandbox import (
     Sandbox,
     SandboxSpec,
     classify_timeout_exit,
+    fsize_ulimit_blocks,
     new_spill_relpath,
     truncate_output,
 )
@@ -208,7 +209,12 @@ class SSHSandbox(Sandbox):
         touch = ""
         if self._remote_root:
             touch = f"touch {shlex.quote(self._remote_root)} 2>/dev/null; "
+        # Cap any single file the command writes (rlimits inherit across
+        # ``env -i`` and ``exec``, so this bounds the command even though the env
+        # is scrubbed) — a runaway ``yes > f`` can't fill the remote disk.
+        fsize = f"ulimit -f {fsize_ulimit_blocks()} 2>/dev/null; "
         return (
+            f"{fsize}"
             f"{touch}"
             f"cd {q_cwd} && "
             f"env -i HOME={q_cwd} PATH=/usr/local/bin:/usr/bin:/bin "
