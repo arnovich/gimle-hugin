@@ -429,6 +429,7 @@ Examples:
     # Set up storage
     storage = LocalStorage(base_path=str(storage_path))
 
+    session: Optional[Session] = None
     try:
         # Load agent_builder environment with user input
         env = Environment.load(
@@ -504,6 +505,11 @@ Examples:
         print(f"    See full details in: {log_file}")
         print()
         return 1
+    finally:
+        # Release session-owned resources (sandboxes, background workers) on
+        # every exit path; a no-op until the agent builder uses the bash tool.
+        if session is not None:
+            session.close()
 
     # Success screen
     show_header("Agent Created Successfully!", "Your agent is ready to use")
