@@ -11,11 +11,12 @@ shared types so the tool and the policy engine can be built and tested against
 a fake backend first.
 """
 
+import errno
 import os
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, fields
-from typing import Any, Callable, Dict, Optional, Tuple, Type, cast
+from typing import Any, Callable, Dict, NoReturn, Optional, Tuple, Type, cast
 
 from gimle.hugin.sandbox.policy import Policy
 
@@ -40,6 +41,47 @@ MAX_FILE_BYTES = 2 * 1024**3
 def fsize_ulimit_blocks() -> int:
     """Return :data:`MAX_FILE_BYTES` as ``ulimit -f`` 1024-byte blocks."""
     return MAX_FILE_BYTES // 1024
+
+
+def read_file_nofollow(path: str) -> bytes:
+    """Read ``path`` without following a symlink at its final component.
+
+    Closes the TOCTOU between a confinement check (which resolved the real path)
+    and this read: if the final component was swapped to a symlink afterwards,
+    ``O_NOFOLLOW`` fails the open (``ELOOP``) instead of reading through it. The
+    caller has already realpath-confined the path, so intermediate components are
+    covered at check time; only the last hop needs guarding here.
+    """
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(fd, "rb") as handle:
+        return handle.read()
+
+
+def write_file_nofollow(path: str, content: bytes) -> None:
+    """Write ``content`` to ``path`` without following a final-component symlink.
+
+    The write counterpart of :func:`read_file_nofollow`: ``O_NOFOLLOW`` refuses
+    to write *through* a symlink swapped in after the confinement check.
+    """
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW
+    fd = os.open(path, flags, 0o600)
+    with os.fdopen(fd, "wb") as handle:
+        handle.write(content)
+
+
+def reject_symlink_swap(path: str, error: OSError) -> NoReturn:
+    """Raise :class:`PolicyDenied` for an ``O_NOFOLLOW`` ``ELOOP``, else re-raise.
+
+    A symlink swapped into the final path component after the confinement check
+    makes the ``O_NOFOLLOW`` open fail with ``ELOOP`` — surface that as a
+    workspace escape (a denial), not a raw ``OSError``. Any other error (missing
+    file, permission) propagates unchanged.
+    """
+    if error.errno == errno.ELOOP:
+        raise PolicyDenied(
+            f"path escapes the workspace via a symlink: {path}"
+        ) from error
+    raise error
 
 
 def new_spill_relpath() -> str:
@@ -189,6 +231,11 @@ class ExecResult:
     truncated: bool = False
     timed_out: bool = False
     oom_killed: bool = False
+    # The output byte-ceiling was hit and the command was cut off mid-stream
+    # (not the ordinary tail-truncation of a finished command). It is a failure
+    # the model must react to — a runaway that read as "success" otherwise — so
+    # the tool maps it to ``is_error``.
+    output_capped: bool = False
     # When ``truncated``, the absolute path (in the command's own namespace —
     # host / container / remote) of the file the full output was spilled to, so
     # a follow-up can read past the cap. Unique per command (so a later

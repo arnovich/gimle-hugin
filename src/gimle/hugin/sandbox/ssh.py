@@ -493,6 +493,7 @@ class SSHSandbox(Sandbox):
             truncated=truncated,
             timed_out=timed_out,
             oom_killed=oom_killed,
+            output_capped=capped,
             spill_path=spill_path,
         )
 

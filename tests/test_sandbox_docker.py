@@ -300,6 +300,55 @@ class TestTeardownSafety:
         sandbox._remove_proxy_and_network()  # must not raise
 
 
+class TestStartAtomicity:
+    """A failed start() rolls back what it created — nothing is orphaned."""
+
+    def test_rollback_removes_a_container_we_created(
+        self, tmp_path, monkeypatch
+    ):
+        """A container created this call is removed, and the state is reset."""
+        sandbox = _sandbox(tmp_path)
+        removed: list = []
+        monkeypatch.setattr(
+            sandbox, "_remove_container", lambda c: removed.append(c)
+        )
+        monkeypatch.setattr(sandbox, "_remove_proxy_and_network", lambda: None)
+        handle = object()
+        sandbox._rollback_failed_start(created=True, container=handle)
+        assert removed == [handle]
+        assert sandbox._container is None
+        assert sandbox._started is False
+
+    def test_rollback_finds_a_partial_container_by_name(
+        self, tmp_path, monkeypatch
+    ):
+        """A failed containers.run leaves no handle — the leftover is found by name."""
+        sandbox = _sandbox(tmp_path)
+        removed: list = []
+        partial = object()
+        monkeypatch.setattr(sandbox, "_existing_container", lambda: partial)
+        monkeypatch.setattr(
+            sandbox, "_remove_container", lambda c: removed.append(c)
+        )
+        monkeypatch.setattr(sandbox, "_remove_proxy_and_network", lambda: None)
+        sandbox._rollback_failed_start(created=True, container=None)
+        assert removed == [partial]
+
+    def test_rollback_leaves_a_preexisting_container(
+        self, tmp_path, monkeypatch
+    ):
+        """A pre-existing container (not created this call) is never removed."""
+        sandbox = _sandbox(tmp_path)
+        removed: list = []
+        monkeypatch.setattr(
+            sandbox, "_remove_container", lambda c: removed.append(c)
+        )
+        monkeypatch.setattr(sandbox, "_remove_proxy_and_network", lambda: None)
+        sandbox._rollback_failed_start(created=False, container=object())
+        assert removed == []
+        assert sandbox._container is None and sandbox._started is False
+
+
 class TestExitClassification:
     """124/137/hung map to the right (timed_out, oom_killed) signals."""
 
