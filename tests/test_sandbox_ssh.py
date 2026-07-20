@@ -298,9 +298,13 @@ class TestExec:
             max_output_bytes=1000,
         )
         assert result.truncated is True
-        # The spill call wrote the full output to .hugin/last_output.txt.
+        # The spill call wrote the full output to a unique .hugin/output-* file,
+        # and the result names its absolute remote path.
         spill_call = sandbox._run.calls[-1]
-        assert any("last_output.txt" in a for a in spill_call.argv)
+        assert any("/.hugin/output-" in a for a in spill_call.argv)
+        assert result.spill_path is not None
+        assert result.spill_path.endswith(".txt")
+        assert result.spill_path.startswith("/home/u/.hugin-sandbox/sess-1/")
 
     def test_byte_capped_output_is_completed_with_unknown_exit(self):
         """Output past the byte cap loses the sentinel; report a completed run."""
