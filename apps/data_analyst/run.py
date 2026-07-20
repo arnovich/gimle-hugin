@@ -179,6 +179,9 @@ def main() -> int:
         print(f"Error during analysis: {e}")
         raise
     finally:
+        # Release session-owned resources (sandboxes, background workers) on
+        # every exit path; a no-op until this app uses the bash tool.
+        session.close()
         if monitor_process:
             monitor_process.terminate()
             monitor_process.wait()
