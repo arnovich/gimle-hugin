@@ -54,16 +54,20 @@ The `rmtree` at `write_agent_files.py:57` is a data-loss bug and the unvalidated
 `output_dir / file_path` join at `:77-79` is an arbitrary-file-write. They ship
 together, first, alone.
 
-- [ ] Changed-only writes: never delete, write only differing files, report
-      `{written, unchanged, conflicting}`, `dry_run` flag. No `overwrite`, no
+- [x] Changed-only writes: never delete, write only differing files, report
+      `{written, unchanged, preserved}`, `dry_run` flag. No `overwrite`, no
       `.bak` (spec §1.4 explains why the backup design was dropped)
-- [ ] Path confinement + name validation (spec §1.1 checks 1-2), reusing
-      `sandbox/sandbox.py`'s `write_file_nofollow` / `reject_symlink_swap`
-- [ ] Constrain `output_path`: refuse `/`, `$HOME`, repo root, paths containing
+- [x] Path confinement + name validation (spec §1.1 checks 1-2) in
+      `tools/agent_paths.py`, mirroring `sandbox.local.LocalSandbox._confine`
+      and writing through `sandbox.sandbox.write_file_nofollow`
+- [x] Constrain `output_path`: refuse `/`, `$HOME`, repo root, paths containing
       `.git`, symlinked components
-- [ ] Unify the run command across `write_agent_files.py:91`,
-      `cli/create_agent.py:525`, `use-creator.md:137`, `create-agent.md`
-- [ ] `tests/test_write_agent_files_safety.py`, including `../` and absolute keys
+- [x] Unify the run command: `agent_paths.run_command()` now feeds both the
+      generated README and `cli/create_agent.py`'s success screen
+- [x] `tests/test_write_agent_files_safety.py` — 35 tests, including `../`,
+      absolute keys, symlink escape, and the preserve/no-op/update cases
+- [ ] Remaining: `docs/src/how-to/use-creator.md:137` and `create-agent.md`
+      still print their own run command — fold into PR 1.6's docs pass
 
 ### PR 1.2 — Examples wired in `task/034_wire_examples`
 Two lines of YAML plus three of prompt. Highest value-per-line in the document.

@@ -75,9 +75,15 @@ Checks 6-7 execute it and are **opt-in, off by default** (see §1.5).
    `tools/*.py` has a sibling `.yaml` and vice versa.
 4. **Reference resolution**
    - `config.system_template` resolves to a registered template name, or is an
-     inline prompt. Only flag when it *looks like* a reference — reuse the
-     identifier-only heuristic `_BARE_TEMPLATE_REFERENCE` at
-     `agent/environment.py:26`, so plain-prose system prompts are not rejected.
+     inline prompt. Only flag when it *looks like* a reference — an
+     identifier-only heuristic (`^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$`), so
+     plain-prose system prompts are not rejected.
+     Note: `tasks/open/019-warn-on-unknown-template-reference.md` is **still
+     unimplemented**. A working draft of it was briefly present in the working
+     tree during this task's review and has since been reverted, so there is
+     nothing to reuse — this is new work. Best done as task 019 proper, inside
+     `Environment.load()` so hand-written agents get the warning too, with
+     `validate_agent` calling it.
    - Every entry in `config.tools` resolves: `builtins.X:Y` exists in the builtin
      registry, or `X` names a generated tool.
    - `task.tools`, when present, is a subset of the resolvable tool set.
@@ -250,7 +256,10 @@ def write_agent_files(stack, output_path, agent_name="",
 ```
 
 - Write only files whose content differs from disk. Report
-  `{written, unchanged, conflicting}`.
+  `{written, unchanged, preserved}` — `preserved` being files already in the
+  directory that the builder does not manage. (Drafted as `conflicting`; there
+  is no conflict once writes are additive, and naming them `preserved` says the
+  useful thing: these are exactly what the old `rmtree` destroyed silently.)
 - A file present on disk that the builder did not generate is **never** touched.
 - `dry_run=True` → return the file list and bodies that *would* be written,
   writing nothing.
