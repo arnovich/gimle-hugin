@@ -3,7 +3,9 @@
 import importlib.util
 import logging
 import os
+import re
 import sys
+from difflib import get_close_matches
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Dict, Optional, Set
 
@@ -20,6 +22,8 @@ if TYPE_CHECKING:
     from gimle.hugin.storage.storage import Storage
 
 logger = logging.getLogger(__name__)
+
+_BARE_TEMPLATE_REFERENCE = re.compile(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$")
 
 
 def _env_truthy(name: str) -> bool:
@@ -273,7 +277,72 @@ class Environment:
         # Load builtin agents
         Environment._load_builtin_agents()
 
+        # Configs and tasks are loaded before templates, so validate references
+        # only after the complete environment has been registered.
+        env._warn_on_unknown_template_references()
+
         return env
+
+    def _warn_on_unknown_template_references(self) -> None:
+        """Warn about identifier-like prompt values with no matching template.
+
+        Bare registered template names are supported by ``PromptRenderer``.
+        This catches the likely typo case without treating inline prose,
+        multiline prompts, or explicit Jinja expressions as references.
+        """
+        template_names = sorted(self.template_registry.registered())
+        sources = (
+            (
+                "Config",
+                self.config_registry.registered(),
+                ("system_template",),
+            ),
+            (
+                "Task",
+                self.task_registry.registered(),
+                ("system_template", "prompt"),
+            ),
+        )
+
+        for source_type, instances, field_names in sources:
+            for instance_name, instance in instances.items():
+                for field_name in field_names:
+                    reference = getattr(instance, field_name)
+                    if not isinstance(reference, str):
+                        continue
+                    if not _BARE_TEMPLATE_REFERENCE.fullmatch(reference):
+                        continue
+                    if reference in template_names:
+                        continue
+
+                    matches = get_close_matches(
+                        reference,
+                        template_names,
+                        n=1,
+                        cutoff=0.6,
+                    )
+                    if matches:
+                        suggestion = matches[0]
+                        hint = (
+                            f" Did you mean '{suggestion}'? The explicit form "
+                            f"is '{{{{ {suggestion}.template }}}}'."
+                        )
+                    else:
+                        hint = (
+                            " If this is intended as a template, register it; "
+                            "explicit references use "
+                            "'{{ template_name.template }}'."
+                        )
+
+                    logger.warning(
+                        "%s '%s' field '%s' looks like a bare template "
+                        "reference, but '%s' is not a registered template.%s",
+                        source_type,
+                        instance_name,
+                        field_name,
+                        reference,
+                        hint,
+                    )
 
     @classmethod
     def _load_builtin_agents(cls) -> None:
