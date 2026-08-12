@@ -1,8 +1,9 @@
 """Write generated files to disk."""
 
 import logging
+import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from gimle.hugin.apps.agent_builder.tools.agent_paths import (
     PathConfinementError,
@@ -11,7 +12,6 @@ from gimle.hugin.apps.agent_builder.tools.agent_paths import (
     materialise,
     validate_generated_keys,
 )
-from gimle.hugin.sandbox.sandbox import write_file_nofollow
 from gimle.hugin.tools.tool import ToolResponse
 
 if TYPE_CHECKING:
@@ -49,16 +49,46 @@ def _classify(
             continue
         if target.exists():
             try:
-                if target.read_text() == content:
+                # Explicit utf-8, matching how content is written. The locale
+                # default made this comparison wrong off UTF-8, and a
+                # UnicodeDecodeError is a ValueError -- not an OSError -- so it
+                # escaped the handler below and aborted the whole agent run.
+                if target.read_text(encoding="utf-8") == content:
                     unchanged.append(key)
                     continue
-            except OSError:
-                # Unreadable (permissions, a directory in the way) -- treat as
-                # needing a write so the error surfaces at write time.
+            except (OSError, UnicodeDecodeError):
+                # Unreadable, or not text -- treat as needing a write so the
+                # error surfaces at write time rather than as a traceback.
                 pass
         to_write[key] = content
 
     return to_write, unchanged, escaping
+
+
+def _as_bool(value: object) -> bool:
+    """Coerce an LLM-supplied argument to a bool.
+
+    Tool arguments arrive unconverted, so a plain truthiness test made the
+    string "false" enable dry-run and silently skip the write while reporting
+    success.
+    """
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
+def _write_text(target: Path, content: str) -> None:
+    """Write ``content`` without following a symlink at the final component.
+
+    Mirrors ``sandbox.write_file_nofollow`` but leaves the mode to the umask.
+    That helper hardcodes 0o600 for sandbox workspaces; generated agents are
+    ordinary project files, and 0600 made them unreadable to the service
+    account or container user that later runs them.
+    """
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW
+    handle = os.open(str(target), flags, 0o666)
+    with os.fdopen(handle, "w", encoding="utf-8") as stream:
+        stream.write(content)
 
 
 def write_agent_files(
@@ -121,7 +151,7 @@ def write_agent_files(
         task_name=_first_task_name(generated_files),
     )
 
-    output_dir = Path(output_path)
+    output_dir = Path(output_path).expanduser()
     to_write, unchanged, escaping = _classify(files, output_dir)
     if escaping:
         return ToolResponse(
@@ -134,7 +164,7 @@ def write_agent_files(
 
     preserved = _existing_unmanaged(output_dir, files)
 
-    if dry_run:
+    if _as_bool(dry_run):
         return ToolResponse(
             is_error=False,
             content={
@@ -157,7 +187,7 @@ def write_agent_files(
             # O_NOFOLLOW closes the gap between the confinement check above and
             # the write: a symlink swapped into the final component afterwards
             # fails the open rather than being written through.
-            write_file_nofollow(str(target), content.encode())
+            _write_text(target, content)
             written.append(key)
     except (OSError, PathConfinementError) as error:
         return ToolResponse(
@@ -168,6 +198,7 @@ def write_agent_files(
             },
         )
 
+    removed = _remove_superseded(env_vars, files, output_dir)
     registered = _register(stack, output_dir)
 
     return ToolResponse(
@@ -176,11 +207,47 @@ def write_agent_files(
             "output_path": str(output_dir),
             "written": sorted(written),
             "unchanged": sorted(unchanged),
+            "removed": removed,
             "preserved": preserved,
             "message": f"Wrote {len(written)} file(s) to {output_dir}",
             "registered_config": registered,
         },
     )
+
+
+def _remove_superseded(
+    env_vars: Dict[str, Any], files: Dict[str, str], output_dir: Path
+) -> List[str]:
+    """Delete files this builder wrote earlier but no longer generates.
+
+    Dropping ``rmtree`` removed the invariant that the directory holds exactly
+    the current generation. Without this, a builder that regenerates under new
+    names mid-session leaves the old config and tools behind, and
+    ``load_agent_from_path`` registers *both* -- returning whichever the
+    directory happens to yield last, so the user can be handed the obsolete,
+    known-broken iteration.
+
+    Only files this tool wrote in this session are removed: the record comes
+    from ``env_vars``, never from scanning the directory, so a file the user
+    added or hand-edited is still never touched.
+    """
+    previous = set(env_vars.get("written_keys") or [])
+    current = set(files)
+    env_vars["written_keys"] = sorted(current)
+
+    removed = []
+    for key in sorted(previous - current):
+        try:
+            target = confine(output_dir, key)
+        except PathConfinementError:
+            continue
+        try:
+            if target.is_file():
+                target.unlink()
+                removed.append(key)
+        except OSError as error:
+            logger.warning("Could not remove superseded %s: %s", key, error)
+    return removed
 
 
 def _existing_unmanaged(output_dir: Path, files: Dict[str, str]) -> List[str]:

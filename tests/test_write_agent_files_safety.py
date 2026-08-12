@@ -259,6 +259,150 @@ class TestDryRun:
         assert preview.content["would_write"] == actual.content["written"]
 
 
+class TestNamingStyleDoesNotDiscardTheBuild:
+    """Confinement is a security rule; snake_case was taste, and it aborted."""
+
+    @pytest.mark.parametrize(
+        "key",
+        [
+            "tools/getWeather.py",
+            "tools/my-tool.py",
+            "tools/fetch.v2.py",
+            "configs/Demo.yaml",
+        ],
+    )
+    def test_unconventional_but_safe_names_are_accepted(self, key):
+        """One oddly-named tool must not discard an otherwise good agent."""
+        assert validate_generated_key(key) is None
+
+    def test_a_camelcase_tool_still_writes_the_whole_agent(
+        self, stack, tmp_path
+    ):
+        """The regression: every valid file was dropped over one name."""
+        env_vars = stack.agent.environment.env_vars
+        env_vars["generated_files"]["tools/getWeather.py"] = "x = 1\n"
+
+        result = write_agent_files(stack, str(tmp_path / "demo"), "demo")
+
+        assert not result.is_error
+        assert "tools/getWeather.py" in result.content["written"]
+
+    def test_traversal_is_still_refused(self):
+        """Loosening style must not loosen confinement."""
+        assert validate_generated_key("tools/../../evil.py") is not None
+
+
+class TestEncoding:
+    """Content is written as UTF-8, so it must be read back as UTF-8."""
+
+    def test_non_ascii_roundtrips_as_unchanged(self, stack, tmp_path):
+        """A locale-default read made this comparison wrong off UTF-8."""
+        env_vars = stack.agent.environment.env_vars
+        env_vars["generated_files"][
+            "templates/demo_system.yaml"
+        ] = "name: demo_system\ntemplate: Grüße, naïve café\n"
+        output = tmp_path / "demo"
+
+        write_agent_files(stack, str(output), "demo")
+        second = write_agent_files(stack, str(output), "demo")
+
+        assert "templates/demo_system.yaml" in second.content["unchanged"]
+
+    def test_undecodable_existing_file_does_not_escape(self, stack, tmp_path):
+        """A decode error is a ValueError, so it slipped past OSError."""
+        output = tmp_path / "demo"
+        (output / "configs").mkdir(parents=True)
+        (output / "configs" / "demo.yaml").write_bytes(b"\xff\xfe\x00bad")
+
+        result = write_agent_files(stack, str(output), "demo")
+
+        assert not result.is_error
+        assert "configs/demo.yaml" in result.content["written"]
+
+
+class TestFileMode:
+    """Generated agents are ordinary project files, not sandbox scratch."""
+
+    def test_files_are_not_owner_only(self, stack, tmp_path):
+        """0600 broke running the agent as a service or container user."""
+        output = tmp_path / "demo"
+        write_agent_files(stack, str(output), "demo")
+
+        mode = (output / "configs" / "demo.yaml").stat().st_mode & 0o777
+
+        assert mode & 0o044, oct(mode)
+
+
+class TestArgumentCoercion:
+    """Tool arguments arrive from the model unconverted."""
+
+    def test_string_false_does_not_skip_the_write(self, stack, tmp_path):
+        """bool("false") is True, which silently turned a write into a no-op."""
+        output = tmp_path / "demo"
+
+        result = write_agent_files(stack, str(output), "demo", dry_run="false")
+
+        assert result.content.get("dry_run") is not True
+        assert (output / "configs" / "demo.yaml").exists()
+
+    def test_string_true_still_previews(self, stack, tmp_path):
+        """The affirmative spelling keeps working."""
+        output = tmp_path / "demo"
+
+        result = write_agent_files(stack, str(output), "demo", dry_run="true")
+
+        assert result.content["dry_run"] is True
+        assert not output.exists()
+
+
+class TestSupersededFiles:
+    """Dropping rmtree lost the "directory holds one generation" invariant."""
+
+    def test_regenerated_under_a_new_name_removes_the_old(
+        self, stack, tmp_path
+    ):
+        """Otherwise both configs register and the stale one can win."""
+        output = tmp_path / "demo"
+        write_agent_files(stack, str(output), "demo")
+        assert (output / "configs" / "demo.yaml").exists()
+
+        env_vars = stack.agent.environment.env_vars
+        files = env_vars["generated_files"]
+        files["configs/renamed.yaml"] = files.pop("configs/demo.yaml")
+
+        result = write_agent_files(stack, str(output), "demo")
+
+        assert not (output / "configs" / "demo.yaml").exists()
+        assert (output / "configs" / "renamed.yaml").exists()
+        assert "configs/demo.yaml" in result.content["removed"]
+
+    def test_user_files_are_never_removed(self, stack, tmp_path):
+        """Removal is driven by what we wrote, never by scanning the dir."""
+        output = tmp_path / "demo"
+        write_agent_files(stack, str(output), "demo")
+        mine = output / "configs" / "mine.yaml"
+        mine.write_text("hand-written")
+
+        env_vars = stack.agent.environment.env_vars
+        files = env_vars["generated_files"]
+        files["configs/renamed.yaml"] = files.pop("configs/demo.yaml")
+        write_agent_files(stack, str(output), "demo")
+
+        assert mine.read_text() == "hand-written"
+
+
+class TestHomeDirectoryExpansion:
+    """One half of check_output_path expanded ~ and the other did not."""
+
+    def test_tilde_home_is_refused(self):
+        """The guard whose only job is refusing $HOME must see it."""
+        assert check_output_path("~") is not None
+
+    def test_tilde_subpath_is_allowed_but_expanded(self, stack, tmp_path):
+        """~ paths must not create a literal '~' directory in the cwd."""
+        assert check_output_path("~/agents/demo") is None
+
+
 class TestGeneratedReadme:
     """The README used to name an entrypoint that does not exist."""
 

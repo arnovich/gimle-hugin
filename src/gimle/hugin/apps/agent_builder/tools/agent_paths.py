@@ -18,9 +18,20 @@ import re
 from pathlib import Path
 from typing import Dict, List, Optional
 
-# A generated key is always "<dir>/<stem>.<ext>" with snake_case components.
-# Anchored, so a traversal or an absolute path cannot match in the first place.
-GENERATED_KEY = re.compile(r"^[a-z][a-z0-9_]*/[a-z][a-z0-9_]*\.(?:yaml|py)$")
+# A generated key is "<dir>/<file>.<yaml|py>", one level deep, relative.
+#
+# Deliberately permissive about *style* and strict about *shape*. An earlier
+# version required snake_case throughout, which conflated two unrelated jobs:
+# confinement (a security property -- reject traversal, absolute paths and
+# anything that leaves the output directory) and naming taste. Because a
+# rejected key aborts the whole write, an LLM naming one tool `getWeather`
+# discarded an otherwise complete agent, and `hugin validate` rejected
+# hand-written agents containing a perfectly loadable `tools/my-tool.py`.
+# Every character allowed here is still safe: no separator, no traversal, no
+# absolute path.
+GENERATED_KEY = re.compile(
+    r"^[A-Za-z0-9_]+/[A-Za-z0-9_][A-Za-z0-9_.\-]*\.(?:yaml|py)$"
+)
 
 # Written by the builder itself rather than generated, so exempt from the
 # snake_case key rule (dunder names would never match it).
@@ -55,16 +66,26 @@ def validate_generated_key(key: str) -> Optional[str]:
     if not GENERATED_KEY.match(key):
         return (
             f"file key {key!r} must be '<dir>/<name>.yaml' or "
-            "'<dir>/<name>.py' in snake_case"
+            "'<dir>/<name>.py', one directory deep"
         )
     return None
+
+
+def is_exempt(key: str) -> bool:
+    """Return True for files the builder writes rather than generates.
+
+    Single source for the exemption, which was previously spelled out twice --
+    in opposite orders -- in :func:`validate_generated_keys` and
+    :func:`confine`, so the two could disagree about the same key.
+    """
+    return key in FRAMEWORK_FILES
 
 
 def validate_generated_keys(keys: List[str]) -> List[str]:
     """Return every error across ``keys``, empty when all are usable."""
     errors = []
     for key in keys:
-        if key in FRAMEWORK_FILES:
+        if is_exempt(key):
             continue
         error = validate_generated_key(key)
         if error:
@@ -79,9 +100,10 @@ def confine(root: Path, key: str) -> Path:
     dereferenced paths; a symlink planted inside the tree that points outside it
     therefore resolves to an outside path and is rejected.
     """
-    error = validate_generated_key(key)
-    if error and key not in FRAMEWORK_FILES:
-        raise PathConfinementError(error)
+    if not is_exempt(key):
+        error = validate_generated_key(key)
+        if error:
+            raise PathConfinementError(error)
 
     real_root = Path(os.path.realpath(root))
     resolved = Path(os.path.realpath(real_root / key))
@@ -104,7 +126,14 @@ def check_output_path(output_path: str) -> Optional[str]:
     if not output_path or not output_path.strip():
         return "no output path specified"
 
-    resolved = Path(os.path.realpath(output_path))
+    # expanduser() first, and everywhere. Without it realpath("~") yields
+    # "<cwd>/~" rather than $HOME, so the home-directory and .git guards below
+    # silently passed every ~-prefixed path -- while the symlink probe further
+    # down *did* expand it, leaving the two halves of this function checking
+    # different directories. "~/agents/demo" is exactly what a model passes
+    # when the user says "put it in ~/agents/demo".
+    expanded = Path(output_path).expanduser()
+    resolved = Path(os.path.realpath(expanded))
 
     if resolved == Path(resolved.anchor):
         return f"refusing to write an agent to the filesystem root: {resolved}"
@@ -121,8 +150,7 @@ def check_output_path(output_path: str) -> Optional[str]:
 
     # A symlinked component means the final location is not the one the user
     # named, which defeats every other check here.
-    probe = Path(output_path).expanduser()
-    for parent in [probe, *probe.parents]:
+    for parent in [expanded, *expanded.parents]:
         if parent.is_symlink():
             return (
                 f"refusing to write through a symlinked path component: "

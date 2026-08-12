@@ -285,9 +285,20 @@ def run_wizard(builder_model: Optional[str] = None) -> Dict[str, Any]:
 
     # Output path
     print()
-    output_path = prompt_user(
-        "    Output directory path", f"./agents/{agent_name}"
+    # Checked here, not only at write time: these refusals used to surface
+    # after the entire multi-stage LLM build had already run and been paid for.
+    from gimle.hugin.apps.agent_builder.tools.agent_paths import (
+        check_output_path,
     )
+
+    default_output = f"./agents/{agent_name}"
+    output_path = prompt_user("    Output directory path", default_output)
+    while True:
+        problem = check_output_path(output_path)
+        if not problem:
+            break
+        print(f"        {problem}")
+        output_path = prompt_user("    Output directory path", default_output)
 
     # Confirmation screen
     show_header("Ready to Build", "Review your configuration")
