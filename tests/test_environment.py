@@ -1,9 +1,15 @@
 """Tests for Environment functionality."""
 
+import logging
+from pathlib import Path
+
 import pytest
 import yaml
 
+from gimle.hugin.agent.config import Config
 from gimle.hugin.agent.environment import Environment
+from gimle.hugin.agent.task import Task
+from gimle.hugin.llm.prompt.template import Template
 from gimle.hugin.tools.tool import Tool
 
 
@@ -175,6 +181,148 @@ class TestEnvironment:
         template = env.template_registry.get("test_template")
         assert template.name == "test_template"
         assert template.template == "Hello {{ name }}"
+
+    def test_environment_warns_on_unknown_bare_template_references(
+        self, tmp_path, caplog
+    ):
+        """Likely template-name typos identify their owner and suggestion."""
+        configs_dir = tmp_path / "configs"
+        tasks_dir = tmp_path / "tasks"
+        templates_dir = tmp_path / "templates"
+        configs_dir.mkdir()
+        tasks_dir.mkdir()
+        templates_dir.mkdir()
+
+        with open(configs_dir / "researcher.yaml", "w") as f:
+            yaml.dump(
+                {
+                    "name": "researcher",
+                    "description": "Research agent",
+                    "system_template": "basci_system",
+                },
+                f,
+            )
+        with open(tasks_dir / "research.yaml", "w") as f:
+            yaml.dump(
+                {
+                    "name": "research",
+                    "description": "Research task",
+                    "prompt": "research_promt",
+                    "system_template": "researh_system",
+                },
+                f,
+            )
+        for name in ("basic_system", "research_prompt", "research_system"):
+            with open(templates_dir / f"{name}.yaml", "w") as f:
+                yaml.dump({"name": name, "template": "Template body"}, f)
+
+        with caplog.at_level(
+            logging.WARNING, logger="gimle.hugin.agent.environment"
+        ):
+            Environment.load(str(tmp_path))
+
+        messages = [record.getMessage() for record in caplog.records]
+        assert len(messages) == 3
+        assert any(
+            "Config 'researcher' field 'system_template'" in message
+            and "'basci_system' is not a registered template" in message
+            and "Did you mean 'basic_system'?" in message
+            and "{{ basic_system.template }}" in message
+            for message in messages
+        )
+        assert any(
+            "Task 'research' field 'prompt'" in message
+            and "Did you mean 'research_prompt'?" in message
+            for message in messages
+        )
+        assert any(
+            "Task 'research' field 'system_template'" in message
+            and "Did you mean 'research_system'?" in message
+            for message in messages
+        )
+
+    def test_environment_template_warning_ignores_valid_and_inline_values(
+        self, tmp_path, caplog
+    ):
+        """Registered names, explicit Jinja, and inline prose stay quiet."""
+        configs_dir = tmp_path / "configs"
+        tasks_dir = tmp_path / "tasks"
+        templates_dir = tmp_path / "templates"
+        configs_dir.mkdir()
+        tasks_dir.mkdir()
+        templates_dir.mkdir()
+
+        with open(configs_dir / "researcher.yaml", "w") as f:
+            yaml.dump(
+                {
+                    "name": "researcher",
+                    "description": "Research agent",
+                    "system_template": "basic_system",
+                },
+                f,
+            )
+        with open(tasks_dir / "research.yaml", "w") as f:
+            yaml.dump(
+                {
+                    "name": "research",
+                    "description": "Research task",
+                    "prompt": "Summarize this.",
+                    "system_template": "{{ basic_system.template }}",
+                },
+                f,
+            )
+        with open(templates_dir / "basic_system.yaml", "w") as f:
+            yaml.dump({"name": "basic_system", "template": "Template body"}, f)
+
+        with caplog.at_level(
+            logging.WARNING, logger="gimle.hugin.agent.environment"
+        ):
+            Environment.load(str(tmp_path))
+
+        assert not caplog.records
+
+    def test_bundled_apps_and_examples_have_no_unknown_template_warnings(
+        self, caplog
+    ):
+        """The template-reference heuristic stays quiet for shipped YAML."""
+        repository_root = Path(__file__).resolve().parents[1]
+        source_roots = (
+            repository_root / "apps",
+            repository_root / "examples",
+            repository_root / "src" / "gimle" / "hugin" / "apps",
+        )
+        package_paths = set()
+        for source_root in source_roots:
+            for folder_name in ("configs", "tasks", "templates"):
+                package_paths.update(
+                    folder.parent
+                    for folder in source_root.rglob(folder_name)
+                    if folder.is_dir()
+                )
+
+        with caplog.at_level(
+            logging.WARNING, logger="gimle.hugin.agent.environment"
+        ):
+            for package_path in sorted(package_paths):
+                env = Environment()
+                for yaml_path in (package_path / "configs").glob("*.yaml"):
+                    with open(yaml_path, "r") as f:
+                        env.config_registry.register(
+                            Config.from_dict(yaml.safe_load(f))
+                        )
+                for yaml_path in (package_path / "tasks").glob("*.yaml"):
+                    with open(yaml_path, "r") as f:
+                        env.task_registry.register(
+                            Task.from_dict(yaml.safe_load(f))
+                        )
+                for yaml_path in (package_path / "templates").glob("*.yaml"):
+                    with open(yaml_path, "r") as f:
+                        env.template_registry.register(
+                            Template.from_dict(yaml.safe_load(f))
+                        )
+                env._warn_on_unknown_template_references()
+
+        assert not caplog.records
 
     def test_environment_load_all_types(self, tmp_path):
         """Test loading configs, tasks, and templates together."""
