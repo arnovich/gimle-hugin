@@ -75,7 +75,9 @@ together, first, alone.
 ### PR 1.2 — Examples wired in `task/034_wire_examples`
 Two lines of YAML plus three of prompt. Highest value-per-line in the document.
 
-- [ ] `list_examples`, `read_example` into `configs/agent_builder.yaml`
+- [x] `list_examples`, `read_example` into `configs/agent_builder.yaml`, with
+      `read_example` confined to a single name inside `examples/` (unconfined,
+      wiring it in made an arbitrary-directory reader live)
 - [x] Study step in `builder_system.yaml` **and** in `tasks/build_agent.yaml` —
       the task prompt is a concrete numbered recipe that previously began at
       `generate_config`, and a concrete recipe wins over a system-prompt

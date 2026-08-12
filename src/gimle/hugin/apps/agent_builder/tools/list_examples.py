@@ -196,9 +196,22 @@ def _parse_key_concept(readme_path: Path) -> Optional[str]:
 
 
 def _detect_category(example_name: str) -> str:
-    """Infer category from example name."""
+    """Infer category from example name.
+
+    The hardcoded catalogue is consulted first so filesystem-derived entries
+    agree with it. Without that, ``basic_agent`` -- which the catalogue and the
+    tool's own parameter description both call ``basic`` -- was inferred as
+    ``multi_agent``, because the keyword list below leads with the bare
+    substring "agent" and every keyword bucket is checked in order. A builder
+    asking for ``category='basic'`` therefore never saw the canonical starting
+    point and studied a multi-agent example instead.
+    """
+    for known in FALLBACK_EXAMPLES:
+        if known["name"] == example_name:
+            return str(known["category"])
+
     multi_agent_keywords = [
-        "agent",
+        "multi_agent",
         "messaging",
         "shared",
         "parallel",

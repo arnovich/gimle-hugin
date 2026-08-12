@@ -34,6 +34,33 @@ def _get_examples_path() -> Optional[Path]:
     return None
 
 
+def _confine_example(examples_path: Path, name: str) -> Optional[Path]:
+    """Resolve ``name`` to a directory inside ``examples_path``, or None.
+
+    ``example_name`` is chosen by the model, and ``examples_path / name`` is
+    the same unconfined join the writer side guards against: ``pathlib`` does
+    not normalise ``..`` and an absolute operand replaces the left-hand side
+    entirely. Unconfined, this tool read any directory on the host that
+    happened to look like an example -- another repo, the builder's own source
+    -- straight into model context and into persisted interaction JSON.
+
+    A single path component is all a legitimate example name ever needs, so the
+    rule is deliberately narrow rather than clever.
+    """
+    if not name or name.strip() != name:
+        return None
+    if name in (".", "..") or "/" in name or "\\" in name:
+        return None
+    if os.path.isabs(name) or name.startswith("~"):
+        return None
+
+    root = Path(os.path.realpath(examples_path))
+    resolved = Path(os.path.realpath(root / name))
+    if resolved.parent != root:
+        return None
+    return resolved
+
+
 def _read_yaml_files(directory: Path) -> List[Dict[str, str]]:
     """Read all YAML files in a directory."""
     files: List[Dict[str, str]] = []
@@ -115,7 +142,17 @@ def read_example(
                 },
             )
 
-        example_dir = examples_path / example_name
+        example_dir = _confine_example(examples_path, example_name)
+        if example_dir is None:
+            return ToolResponse(
+                is_error=True,
+                content={
+                    "error": (
+                        f"'{example_name}' is not an example name. Pass a "
+                        "single name from list_examples, not a path."
+                    )
+                },
+            )
         if not example_dir.exists() or not example_dir.is_dir():
             # List available examples to help the user
             available = [

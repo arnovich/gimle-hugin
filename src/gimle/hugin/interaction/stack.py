@@ -247,8 +247,16 @@ class Stack:
                             message_groups[tool_call] = 0
                         message_groups[tool_call] += 1
                         total_message_groups += 1
-                        if tool_call in self.get_tools():
-                            tool = Tool.get_tool(tool_call)
+                        # Look the tool up by name rather than testing
+                        # membership of get_tools(): that returns List[Tool],
+                        # so `tool_call in ...` compared a str against
+                        # dataclasses and was always False, leaving every
+                        # context-window option in the codebase dead. Keying
+                        # off the tool itself also survives a task chain
+                        # swapping the agent's config mid-run, which would
+                        # otherwise uncap results at the chained stage.
+                        tool = Tool.get_tool(tool_call, throw_error=False)
+                        if tool is not None:
                             if (
                                 tool
                                 and tool.options.include_only_in_context_window

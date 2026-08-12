@@ -8,6 +8,7 @@ These tests pin the wiring and the context caps that keep it affordable.
 
 from pathlib import Path
 
+import pytest
 import yaml
 
 BUILDER = Path(__file__).resolve().parents[1] / (
@@ -45,6 +46,23 @@ class TestExampleToolsAreWired:
                 continue
             assert (BUILDER / "tools" / f"{tool}.yaml").exists(), tool
             assert (BUILDER / "tools" / f"{tool}.py").exists(), tool
+
+    def test_every_configured_tool_actually_resolves(self, tmp_path):
+        """File existence is not registration.
+
+        Asserting on YAML text cannot catch the bug class this PR fixes -- a
+        tool listed in the config that never becomes usable -- so load the
+        environment and resolve each name the way the framework does.
+        """
+        from gimle.hugin.agent.environment import Environment
+        from gimle.hugin.storage.local import LocalStorage
+        from gimle.hugin.tools.tool import Tool
+
+        Environment.load(str(BUILDER), storage=LocalStorage(str(tmp_path)))
+
+        for entry in _config()["tools"]:
+            name = entry.split(":")[0]
+            assert Tool.get_tool(name, throw_error=False), name
 
 
 class TestContextCaps:
@@ -90,8 +108,13 @@ class TestPromptsDirectTheBuilderToStudyFirst:
 class TestToolsActuallyWork:
     """Wiring a broken tool in would be worse than leaving it out."""
 
-    def test_list_examples_returns_real_examples(self):
-        """Reads the repo's examples/ tree rather than a hardcoded list."""
+    def test_list_examples_reads_the_filesystem(self):
+        """Asserting non-emptiness alone passes through the fallback list.
+
+        The hardcoded FALLBACK_EXAMPLES satisfies "examples is non-empty", so
+        the previous version of this test stayed green in exactly the
+        installed-wheel case it was meant to guard.
+        """
         from gimle.hugin.apps.agent_builder.tools.list_examples import (
             list_examples,
         )
@@ -99,10 +122,28 @@ class TestToolsActuallyWork:
         result = list_examples()
 
         assert not result.is_error
+        assert result.content["source"] == "filesystem"
         assert result.content["examples"]
 
-    def test_read_example_returns_a_known_example(self):
-        """basic_agent is the canonical starting point and must be readable."""
+    def test_basic_agent_is_categorised_basic(self):
+        """The canonical starting point must survive a category='basic' filter.
+
+        _detect_category leads with the substring "agent", which put
+        basic_agent in multi_agent and hid it from the builder.
+        """
+        from gimle.hugin.apps.agent_builder.tools.list_examples import (
+            list_examples,
+        )
+
+        names = [
+            e["name"]
+            for e in list_examples(category="basic").content["examples"]
+        ]
+
+        assert "basic_agent" in names
+
+    def test_read_example_returns_actual_content(self):
+        """Absence of an error is not evidence that anything came back."""
         from gimle.hugin.apps.agent_builder.tools.read_example import (
             read_example,
         )
@@ -110,6 +151,31 @@ class TestToolsActuallyWork:
         result = read_example(example_name="basic_agent")
 
         assert not result.is_error
+        assert result.content.get("configs")
+        assert result.content.get("tasks")
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "../src/gimle/hugin/apps/agent_builder",
+            "/etc",
+            "..",
+            "~",
+            "tools/../../etc",
+        ],
+    )
+    def test_read_example_refuses_paths_outside_examples(self, name):
+        """example_name is model-supplied and was joined without confinement.
+
+        Unconfined, this read any host directory shaped like an example --
+        another repo, the builder's own source -- into model context and into
+        persisted interaction JSON.
+        """
+        from gimle.hugin.apps.agent_builder.tools.read_example import (
+            read_example,
+        )
+
+        assert read_example(example_name=name).is_error
 
     def test_read_example_reports_unknown_example(self):
         """A hallucinated example name must not look like success."""

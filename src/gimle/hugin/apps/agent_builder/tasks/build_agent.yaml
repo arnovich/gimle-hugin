@@ -43,12 +43,18 @@ prompt: |
      What parameters should the task accept? What domain knowledge should
      the system template include?
 
-  2. **Study a working example FIRST** - Call `list_examples`, pick the 1-2
-     closest to what you are building, and `read_example` them. These are real
-     agents that run and are covered by the test suite, so their structure is
-     correct by construction. If the description implies multiple stages, a
-     sub-agent, human approval, or shell access, there is an example for it —
-     find it and follow its shape rather than guessing.
+  2. **Study a working example first** - Call `list_examples`, pick the 1-2
+     closest to what you are building, and `read_example` them with
+     `include_tools=true` if you need to see how their tools are implemented.
+     These are real agents that run and are covered by the test suite, so their
+     structure is correct by construction. If the description implies multiple
+     stages, a sub-agent, human approval, or shell access, there is an example
+     for it — find it and follow its shape rather than guessing.
+
+     If these tools report that the examples folder is unavailable (a
+     pip-installed Hugin does not ship `examples/`), do not retry them and do
+     not treat it as a failure: continue from step 3 using the patterns in your
+     system prompt.
 
   3. **generate_config** - Name it `{{ agent_name.value }}` (not something generic).
      Include custom tools specific to the description plus these required builtins:
