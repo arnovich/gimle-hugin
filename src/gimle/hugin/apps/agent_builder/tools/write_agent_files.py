@@ -4,6 +4,7 @@ import errno
 import hashlib
 import logging
 import os
+import shutil
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
@@ -525,19 +526,30 @@ def dump_rejected(
     if not generated_files or not output_path:
         return None
 
-    rejected = Path(f"{output_path.rstrip('/')}.rejected")
+    expanded = Path(output_path).expanduser()
+    rejected = Path(f"{str(expanded).rstrip('/')}.rejected")
     report = validate_files(generated_files)
     try:
-        rejected.mkdir(parents=True, exist_ok=True)
+        # Replace rather than merge: two failed builds in a row otherwise leave
+        # a directory mixing both attempts, so `hugin validate` on it reports
+        # errors for files the latest attempt never produced.
+        if rejected.is_symlink():
+            # The rescue path gets the same discipline as the main write path;
+            # a symlink here would redirect the whole payload elsewhere.
+            rejected.unlink()
+        elif rejected.is_dir():
+            shutil.rmtree(rejected)
+        rejected.mkdir(parents=True)
         for key, content in generated_files.items():
             try:
                 target = confine(rejected, key)
             except PathConfinementError:
                 continue
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(content)
-        (rejected / "VALIDATION_REPORT.md").write_text(
-            _rejection_report(report, output_path)
+            _write_text(target, content)
+        _write_text(
+            rejected / "VALIDATION_REPORT.md",
+            _rejection_report(report, output_path),
         )
     except OSError as error:
         logger.warning("Could not write rejected payload: %s", error)

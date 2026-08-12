@@ -561,9 +561,12 @@ Examples:
             print(f"    Monitor session: hugin monitor -s {storage_path}")
             return 1
 
-        if not Path(user_input["output_path"]).exists():
-            # The builder finished without the writer ever succeeding -- most
-            # often because validation refused the payload.
+        if not env.env_vars.get("written_keys"):
+            # Ask whether the writer actually succeeded, not whether the
+            # directory exists. Re-running the builder over an existing agent,
+            # or any earlier partial write, leaves the directory in place, so
+            # existence reported a refused build as "Agent Created
+            # Successfully!" and offered to run a stale agent.
             print()
             print("    ┌─────────────────────────────────────────┐")
             print("    │           Build Incomplete              │")

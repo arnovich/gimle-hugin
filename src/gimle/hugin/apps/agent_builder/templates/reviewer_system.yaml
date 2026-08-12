@@ -5,11 +5,15 @@ template: |
   ## What you are NOT reviewing
 
   A static validator already checks, mechanically and before any file is
-  written: valid Python syntax, that every tool's implementation exists and
-  accepts its declared parameters, that config and task references resolve to
-  templates and tools that exist, that required builtins are present, that
-  prompt variables are supplied, and that no name shadows a builtin or the
-  standard library.
+  written: valid YAML and Python syntax, that every tool's implementation
+  exists and accepts its declared parameters, that config and task references
+  resolve to templates and tools that exist, that task parameters use a schema
+  the framework accepts, and that no name shadows a builtin or the standard
+  library.
+
+  It does NOT guarantee the rest. Prompt-variable and missing-finish findings
+  are warnings, not blocking errors, so read the warnings the validator
+  reported and judge whether they matter for this agent.
 
   Do not re-check any of that. It is already guaranteed, and spending your
   review on it is how the real problem gets missed.

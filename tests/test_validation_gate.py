@@ -16,6 +16,7 @@ import pytest
 from gimle.hugin.apps.agent_builder.tools.validate_agent import (
     capability_snapshot,
     check_capability_shrink,
+    validate_agent,
     validate_with_state,
 )
 from gimle.hugin.apps.agent_builder.tools.write_agent_files import (
@@ -114,9 +115,7 @@ class TestGateBlocksInvalidWrites:
         """An escape hatch the model can reach is not a gate."""
         import inspect
 
-        parameters = set(
-            inspect.signature(write_agent_files).parameters
-        )
+        parameters = set(inspect.signature(write_agent_files).parameters)
         assert not parameters & {"force", "skip_validation", "no_validate"}
 
     def test_tool_definition_exposes_no_bypass(self):
@@ -200,6 +199,114 @@ class TestCapabilityShrink:
         assert report["ok"], report["errors"]
 
 
+class TestRetryDoesNotBypassTheGate:
+    """The baseline used to advance on the call that rejected."""
+
+    def test_repeating_the_gutted_payload_stays_refused(self, tmp_path):
+        """The refusal literally says "call write_agent_files again"."""
+        stack = make_stack(BROKEN)
+        env_vars = stack.agent.environment.env_vars
+        output = str(tmp_path / "demo")
+
+        assert write_agent_files(stack, output, "demo").is_error
+
+        gutted = dict(VALID)
+        del gutted["tools/fetch_prices.yaml"]
+        del gutted["tools/fetch_prices.py"]
+        gutted["configs/demo.yaml"] = (
+            "name: demo\ndescription: A demo\nsystem_template: demo_system\n"
+        )
+        env_vars["generated_files"] = gutted
+
+        for _ in range(3):
+            assert write_agent_files(stack, output, "demo").is_error
+
+    def test_a_real_repair_still_writes(self, tmp_path):
+        """Holding the baseline must not wedge the build permanently."""
+        stack = make_stack(BROKEN)
+        env_vars = stack.agent.environment.env_vars
+        output = str(tmp_path / "demo")
+
+        write_agent_files(stack, output, "demo")
+        env_vars["generated_files"] = dict(VALID)
+
+        result = write_agent_files(stack, output, "demo")
+
+        assert not result.is_error, result.content
+        assert (tmp_path / "demo" / "tools" / "fetch_prices.py").exists()
+
+    def test_shrink_excuse_requires_a_whole_name(self):
+        """'search' must not be excused by an error naming 'search_docs'."""
+        before = {"tools": ["search", "search_docs"]}
+        after = {"tools": ["search_docs"]}
+        errors = [
+            {
+                "file": "c",
+                "check": "tool-reference",
+                "message": "references unknown tool 'search_docs'",
+            }
+        ]
+
+        assert check_capability_shrink(after, before, errors)
+
+    def test_naming_the_item_still_excuses_it(self):
+        """A genuine authorised removal must keep working."""
+        before = {"tools": ["search", "search_docs"]}
+        after = {"tools": ["search_docs"]}
+        errors = [
+            {
+                "file": "c",
+                "check": "tool-reference",
+                "message": "references unknown tool 'search'",
+            }
+        ]
+
+        assert not check_capability_shrink(after, before, errors)
+
+    def test_renaming_a_config_is_not_a_shrink(self):
+        """Renaming is the natural repair for a name collision."""
+        before = {"config-tools:configs/demo.yaml": ["alpha", "beta"]}
+        after = {"config-tools:configs/renamed.yaml": ["alpha", "beta"]}
+
+        assert not check_capability_shrink(after, before, [])
+
+
+class TestValidatingAnotherAgentIsIsolated:
+    """agent_path is exposed to the model and shares env_vars."""
+
+    def test_validating_a_path_does_not_poison_the_build(self, tmp_path):
+        """It used to store a foreign baseline with no way to recover."""
+        other = tmp_path / "other"
+        (other / "configs").mkdir(parents=True)
+        (other / "tasks").mkdir()
+        (other / "configs" / "other.yaml").write_text(
+            "name: other\ndescription: x\nsystem_template: Inline prompt.\n"
+        )
+        (other / "tasks" / "t.yaml").write_text(
+            "name: t\ndescription: x\nprompt: go\n"
+        )
+
+        stack = make_stack(VALID)
+        validate_agent(stack, agent_path=str(other))
+
+        result = write_agent_files(stack, str(tmp_path / "demo"), "demo")
+
+        assert not result.is_error, result.content
+
+
+class TestNoPreReviewWrite:
+    """validate_agent must not write the agent behind the reviewer's back."""
+
+    def test_clean_validation_does_not_chain_into_a_write(self, tmp_path):
+        """build_agent's prompt says writing happens after review."""
+        stack = make_stack(VALID)
+
+        result = validate_agent(stack)
+
+        assert not result.is_error
+        assert result.next_tool is None
+
+
 class TestAttemptCounter:
     """The bound lives in code; task_sequence cannot loop."""
 
@@ -230,7 +337,7 @@ class TestRejectedPayload:
         assert (Path(path) / "configs" / "demo.yaml").exists()
 
     def test_report_explains_the_failure(self, tmp_path):
-        """"It failed" is not actionable; the errors are."""
+        """A bare failure is not actionable; the errors are."""
         path = dump_rejected(dict(BROKEN), str(tmp_path / "demo"))
         report = (Path(path) / "VALIDATION_REPORT.md").read_text()
 
