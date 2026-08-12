@@ -25,7 +25,7 @@ from gimle.hugin.apps.agent_builder.tools.write_agent_files import (
 
 @pytest.fixture
 def generated_files():
-    """A minimal, valid generated-agent payload."""
+    """Return a minimal, valid generated-agent payload."""
     return {
         "configs/demo.yaml": "name: demo\n",
         "tasks/main.yaml": "name: main\n",
@@ -35,7 +35,7 @@ def generated_files():
 
 @pytest.fixture
 def stack(generated_files):
-    """A stack stub exposing only what the writer touches."""
+    """Return a stack stub exposing only what the writer touches."""
     environment = SimpleNamespace(
         env_vars={
             "generated_files": generated_files,
@@ -178,9 +178,7 @@ class TestWriterDoesNotDestroy:
 
         assert custom.read_text() == "# mine\n"
 
-    def test_second_run_writes_nothing_when_unchanged(
-        self, stack, tmp_path
-    ):
+    def test_second_run_writes_nothing_when_unchanged(self, stack, tmp_path):
         """Re-running over an identical agent is a no-op, not a rewrite."""
         output = tmp_path / "demo"
 
@@ -255,9 +253,7 @@ class TestDryRun:
     def test_reports_what_would_be_written(self, stack, tmp_path):
         """The reported set matches what a real write produces."""
         output = tmp_path / "demo"
-        preview = write_agent_files(
-            stack, str(output), "demo", dry_run=True
-        )
+        preview = write_agent_files(stack, str(output), "demo", dry_run=True)
         actual = write_agent_files(stack, str(output), "demo")
 
         assert preview.content["would_write"] == actual.content["written"]

@@ -20,9 +20,7 @@ from typing import Dict, List, Optional
 
 # A generated key is always "<dir>/<stem>.<ext>" with snake_case components.
 # Anchored, so a traversal or an absolute path cannot match in the first place.
-GENERATED_KEY = re.compile(
-    r"^[a-z][a-z0-9_]*/[a-z][a-z0-9_]*\.(?:yaml|py)$"
-)
+GENERATED_KEY = re.compile(r"^[a-z][a-z0-9_]*/[a-z][a-z0-9_]*\.(?:yaml|py)$")
 
 # Written by the builder itself rather than generated, so exempt from the
 # snake_case key rule (dunder names would never match it).
@@ -163,9 +161,7 @@ def run_command(output_path: str, task_name: Optional[str]) -> str:
     named a ``run-agent`` entrypoint that does not exist.
     """
     if task_name:
-        return (
-            f"uv run hugin run --task {task_name} --task-path {output_path}"
-        )
+        return f"uv run hugin run --task {task_name} --task-path {output_path}"
     return f"uv run hugin run --task-path {output_path}"
 
 
