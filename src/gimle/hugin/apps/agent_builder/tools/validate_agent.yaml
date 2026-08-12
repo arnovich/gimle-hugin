@@ -1,0 +1,27 @@
+name: validate_agent
+description: >-
+  Statically validate the generated agent: structure, template and tool
+  references, prompt variables, and each tool's function contract. Parses files
+  without importing or running them. Call this before finishing; write_agent_files
+  runs it again and refuses to write a payload that does not pass.
+parameters:
+  agent_path:
+    type: string
+    description: >-
+      Directory to validate. Omit to validate the files generated so far,
+      before anything is written to disk.
+    required: false
+  check_imports:
+    type: boolean
+    description: >-
+      Reserved for the opt-in import check. Off by default because importing
+      generated code executes it.
+    required: false
+    default: false
+is_interactive: false
+implementation_path: agent_builder.tools.validate_agent:validate_agent
+options:
+  # The report is small by design, but a repair loop can call this several
+  # times; only the most recent verdicts are worth carrying.
+  include_only_in_context_window: true
+  context_window: 3

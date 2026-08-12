@@ -277,6 +277,54 @@ def cmd_install_models(args: argparse.Namespace) -> int:
     return install_main()
 
 
+def cmd_validate(args: argparse.Namespace) -> int:
+    """Statically validate one or more agent directories."""
+    from gimle.hugin.apps.agent_builder.tools.validate_agent import (
+        collect_files,
+        validate_files,
+    )
+
+    paths = [Path(p) for p in args.paths]
+    if args.recursive:
+        paths = [
+            child
+            for parent in paths
+            for child in sorted(parent.iterdir())
+            if child.is_dir()
+            and ((child / "configs").is_dir() or (child / "tasks").is_dir())
+        ]
+
+    failed = 0
+    for path in paths:
+        files = collect_files(str(path))
+        if not files:
+            print(f"    {path}: no agent files found")
+            failed += 1
+            continue
+
+        report = validate_files(files, str(path))
+        status = "OK  " if report["ok"] else "FAIL"
+        print(f"    {status} {path}  ({report['summary']})")
+        for finding in report["errors"]:
+            print(f"           error   {finding['file']}: {finding['message']}")
+        if not args.quiet:
+            for finding in report["warnings"]:
+                print(
+                    f"           warning {finding['file']}: "
+                    f"{finding['message']}"
+                )
+        if report["observed_imports"] and not args.quiet:
+            joined = ", ".join(report["observed_imports"])
+            print(f"           requires: {joined}")
+        if not report["ok"]:
+            failed += 1
+
+    if len(paths) > 1:
+        print()
+        print(f"    {len(paths) - failed}/{len(paths)} agents valid")
+    return 1 if failed else 0
+
+
 def cmd_version(args: argparse.Namespace) -> int:
     """Show version information."""
     print(BANNER)
@@ -566,6 +614,31 @@ Examples:
         "extra_args", nargs="*", help="Additional arguments for the app"
     )
     app_parser.set_defaults(func=cmd_app)
+
+    # validate command
+    validate_parser = subparsers.add_parser(
+        "validate",
+        help="Statically validate an agent directory",
+        description="Check an agent's structure, template and tool "
+        "references, prompt variables and tool contracts. Parses files "
+        "without importing or running them.",
+    )
+    validate_parser.add_argument(
+        "paths", nargs="+", help="Agent directories to validate"
+    )
+    validate_parser.add_argument(
+        "-r",
+        "--recursive",
+        action="store_true",
+        help="Treat each path as a parent of agent directories",
+    )
+    validate_parser.add_argument(
+        "-q",
+        "--quiet",
+        action="store_true",
+        help="Show errors only, suppressing warnings and dependencies",
+    )
+    validate_parser.set_defaults(func=cmd_validate)
 
     # install-models command
     install_parser = subparsers.add_parser(
