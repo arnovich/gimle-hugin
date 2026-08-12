@@ -3,6 +3,10 @@ description: An agent that creates new Hugin agents based on user requirements
 system_template: builder_system
 llm_model: sonnet-latest
 tools:
+  # Study first: these give the builder the repo's real, executable examples
+  # rather than making it invent structure from the prompt alone.
+  - list_examples
+  - read_example
   - generate_config
   - generate_task
   - generate_template

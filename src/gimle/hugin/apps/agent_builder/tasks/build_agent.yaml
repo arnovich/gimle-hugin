@@ -43,21 +43,28 @@ prompt: |
      What parameters should the task accept? What domain knowledge should
      the system template include?
 
-  2. **generate_config** - Name it `{{ agent_name.value }}` (not something generic).
+  2. **Study a working example FIRST** - Call `list_examples`, pick the 1-2
+     closest to what you are building, and `read_example` them. These are real
+     agents that run and are covered by the test suite, so their structure is
+     correct by construction. If the description implies multiple stages, a
+     sub-agent, human approval, or shell access, there is an example for it —
+     find it and follow its shape rather than guessing.
+
+  3. **generate_config** - Name it `{{ agent_name.value }}` (not something generic).
      Include custom tools specific to the description plus these required builtins:
      - `builtins.save_text:save_text`
      - `builtins.save_file:save_file`
      - `builtins.finish:finish`
 
-  3. **generate_template** - Write a system prompt that makes the agent an expert
+  4. **generate_template** - Write a system prompt that makes the agent an expert
      at exactly what the description says. Include domain-specific guidance,
      not generic instructions.
 
-  4. **generate_task** - Define parameters that the user would need to provide
+  5. **generate_task** - Define parameters that the user would need to provide
      based on the description. Write a prompt that tells the agent exactly
      what to do, referencing its specific tools. Instruct it to save outputs.
 
-  5. **generate_tool** for each custom tool - The `implementation_code` must be
+  6. **generate_tool** for each custom tool - The `implementation_code` must be
      ACTUAL PYTHON CODE. Example:
 
      ```python
@@ -84,7 +91,7 @@ prompt: |
      WRONG: `implementation_code="Fetch the stock data and return it"`
      RIGHT: Actual Python code with imports, logic, and return statement.
 
-  6. **preview_files** - Show all generated files.
+  7. **preview_files** - Show all generated files.
 
-  7. **finish** - Call finish with the preview output.
+  8. **finish** - Call finish with the preview output.
      Do NOT call write_agent_files - that happens after review.
