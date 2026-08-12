@@ -1,10 +1,12 @@
 ---
 github_issue: null
 title: Warn at load time when a config/task references a template name that isn't registered
-state: OPEN
+state: CLOSED
 labels: [enhancement, dx]
 author: erikarne
 created: 2026-05-11
+closed: 2026-08-12
+resolution: Implemented in PR #81 (commit 2238416).
 ---
 
 # Warn on bare template references that match no registered template
@@ -44,10 +46,20 @@ config may be registered before the template it names.
 
 ## Success criteria
 
-- [ ] Loading an environment with `system_template: <typo>` logs a clear
+- [x] Loading an environment with `system_template: <typo>` logs a clear
       warning naming the offending config/task and the unknown template.
-- [ ] No warnings for the bundled apps/examples (they all reference real
+- [x] No warnings for the bundled apps/examples (they all reference real
       templates) or for tasks with inline-prose prompts.
+
+## Resolution
+
+Implemented in PR #81. `Environment.load()` now validates identifier-shaped
+values after all local templates have been registered. Unknown references emit
+a warning naming the config/task and field, suggest the closest registered
+template when available, and show the explicit Jinja reference form. Inline
+prose, multiline prompts, explicit Jinja, and registered template names remain
+warning-free. Regression coverage also scans all bundled apps and examples for
+false positives.
 
 ## Context
 
