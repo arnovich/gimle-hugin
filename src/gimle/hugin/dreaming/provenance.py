@@ -38,6 +38,15 @@ class ArtifactProvenance:
     config: Optional[str]
     task: Optional[str]
     interaction_id: Optional[str]
+    #: The artifact's own ``created_at`` (ISO-8601), for ordering a corpus
+    #: newest-first. Free to carry: ``scan_provenance`` already loads and parses
+    #: the whole record to read ``data["interaction"]``, and every artifact gets a
+    #: ``created_at`` from ``@with_uuid``. Nothing about the stored artifact
+    #: changes — this dataclass is built fresh per scan and never serialized.
+    #:
+    #: ``None`` only for a record written before that decorator applied; such an
+    #: artifact sorts oldest, so it is dropped first when a corpus is trimmed.
+    created_at: Optional[str] = None
 
 
 def _config_by_position(agent: Agent) -> Dict[int, Optional[str]]:
@@ -148,6 +157,7 @@ def scan_provenance(
                 config=config,
                 task=task,
                 interaction_id=interaction_id,
+                created_at=data.get("created_at"),
             )
         )
     return provenances
