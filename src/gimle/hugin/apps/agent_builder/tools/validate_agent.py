@@ -963,6 +963,91 @@ def validate_files(
     }
 
 
+def capability_snapshot(files: Dict[str, str]) -> Dict[str, List[str]]:
+    """Summarise what an agent can do, for comparison across a repair.
+
+    Deliberately coarse: the tools it defines, the tools each config grants,
+    and the parameters each task accepts. These are the things a repair can
+    quietly drop to make errors go away.
+    """
+    snapshot: Dict[str, List[str]] = {}
+    snapshot["tools"] = sorted(_own_tool_names(files))
+    for key, document in _load_yaml(files, "configs").items():
+        entries = document.get("tools") or []
+        snapshot[f"config-tools:{key}"] = sorted(
+            str(e) for e in entries if isinstance(e, str)
+        )
+    for key, document in _load_yaml(files, "tasks").items():
+        snapshot[f"task-parameters:{key}"] = sorted(
+            (document.get("parameters") or {}).keys()
+        )
+    return snapshot
+
+
+def check_capability_shrink(
+    current: Dict[str, List[str]],
+    previous: Dict[str, List[str]],
+    previous_errors: List[Finding],
+) -> List[Finding]:
+    """Flag capability removed across a repair that no error asked for.
+
+    Every check has a cheap destructive fix: drop the tool, delete the
+    interpolation, remove the parameter. Each of those turns the report green
+    and is less work than a real fix, so without this a bounded repair loop
+    converges on an agent that validates because it no longer does anything.
+
+    A removal is allowed when a previous error named the thing removed --
+    deleting a tool the validator complained about is a legitimate repair.
+    """
+    excused = " ".join(finding["message"] for finding in previous_errors)
+    findings = []
+    for category, before in previous.items():
+        after = set(current.get(category, []))
+        for item in sorted(set(before) - after):
+            if item in excused:
+                continue
+            findings.append(
+                _finding(
+                    category.split(":", 1)[-1] if ":" in category else "-",
+                    "capability-shrink",
+                    f"'{item}' was removed but no error asked for it; fix the "
+                    "reported problem rather than deleting the capability",
+                )
+            )
+    return findings
+
+
+def validate_with_state(
+    files: Dict[str, str],
+    env_vars: Dict[str, Any],
+    agent_path: str = "",
+) -> Dict[str, Any]:
+    """Validate, and compare against the previous attempt in ``env_vars``.
+
+    Repair state lives here rather than in a prompt saying "maximum 3
+    attempts": ``task_sequence`` cannot loop, so a prose bound is not a bound.
+    """
+    report = validate_files(files, agent_path)
+    state = env_vars.setdefault("validation_state", {})
+
+    previous = state.get("snapshot")
+    if previous:
+        report["errors"] += check_capability_shrink(
+            capability_snapshot(files), previous, state.get("errors", [])
+        )
+        report["ok"] = not report["errors"]
+        report["summary"] = (
+            f"{len(report['errors'])} error(s), "
+            f"{len(report['warnings'])} warning(s)"
+        )
+
+    state["attempts"] = state.get("attempts", 0) + 1
+    state["snapshot"] = capability_snapshot(files)
+    state["errors"] = report["errors"]
+    report["attempt"] = state["attempts"]
+    return report
+
+
 def _key_errors(files: Dict[str, str]) -> List[Finding]:
     """Reject file keys that would escape the output directory."""
     findings = []
@@ -999,7 +1084,8 @@ def validate_agent(
             content={"error": "No files have been generated yet"},
         )
 
-    report = validate_files(files)
+    env_vars = stack.agent.environment.env_vars if stack is not None else {}
+    report = validate_with_state(files, env_vars)
     if check_imports:
         report["warnings"].append(
             _finding(
@@ -1008,4 +1094,22 @@ def validate_agent(
                 "check_imports is not implemented yet; imports were not run",
             )
         )
-    return ToolResponse(is_error=not report["ok"], content=report)
+    # When validation passes and an output path is known, hand straight to the
+    # writer. ToolResponse.next_tool is honoured by the framework, so the model
+    # never gets a turn in which "validate, then write anyway" is expressible.
+    next_tool = None
+    next_tool_args = None
+    if report["ok"] and not agent_path and stack is not None:
+        output_path = stack.agent.environment.env_vars.get(
+            "user_input", {}
+        ).get("output_path")
+        if output_path:
+            next_tool = "write_agent_files"
+            next_tool_args = {"output_path": output_path}
+
+    return ToolResponse(
+        is_error=not report["ok"],
+        content=report,
+        next_tool=next_tool,
+        next_tool_args=next_tool_args,
+    )

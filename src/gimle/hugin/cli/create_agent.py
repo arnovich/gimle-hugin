@@ -335,6 +335,42 @@ def run_wizard(builder_model: Optional[str] = None) -> Dict[str, Any]:
     }
 
 
+def _report_rejected(env: Any, output_path: str) -> None:
+    """Land whatever the builder produced and say what was wrong with it.
+
+    A failed build has already cost a full multi-stage run. Printing "reached
+    maximum steps" and discarding the payload -- which lived only in memory --
+    left the user with nothing to inspect, fix, or resume from.
+    """
+    from gimle.hugin.apps.agent_builder.tools.validate_agent import (
+        validate_files,
+    )
+    from gimle.hugin.apps.agent_builder.tools.write_agent_files import (
+        dump_rejected,
+    )
+
+    generated = env.env_vars.get("generated_files", {}) if env else {}
+    if not generated:
+        print("    No files were generated before the build stopped.")
+        print()
+        return
+
+    path = dump_rejected(generated, output_path)
+    if not path:
+        return
+
+    report = validate_files(generated)
+    print(f"    Wrote what was built to: {path}")
+    print(f"    Validation: {report['summary']}")
+    for finding in report["errors"][:8]:
+        print(f"      error  {finding['file']}: {finding['message'][:70]}")
+    if len(report["errors"]) > 8:
+        print(f"      ... and {len(report['errors']) - 8} more")
+    print()
+    print(f"    Re-check after fixing:  uv run hugin validate {path}")
+    print()
+
+
 def _generated_run_command(output_path: str) -> str:
     """Return the run command for a freshly generated agent.
 
@@ -511,6 +547,7 @@ Examples:
             print(f"    Error: {type(last_error).__name__}")
             print(f"    {str(last_error)[:60]}")
             print()
+            _report_rejected(env, user_input["output_path"])
             print(f"    See full details in: {log_file}")
             print(f"    Monitor session with: hugin monitor -s {storage_path}")
             print()
@@ -519,6 +556,22 @@ Examples:
         if step_count >= args.max_steps:
             print(f"    Error: Reached maximum steps ({args.max_steps})")
             print("    The agent may not have finished building.")
+            print()
+            _report_rejected(env, user_input["output_path"])
+            print(f"    Monitor session: hugin monitor -s {storage_path}")
+            return 1
+
+        if not Path(user_input["output_path"]).exists():
+            # The builder finished without the writer ever succeeding -- most
+            # often because validation refused the payload.
+            print()
+            print("    ┌─────────────────────────────────────────┐")
+            print("    │           Build Incomplete              │")
+            print("    └─────────────────────────────────────────┘")
+            print()
+            print("    The builder finished but wrote no agent.")
+            print()
+            _report_rejected(env, user_input["output_path"])
             print(f"    Monitor session: hugin monitor -s {storage_path}")
             return 1
 
