@@ -17,8 +17,8 @@ input sets over an agent's lifetime.
 import ast
 import re
 import sys
-from pathlib import Path
 from functools import lru_cache
+from pathlib import Path
 from typing import (
     AbstractSet,
     Any,
@@ -93,30 +93,80 @@ def collect_files(agent_path: str) -> Dict[str, str]:
 
 
 def _load_yaml(files: Dict[str, str], folder: str) -> Dict[str, Any]:
-    """Parse every YAML document in ``folder``, keyed by its file key."""
+    """Parse every YAML document in ``folder``, keyed by its file key.
+
+    Always yields a mapping. A YAML file may legitimately parse to a list or a
+    scalar, and every consumer here calls ``.get(...)`` -- so passing the raw
+    document through meant a list-shaped file raised ``AttributeError`` out of
+    the tool. ``ToolCall.step`` catches only ``TypeError``, so that aborted the
+    whole builder run with a traceback instead of producing the fixable error
+    report the validator exists to produce.
+    """
     documents: Dict[str, Any] = {}
     for key, content in files.items():
         if not key.startswith(f"{folder}/") or not key.endswith(".yaml"):
             continue
         try:
-            documents[key] = yaml.safe_load(content) or {}
+            parsed = yaml.safe_load(content)
         except yaml.YAMLError as error:
             documents[key] = {"__parse_error__": str(error)}
+            continue
+        if parsed is None:
+            documents[key] = {}
+        elif isinstance(parsed, dict):
+            documents[key] = parsed
+        else:
+            documents[key] = {
+                "__parse_error__": (
+                    f"expected a YAML mapping, got {type(parsed).__name__}"
+                )
+            }
     return documents
+
+
+def _parse_errors(files: Dict[str, str]) -> List[Finding]:
+    """Report unparseable or wrongly-shaped YAML in every folder.
+
+    Previously only ``_check_references`` inspected ``__parse_error__``, and
+    only for ``configs/`` and ``tasks/`` -- so a malformed ``tools/*.yaml`` or
+    ``templates/*.yaml`` validated clean and then died inside
+    ``Environment.load`` on the user's first run.
+    """
+    findings = []
+    for folder in ("configs", "tasks", "templates", "tools"):
+        for key, document in _load_yaml(files, folder).items():
+            error = document.get("__parse_error__")
+            if error:
+                findings.append(_finding(key, "yaml", f"invalid YAML: {error}"))
+    return findings
 
 
 def _implementation(document: Dict[str, Any]) -> Tuple[str, str]:
     """Split ``implementation_path`` into ``(module_file_stem, function)``.
 
-    The path is ``some.dotted.module:function``; only the last dotted segment
-    names the file inside ``tools/``. Several tool definitions routinely share
-    one module -- ``examples/parallel_agents`` puts ``increment`` and
-    ``get_count`` in ``counter_tools.py`` -- so the YAML stem is not the module
-    name and must not be assumed to be.
+    ``Tool._load_implementation`` accepts two spellings and so must this:
+    ``some.dotted.module:function`` and plain ``some.dotted.function``. Only
+    the last dotted segment of the module part names the file inside
+    ``tools/``, because several tool definitions routinely share one module --
+    ``examples/parallel_agents`` puts ``increment`` and ``get_count`` in
+    ``counter_tools.py``.
+
+    Handling only the colon form was worse than a false error: for the dotted
+    form it returned the *function* name as the module and an empty function
+    name, and the empty name then made ``_check_tool_contracts`` skip the file
+    entirely. ``apps/financial_newspaper`` uses that spelling, so it was
+    passing the acceptance gate with no contract check run at all.
     """
     path = document.get("implementation_path") or ""
-    module, _, function = path.partition(":")
-    return module.split(".")[-1], function
+    if not isinstance(path, str) or not path:
+        return "", ""
+    if ":" in path:
+        module, _, function = path.partition(":")
+        return module.split(".")[-1], function
+    parts = path.split(".")
+    if len(parts) < 2:
+        return "", ""
+    return parts[-2], parts[-1]
 
 
 def _declared_parameters(document: Dict[str, Any]) -> Dict[str, Any]:
@@ -136,7 +186,7 @@ def _declared_parameters(document: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _check_structure(files: Dict[str, str]) -> List[Finding]:
-    """An agent needs a config and a task, and resolvable tool modules."""
+    """Check for a config, a task, and resolvable tool modules."""
     findings = []
     if not any(k.startswith("configs/") for k in files):
         findings.append(
@@ -194,7 +244,7 @@ def _builtin_tool_names() -> FrozenSet[str]:
 
 
 def _check_reserved_names(files: Dict[str, str]) -> List[Finding]:
-    """A generated name must not silently replace something that exists.
+    """Reject a generated name that would replace an existing one.
 
     ``Registry.register`` overwrites without complaint on a process-global
     registry, and generated tool modules are imported by bare name, so a tool
@@ -344,17 +394,24 @@ def _check_references(
     for folder in ("configs", "tasks"):
         for key, document in _load_yaml(files, folder).items():
             if "__parse_error__" in document:
-                errors.append(
-                    _finding(
-                        key, "yaml", f"invalid YAML: {document['__parse_error__']}"
-                    )
-                )
-                continue
+                continue  # already reported, for every folder, by _parse_errors
             finding = _check_template_reference(
-                key, "system_template", document.get("system_template"), templates
+                key,
+                "system_template",
+                document.get("system_template"),
+                templates,
             )
             if finding:
                 errors.append(finding)
+            if folder == "tasks":
+                # A task prompt expands a bare template name exactly as
+                # system_template does (CLAUDE.md, "Prompt Templates"), so a
+                # typo there renders the literal string instead of the body.
+                finding = _check_template_reference(
+                    key, "prompt", document.get("prompt"), templates
+                )
+                if finding:
+                    errors.append(finding)
             for entry in document.get("tools") or []:
                 error, warning = _check_tool_reference(
                     key, entry, own_tools, builtins_registered
@@ -383,6 +440,54 @@ def _jinja_names(source: str) -> Tuple[Set[str], Set[str]]:
         if isinstance(node.node, nodes.Name) and node.attr == "value"
     }
     return loaded, dotted
+
+
+def _check_task_parameter_schemas(files: Dict[str, str]) -> List[Finding]:
+    """Reject task parameters that ``Task`` itself will refuse.
+
+    ``Task._validate_parameter_schemas`` requires each parameter to be a schema
+    mapping with ``type`` and ``description``; the old scalar form
+    (``topic: "AI"``) raises ``ValueError`` at construction. CLAUDE.md still
+    documents the scalar form as supported, so the builder emits it -- and
+    without this the agent validated clean, was written to disk, and failed at
+    ``hugin run``. An agent that passes the gate and cannot load is exactly what
+    the gate exists to prevent.
+    """
+    findings = []
+    for key, document in _load_yaml(files, "tasks").items():
+        parameters = document.get("parameters")
+        if parameters is None:
+            continue
+        if not isinstance(parameters, dict):
+            findings.append(
+                _finding(
+                    key,
+                    "task-parameters",
+                    "parameters must be a mapping of name to schema, got "
+                    f"{type(parameters).__name__}",
+                )
+            )
+            continue
+        for name, spec in parameters.items():
+            if not isinstance(spec, dict):
+                findings.append(
+                    _finding(
+                        key,
+                        "task-parameters",
+                        f"parameter '{name}' uses the old scalar form; it "
+                        "must be a schema with 'type' and 'description'",
+                    )
+                )
+            elif "type" not in spec or "description" not in spec:
+                findings.append(
+                    _finding(
+                        key,
+                        "task-parameters",
+                        f"parameter '{name}' schema must include both "
+                        "'type' and 'description'",
+                    )
+                )
+    return findings
 
 
 def _pass_result_names(files: Dict[str, str]) -> Set[str]:
@@ -414,7 +519,7 @@ def _check_jinja(files: Dict[str, str]) -> List[Finding]:
         prompt = document.get("prompt")
         if not isinstance(prompt, str):
             continue
-        declared = set((document.get("parameters") or {}).keys())
+        declared = set(_declared_parameters(document))
         loaded, dotted = _jinja_names(prompt)
 
         for name in sorted(loaded - declared - allowed_extra):
@@ -450,16 +555,24 @@ def _function_named(tree: ast.Module, name: str) -> Optional[ast.FunctionDef]:
 
 
 def _signature_names(function: ast.FunctionDef) -> Set[str]:
-    """Every parameter name a function accepts."""
+    """Every parameter name a function accepts by name."""
     args = function.args
     names = {a.arg for a in args.args}
     names |= {a.arg for a in args.posonlyargs}
     names |= {a.arg for a in args.kwonlyargs}
-    if args.vararg:
-        names.add(args.vararg.arg)
-    if args.kwarg:
-        names.add(args.kwarg.arg)
     return names
+
+
+def _accepts_any_keyword(function: ast.FunctionDef) -> bool:
+    """Return True when the function has ``**kwargs``.
+
+    ``Tool.execute_tool`` computes ``accepts_varkw`` and passes every declared
+    parameter through to such a function, so a ``**kwargs`` tool is an
+    explicitly supported pattern. Counting only the literal name ``kwargs`` as
+    an accepted parameter made the validator reject working tools and push the
+    repair loop toward deleting their parameters.
+    """
+    return function.args.kwarg is not None
 
 
 def _observed_imports(tree: ast.Module, local: Set[str]) -> Set[str]:
@@ -552,8 +665,9 @@ def _check_tool_contracts(
 
         accepted = _signature_names(function)
         declared = _declared_parameters(document)
+        takes_any_keyword = _accepts_any_keyword(function)
         for parameter in declared:
-            if parameter not in accepted:
+            if parameter not in accepted and not takes_any_keyword:
                 errors.append(
                     _finding(
                         key,
@@ -598,8 +712,10 @@ def validate_files(
     for message in _key_errors(files):
         errors.append(_finding(message["file"], "path", message["message"]))
 
+    errors += _parse_errors(files)
     errors += _check_structure(files)
     errors += _check_reserved_names(files)
+    errors += _check_task_parameter_schemas(files)
 
     reference_errors, reference_warnings = _check_references(files)
     errors += reference_errors
@@ -621,9 +737,7 @@ def validate_files(
         "observed_imports": sorted(
             DISTRIBUTION_NAMES.get(name, name) for name in imports
         ),
-        "summary": (
-            f"{len(errors)} error(s), {len(warnings)} warning(s)"
-        ),
+        "summary": (f"{len(errors)} error(s), {len(warnings)} warning(s)"),
     }
 
 

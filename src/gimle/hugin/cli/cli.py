@@ -286,13 +286,30 @@ def cmd_validate(args: argparse.Namespace) -> int:
 
     paths = [Path(p) for p in args.paths]
     if args.recursive:
-        paths = [
-            child
-            for parent in paths
-            for child in sorted(parent.iterdir())
-            if child.is_dir()
-            and ((child / "configs").is_dir() or (child / "tasks").is_dir())
-        ]
+        discovered = []
+        for parent in paths:
+            if not parent.is_dir():
+                # An unreadable or absent path used to abort the CI gate with
+                # a bare iterdir() traceback that read like a validator crash.
+                print(f"    skipping {parent}: not a directory")
+                continue
+            try:
+                children = sorted(parent.iterdir())
+            except OSError as error:
+                print(f"    skipping {parent}: {error}")
+                continue
+            discovered += [
+                child
+                for child in children
+                if child.is_dir()
+                and ((child / "configs").is_dir() or (child / "tasks").is_dir())
+            ]
+        if not discovered:
+            # Exiting 0 here made the CI gate a silent no-op the moment a
+            # directory layout changed.
+            print("    No agent directories found. Nothing was validated.")
+            return 1
+        paths = discovered
 
     failed = 0
     for path in paths:

@@ -114,9 +114,7 @@ class TestStructure:
 
     def test_helper_module_without_a_definition_is_allowed(self):
         """Shared helper modules are a normal pattern, not a defect."""
-        report = validate_files(
-            agent(**{"tools/helpers.py": "VALUE = 1\n"})
-        )
+        report = validate_files(agent(**{"tools/helpers.py": "VALUE = 1\n"}))
         assert report["ok"], report["errors"]
 
     def test_several_tools_may_share_one_module(self):
@@ -250,11 +248,7 @@ class TestReservedNames:
     def test_module_shadowing_stdlib_is_an_error(self):
         """A generated tools/json.py breaks imports for the whole process."""
         report = validate_files(
-            agent(
-                **{
-                    "tools/json.py": "def json_tool(stack=None):\n    pass\n"
-                }
-            )
+            agent(**{"tools/json.py": "def json_tool(stack=None):\n    pass\n"})
         )
         assert errors_of(report, "reserved-name")
 
@@ -282,9 +276,7 @@ class TestVerdictIsOrderIndependent:
         """Another agent's tool sharing a name must not fail this one."""
         from gimle.hugin.tools.tool import Tool
 
-        monkeypatch.setitem(
-            Tool.registry._items, "fetch_prices", object()
-        )
+        monkeypatch.setitem(Tool.registry._items, "fetch_prices", object())
         report = validate_files(agent())
 
         assert report["ok"], report["errors"]
@@ -343,7 +335,7 @@ class TestPromptVariables:
         assert warnings_of(report, "prompt-variable")
 
     def test_pass_result_as_parameter_is_not_warned(self):
-        """TaskChain creates these at runtime; warning would be a false alarm."""
+        """Task chaining creates these at runtime; a warning would be wrong."""
         report = validate_files(
             agent(
                 **{
@@ -455,6 +447,203 @@ class TestToolContract:
         assert report["ok"], report["errors"]
 
 
+class TestImplementationPathSpellings:
+    """Tool._load_implementation accepts two forms, so the checker must too."""
+
+    def test_dotted_form_is_contract_checked(self):
+        """The dotted form used to yield an empty function name.
+
+        That empty name then made _check_tool_contracts skip the file
+        entirely, so apps/financial_newspaper passed the acceptance gate with
+        no contract check ever running.
+        """
+        report = validate_files(
+            agent(
+                **{
+                    "tools/fetch_prices.yaml": (
+                        "name: fetch_prices\n"
+                        "description: Fetch\n"
+                        "parameters:\n"
+                        "  symbol:\n"
+                        "    type: string\n"
+                        "    description: Symbol\n"
+                        "implementation_path: fetch_prices.fetch_prices\n"
+                    )
+                }
+            )
+        )
+        assert errors_of(report, "tool-contract")
+
+    def test_dotted_form_accepts_a_correct_tool(self):
+        """Being checked must not mean being rejected."""
+        report = validate_files(
+            agent(
+                **{
+                    "tools/fetch_prices.yaml": (
+                        "name: fetch_prices\n"
+                        "description: Fetch\n"
+                        "parameters:\n"
+                        "  ticker:\n"
+                        "    type: string\n"
+                        "    description: Ticker\n"
+                        "implementation_path: fetch_prices.fetch_prices\n"
+                    )
+                }
+            )
+        )
+        assert report["ok"], report["errors"]
+
+
+class TestMalformedYaml:
+    """A YAML file may parse to a list or scalar; .get() then explodes."""
+
+    def test_list_shaped_tool_definition_is_reported(self):
+        """Previously an AttributeError escaped and aborted the run."""
+        report = validate_files(
+            agent(**{"tools/fetch_prices.yaml": "- name: fetch_prices\n"})
+        )
+        assert errors_of(report, "yaml")
+
+    def test_list_shaped_task_parameters_are_reported(self):
+        """The writer calls the validator, so this crashed the write too."""
+        report = validate_files(
+            agent(
+                **{
+                    "tasks/main.yaml": (
+                        "name: main\n"
+                        "description: Main\n"
+                        "parameters:\n"
+                        "  - topic\n"
+                        "prompt: 'Do {{ topic }}.'\n"
+                    )
+                }
+            )
+        )
+        assert not report["ok"]
+
+    def test_scalar_task_file_is_reported(self):
+        """A whole file that is just a string must not raise."""
+        report = validate_files(agent(**{"tasks/main.yaml": "just a string\n"}))
+        assert errors_of(report, "yaml")
+
+    def test_unparseable_tool_yaml_is_reported(self):
+        """Only configs/ and tasks/ parse errors used to surface."""
+        report = validate_files(
+            agent(**{"tools/fetch_prices.yaml": "name: [unclosed\n"})
+        )
+        assert errors_of(report, "yaml")
+
+    def test_unparseable_template_is_reported(self):
+        """A corrupt template killed Environment.load, not validation."""
+        report = validate_files(
+            agent(**{"templates/demo_system.yaml": "name: [unclosed\n"})
+        )
+        assert errors_of(report, "yaml")
+
+
+class TestTaskParameterSchemas:
+    """The validator must not pass what Task itself refuses to construct."""
+
+    def test_scalar_parameter_form_is_an_error(self):
+        """CLAUDE.md documents it, so the builder emits it, and Task rejects it."""
+        report = validate_files(
+            agent(
+                **{
+                    "tasks/main.yaml": (
+                        "name: main\n"
+                        "description: Main\n"
+                        "parameters:\n"
+                        '  topic: "AI"\n'
+                        "prompt: 'Write about {{ topic.value }}.'\n"
+                    )
+                }
+            )
+        )
+        assert errors_of(report, "task-parameters")
+
+    def test_schema_missing_description_is_an_error(self):
+        """Task requires both type and description."""
+        report = validate_files(
+            agent(
+                **{
+                    "tasks/main.yaml": (
+                        "name: main\n"
+                        "description: Main\n"
+                        "parameters:\n"
+                        "  topic:\n"
+                        "    type: string\n"
+                        "prompt: 'Write {{ topic.value }}.'\n"
+                    )
+                }
+            )
+        )
+        assert errors_of(report, "task-parameters")
+
+    def test_a_validated_task_can_actually_be_constructed(self):
+        """The property that matters: passing means loadable."""
+        import yaml as yaml_module
+
+        from gimle.hugin.agent.task import Task
+
+        files = agent()
+        assert validate_files(files)["ok"]
+        document = yaml_module.safe_load(files["tasks/main.yaml"])
+        Task(
+            name=document["name"],
+            description=document["description"],
+            parameters=document["parameters"],
+            prompt=document["prompt"],
+        )
+
+
+class TestVarKeywordTools:
+    """**kwargs tools are an explicitly supported framework pattern."""
+
+    def test_kwargs_tool_is_accepted(self):
+        """Tool.execute_tool computes accepts_varkw and passes them through."""
+        report = validate_files(
+            agent(
+                **{
+                    "tools/fetch_prices.py": (
+                        "def fetch_prices(stack=None, **kwargs):\n"
+                        "    return {}\n"
+                    )
+                }
+            )
+        )
+        assert report["ok"], report["errors"]
+
+
+class TestBareTemplateReferenceInPrompt:
+    """A prompt expands a bare template name exactly as system_template does."""
+
+    def test_typo_in_a_prompt_reference_is_an_error(self):
+        """Otherwise the literal string renders instead of the template body."""
+        report = validate_files(
+            agent(
+                **{
+                    "tasks/main.yaml": (
+                        "name: main\ndescription: Main\nprompt: demo_sytsem\n"
+                    )
+                }
+            )
+        )
+        assert errors_of(report, "template-reference")
+
+    def test_valid_prompt_reference_is_accepted(self):
+        """The documented bare-name form must keep working."""
+        report = validate_files(
+            agent(
+                **{
+                    "tasks/main.yaml": (
+                        "name: main\ndescription: Main\nprompt: demo_system\n"
+                    )
+                }
+            )
+        )
+        assert not errors_of(report, "template-reference")
+
+
 class TestPathKeys:
     """The writer's confinement rules apply before anything reaches disk."""
 
@@ -483,7 +672,7 @@ class TestObservedImports:
         assert "yfinance" in report["observed_imports"]
 
     def test_stdlib_import_is_not_observed(self):
-        """json is not something to pip install."""
+        """The json module is not something to pip install."""
         report = validate_files(
             agent(
                 **{
