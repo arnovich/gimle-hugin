@@ -16,6 +16,17 @@ persist within an agent's session.
 **Source of truth:** task 023 `spec.md` §9 (Statefulness); the 027 design note
 (`tasks/closed/027-.../design.md`, "Statefulness — defer the persistent shell").
 
+## Audit (2026-08-12)
+
+Still technically relevant: every bash call is deliberately a fresh shell and
+no persistent-shell lifecycle exists. Keep this design-first, not automatically
+scheduled. Before implementation, validate from real runs that repeated
+`cd`/`export`/`source` friction justifies adding a long-lived, stateful process
+to all three backend lifecycles. If the evidence is weak, retain the honest
+stateless contract and close this task. If it is strong, prototype local first;
+Docker/SSH support should follow the signed-off protocol, and background jobs
+should remain isolated one-shot executions unless the design proves otherwise.
+
 ## Why it was deferred (the crux to resolve)
 
 A persistent shell (a pexpect/coprocess long-lived shell, one per
@@ -56,6 +67,7 @@ before building, like 026/027.
 
 ## Success criteria
 
+- [ ] The design links concrete run evidence and records the go/no-go decision.
 - [ ] Within one agent's session, `cd foo` then a later `bash` call runs in `foo`
       (and `export X=1` is visible later), on at least the `local` backend.
 - [ ] The background-exec contract (027) still holds — a long backgrounded
