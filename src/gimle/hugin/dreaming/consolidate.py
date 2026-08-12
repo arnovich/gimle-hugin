@@ -22,24 +22,72 @@ from gimle.hugin.dreaming.provenance import (
 logger = logging.getLogger(__name__)
 
 DREAMER_CONFIG_NAME = "dreamer"
+#: Character budget for one scope's episodic corpus in a single dream prompt.
+#: ~30k tokens: comfortably inside any current context alongside the system
+#: prompt and the worker's own reasoning, while still spanning weeks of a
+#: short-form scope. Raise it when models grow; do not remove it — unbounded was
+#: the bug.
+DEFAULT_CORPUS_CHARS = 120_000
 DREAM_SCOPE_KEY = "dream_scope"
 DREAM_DRY_RUN_KEY = "dream_dry_run"
 DREAM_RESULTS_KEY = "dream_results"
 
 
 def _episodic_block(
-    environment: Environment, provenances: List[ArtifactProvenance]
+    environment: Environment,
+    provenances: List[ArtifactProvenance],
+    max_chars: int = DEFAULT_CORPUS_CHARS,
 ) -> str:
-    """Fetch the episodic artifacts' content as a readable block."""
+    """Fetch episodic content as a readable block, newest-first within a budget.
+
+    The budget is the point. This replayed a config's ENTIRE history every night,
+    so the prompt grew without bound as the corpus accumulated, and a scope whose
+    artifacts are large crossed the model's usable limit and started consolidating
+    nothing — silently, since a dream that saves zero learnings still succeeds.
+
+    Bounded on SIZE rather than count because artifact sizes differ by an order of
+    magnitude between scopes writing to the same store. In the case that exposed
+    this, three personas each had 53 artifacts: the one writing short pieces still
+    worked, while the two writing long ones had been dead for weeks. A count cap
+    ("last 30") would have left both of those broken and needlessly starved the
+    third; a character budget self-balances with no per-scope tuning.
+
+    Newest-first selection, then presented oldest-first so the corpus still reads
+    chronologically. Anything dropped is LOGGED — a silently trimmed corpus reads
+    as "it considered everything", which is how this went unnoticed in the first
+    place.
+    """
     engine = environment.query_engine
-    lines: List[str] = []
-    for provenance in provenances:
+    # Newest first, so the budget keeps recent memory. A missing created_at sorts
+    # oldest and is therefore dropped first — the conservative direction.
+    ordered = sorted(
+        provenances, key=lambda p: p.created_at or "", reverse=True
+    )
+
+    chosen: List[tuple[ArtifactProvenance, str]] = []
+    used = 0
+    for provenance in ordered:
         content = engine.get_artifact_content(provenance.artifact_id) or ""
-        task_label = provenance.task or "general"
-        lines.append(
-            f"- [{provenance.artifact_id}] (task: {task_label})\n  {content}"
+        entry = f"- [{provenance.artifact_id}] (task: {provenance.task or 'general'})\n  {content}"
+        # Always take at least one, or a single oversized artifact yields an empty
+        # corpus and the dream silently does nothing — the failure this fixes.
+        if chosen and used + len(entry) > max_chars:
+            continue
+        chosen.append((provenance, entry))
+        used += len(entry)
+
+    dropped = len(ordered) - len(chosen)
+    if dropped:
+        logger.info(
+            "dream: corpus trimmed to %d of %d artifacts (%d chars, budget %d) — "
+            "oldest dropped first",
+            len(chosen),
+            len(ordered),
+            used,
+            max_chars,
         )
-    return "\n".join(lines)
+    # Back to chronological for the reader.
+    return "\n".join(entry for _, entry in reversed(chosen))
 
 
 def _consolidate_prompt(config_name: str, episodic_block: str) -> str:
