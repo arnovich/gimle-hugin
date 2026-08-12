@@ -1,55 +1,47 @@
 # Bash sandbox — roadmap index
 
-The bash tool lets a Hugin agent run shell commands through a pluggable
-execution sandbox. It ships in phases so each is independently reviewable. The
-full design lives in the **task 023 folder**, now at
-`tasks/closed/023-bash-tool/` (`spec.md` / `plan.md` / `notes.md` / `review.md`)
-— read that for rationale; the tasks below are the actionable, self-contained
-pieces.
+The bash tool runs agent commands through pluggable local, Docker, and SSH
+backends. The full rationale and Phase 1 contract live in
+`tasks/closed/023-bash-tool/`. The runtime is the containment boundary; the
+policy engine is an accident guardrail.
 
-Guiding thesis: **the runtime you choose is the boundary, not the allowlist.**
-The policy engine is a guardrail against accidents; isolation comes from the
-`docker`/`ssh` runtime. `local`/`docker`/`ssh` are peers — no Docker dependency.
+Last audited: **2026-08-12**.
 
 ## Status
 
 | Task | What | Status |
 |------|------|--------|
-| 023 | **Phase 0 + 1** — one-tool-call guard; core vertical on the `local` backend (policy engine, LocalSandbox, manager, reaper, audit, `Session.close`, `hugin sandbox`, `bash` tool, example) | **MERGED** (PR #59); hardened after a 4-judge implementation review. Design docs in `tasks/closed/023-bash-tool/` |
-| 024 | Deferred hardening + phase-2 design items from the Phase 1 implementation review | OPEN (medium) |
-| 025 | **Phase 2** — Docker backend (container isolation) | **MERGED** (PR #62) |
-| 026 | **Phase 2** — SSH / remote (VPS) backend | **MERGED** (PR #63) |
-| 027 | **Phase 2** — background exec (freeze fix); persistent shell split to 032 | **MERGED** (PR #65) |
-| 028 | **Phase 3** — human escalation (`on_violation: ask_human`) | **MERGED** (PR #69) |
-| 030b | Docker egress-allowlist proxy (the real `network:true` filter; gating was PR #68) | OPEN (**high**) |
-| 029 | **Phase 4** — the harness blend (markdown projection + outbox harvest) | OPEN (design-first, after watching real agents) |
-| 030 | Docker & SSH backend follow-ups (deferred panel findings; incl. `network:true` egress filtering — the one blocking security item) | OPEN (**high**) |
-| 031 | Cross-backend E2E test harness + local real-backend runner (`docker/README.md`) | **MERGED** (PRs #64/#66) |
-| 032 | Per-agent persistent shell (`cd`/`export` persist) — deferred from 027 | OPEN (medium) |
+| 023 | Core local vertical: policy, manager, reaper, audit, CLI, bash tool | **MERGED** (PR #59) |
+| 024 | Phase 2 foundation and implementation-review follow-ups | **CLOSED** (implemented across PRs #61/#72–#77; remainder consolidated into 030) |
+| 025 | Docker containment backend | **MERGED** (PR #62) |
+| 026 | SSH/disposable-host backend | **MERGED** (PR #63) |
+| 027 | Background execution; persistent shell split to 032 | **MERGED** (PR #65) |
+| 028 | Human approval for policy violations | **MERGED** (PR #69) |
+| 029 | Filesystem projection/outbox “harness blend” | OPEN (low, evidence then design) |
+| 030 | Remaining cross-backend containment, lifecycle, and ops hardening | OPEN (high for untrusted-at-scale slices) |
+| 031 | Cross-backend E2E harness and local real-backend runner | **MERGED** (PRs #64/#66) |
+| 032 | Per-agent persistent foreground shell | OPEN (medium, evidence then design) |
+| 033 | Filtered Docker egress proxy for allowlisted `network: true` | **CLOSED** (PR #70; close-out PR #71) |
 
-## Ordering & dependencies
+## What remains
 
-- **023/025/026/027/031 are merged** — all three backends, the E2E harness, and
-  background exec are shipped. The foundation and Phase 2 are done.
-- **030 is the highest-priority remaining item** — the deferred docker/ssh panel
-  findings, headlined by **`network:true` egress filtering**: until it lands, do
-  **not** enable `backend: docker` for untrusted input *with* `network:true` (an
-  injected `curl http://169.254.169.254/...` can exfiltrate cloud IAM creds). The
-  default `network:false` is safe, so this gates only the network-on path.
-- **024** is the remaining phase-2 plumbing (thread-safety, reaper
-  generalization, observability) — mostly independent cleanups.
-- **028 (escalation)** shares the one deferral mechanism with background exec:
-  `ToolResponse(response_interaction=...)` — never a bare `Waiting`/`AskHuman`
-  (027 built the `BashWaiting` interaction on exactly this seam).
-- **032 (persistent shell)** was split out of 027; its crux is reconciling a
-  serial persistent shell with concurrent background exec — design-first.
-- **029 (harness blend)** is design-first and should wait until real agents have
-  used Phases 1–2.
+- **030 is the implementation backlog.** The highest-risk remaining work for
+  untrusted workloads at scale is Docker userns/image provenance/total quota,
+  stronger path-walk confinement, SSH `remote_docker`, and generic lifecycle +
+  secret handling. It also owns the small unshipped items from task 024.
+- **Filtered egress is shipped.** `network: false` remains the default;
+  allowlisted `network: true` uses task 033's proxy. Only the explicitly named
+  `allow_unrestricted_egress` escape hatch permits unfiltered egress.
+- **032 is a product decision, not assumed roadmap work.** Collect evidence that
+  persistent `cd`/environment state is worth the three-backend lifecycle and
+  concurrency cost before building it.
+- **029 remains parked** until concrete agent runs demonstrate projection,
+  discovery, or artifact hand-off problems that the proposed filesystem blend
+  would solve.
 
-## Cross-cutting notes
+## Cross-cutting dependency
 
-- **Blocking dependency for good bash UX:** full multi-tool-call support
-  (task 006). Phase 0 shipped only the >1-`tool_use` *detection*; batched bash
-  calls are otherwise a silent-data-loss risk.
-- **Every isolation backend merges behind `/panel-review`** with the security
-  judge's containment test as the gate (see `plan.md` "Review").
+Full batched tool-call support (task 006) is still important for good bash and
+general tool UX. PR #58 prevents silent loss by disabling provider parallelism
+and warning on violations; it does not execute multiple calls from one assistant
+response.

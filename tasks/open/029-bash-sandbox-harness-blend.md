@@ -16,6 +16,15 @@ written *after* watching real agents use Phases 1–2** — do not build it blin
 there — read it first). This task is the pointer so the idea isn't lost when 023
 closes.
 
+## Audit (2026-08-12)
+
+Still relevant as a research/design task, but intentionally parked. Phases 1–3,
+all three backends, the real-backend harness, background execution, human
+approval, and filtered Docker egress have shipped. The repo does not yet contain
+the real-run observations required by this task's own success criteria. The next
+action is to collect concrete examples of agents struggling with projection,
+discovery, or artifact hand-off—not to implement this design speculatively.
+
 ## The idea
 
 Treat the filesystem as a shared, inspectable medium between framework and agent,
@@ -52,8 +61,8 @@ storage↔disk reconciliation. Enforce it structurally.
 - [ ] Does harvest run at the tool-call boundary (faster feedback) or the agent
       boundary (cleaner semantics)?
 - [ ] What does the **system prompt** say? The projection and the prompt should
-      share a source, or the agent wastes turns on `which`. (Ties to task 024's
-      "environment affordance" item.)
+      share a source, or the agent wastes turns on `which`. (Ties to the shipped
+      environment affordance and task 030's remaining capability-probe polish.)
 
 ## The boundary this must preserve
 
@@ -71,3 +80,5 @@ can't fumble, and results that land in the stack as inspectable interactions
 - [ ] A written design (in this task folder) answering the open questions, backed
       by observations of real Phase 1–2 agent runs.
 - [ ] A decision on scope before any implementation.
+- [ ] At least three concrete run observations are linked here, including one
+      where a structured tool is better than filesystem projection.
