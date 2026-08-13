@@ -7,6 +7,7 @@ from gimle.hugin.agent.agent import Agent
 from gimle.hugin.agent.config import Config
 from gimle.hugin.agent.environment import Environment
 from gimle.hugin.agent.session_state import SessionState
+from gimle.hugin.llm.router_outcome import report_outcome
 from gimle.hugin.sandbox.background import BackgroundExecutor
 from gimle.hugin.utils.uuid import with_uuid
 
@@ -57,6 +58,11 @@ class Session:
         # command doesn't freeze sibling agents. Lazy (no threads until a command
         # actually backgrounds); in-memory, not serialized (like sandboxes).
         self.background = BackgroundExecutor()
+        # A session may be stepped or ``run`` more than once (for example after
+        # external input).  The router contract is one terminal outcome per
+        # edition, so keep an in-process latch while still allowing a
+        # non-terminal run to resume and report later.
+        self._router_outcome_reported = False
 
     @property
     def id(self) -> str:
@@ -179,33 +185,90 @@ class Session:
             The number of steps run.
         """
         step_count = 0
+        max_steps_reached = False
         logger.info(f"Running session {self.id}")
-        while True:
-            # Track which agents had activity
-            active_agents: List[Agent] = []
-            for agent in self.agents:
-                if agent.step():
-                    active_agents.append(agent)
+        try:
+            while True:
+                # Track which agents had activity
+                active_agents: List[Agent] = []
+                for agent in self.agents:
+                    if agent.step():
+                        active_agents.append(agent)
 
-            if not active_agents:
-                break
+                if not active_agents:
+                    break
 
+                if self.storage:
+                    self.storage.save_session(self)
+                step_count += 1
+
+                # Call the callback for each active agent
+                if step_callback:
+                    for agent in active_agents:
+                        step_callback(step_count, agent)
+
+                if max_steps and step_count >= max_steps:
+                    logger.info(f"Max steps reached ({max_steps})")
+                    max_steps_reached = True
+                    break
+                logger.info(f"Step {step_count} completed")
             if self.storage:
                 self.storage.save_session(self)
-            step_count += 1
 
-            # Call the callback for each active agent
-            if step_callback:
-                for agent in active_agents:
-                    step_callback(step_count, agent)
+            terminal_success = self._terminal_success()
+            if terminal_success is not None:
+                self._report_router_outcome(terminal_success)
+            elif max_steps_reached:
+                self._report_router_outcome(False)
+            return step_count
+        except Exception:
+            self._report_router_outcome(False)
+            raise
 
-            if max_steps and step_count >= max_steps:
-                logger.info(f"Max steps reached ({max_steps})")
-                break
-            logger.info(f"Step {step_count} completed")
-        if self.storage:
-            self.storage.save_session(self)
-        return step_count
+    def _terminal_success(self) -> Optional[bool]:
+        """Return the completed root-task result, or ``None`` while waiting.
+
+        Child-agent failures are inputs to their caller and must not overwrite
+        the edition's final result.  With several independent root agents, the
+        edition succeeds only when every root task has completed successfully.
+        """
+        from gimle.hugin.interaction.task_definition import TaskDefinition
+        from gimle.hugin.interaction.task_result import TaskResult
+
+        results: List[bool] = []
+        for agent in self.agents:
+            task_definition = next(
+                (
+                    interaction
+                    for interaction in agent.stack.interactions
+                    if isinstance(interaction, TaskDefinition)
+                ),
+                None,
+            )
+            if task_definition is None or task_definition.caller_id is not None:
+                continue
+            task_result = next(
+                (
+                    interaction
+                    for interaction in reversed(agent.stack.interactions)
+                    if isinstance(interaction, TaskResult)
+                ),
+                None,
+            )
+            if task_result is None or task_result.finish_type is None:
+                return None
+            results.append(task_result.finish_type == "success")
+        return all(results) if results else None
+
+    def _report_router_outcome(self, success: bool) -> None:
+        """Best-effort, once-per-session bridge to gimle-router."""
+        if self._router_outcome_reported:
+            return
+        self._router_outcome_reported = True
+        try:
+            report_outcome(self.id, success=success)
+        except Exception as error:  # observability must never break an edition
+            logger.warning("gimle-router outcome reporting failed: %s", error)
 
     def close(self) -> None:
         """Release session-owned resources (background jobs, then sandboxes).
