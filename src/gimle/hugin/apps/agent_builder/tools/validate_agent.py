@@ -15,7 +15,9 @@ input sets over an agent's lifetime.
 """
 
 import ast
+import os
 import re
+import stat
 import sys
 from functools import lru_cache
 from pathlib import Path
@@ -32,9 +34,17 @@ from typing import (
 
 import yaml
 
-from gimle.hugin.agent.environment import _BARE_TEMPLATE_REFERENCE
+from gimle.hugin.agent.template_reference import BARE_TEMPLATE_REFERENCE
 from gimle.hugin.apps.agent_builder.tools.agent_paths import (
     validate_generated_key,
+)
+from gimle.hugin.apps.agent_builder.tools.example_files import (
+    ExampleReadLimit,
+    ReadBudget,
+    UnsafeExamplePath,
+    open_child_directory,
+    open_directory,
+    read_text_file,
 )
 from gimle.hugin.tools.tool import ToolResponse
 
@@ -44,7 +54,7 @@ from gimle.hugin.tools.tool import ToolResponse
 # agree with what the framework actually does, and two copies of the rule would
 # eventually disagree. It was duplicated while task 019 was still open; now
 # that 019 has landed on main there is a single definition to point at.
-BARE_REFERENCE = _BARE_TEMPLATE_REFERENCE
+BARE_REFERENCE = BARE_TEMPLATE_REFERENCE
 
 # Names the renderer injects into every template namespace. Referencing one is
 # legitimate even though no task declares it.
@@ -68,7 +78,18 @@ DISTRIBUTION_NAMES = {
     "yaml": "PyYAML",
 }
 
+# On-disk validation is a CLI feature, not a model capability. These bounds
+# keep a malformed or unexpectedly large directory from turning validation
+# into an unbounded read.
+MAX_AGENT_FILES = 256
+MAX_AGENT_BYTES = 2 * 1024 * 1024
+MAX_AGENT_FILE_BYTES = 256 * 1024
+
 Finding = Dict[str, str]
+
+
+class AgentReadError(ValueError):
+    """Raised when an on-disk agent cannot be read safely and within bounds."""
 
 
 def _finding(file: str, check: str, message: str) -> Finding:
@@ -76,24 +97,77 @@ def _finding(file: str, check: str, message: str) -> Finding:
     return {"file": file, "check": check, "message": message}
 
 
-def collect_files(agent_path: str) -> Dict[str, str]:
+def collect_files(
+    agent_path: str,
+    *,
+    max_files: int = MAX_AGENT_FILES,
+    max_bytes: int = MAX_AGENT_BYTES,
+    max_file_bytes: int = MAX_AGENT_FILE_BYTES,
+) -> Dict[str, str]:
     """Read an agent directory into the ``{relative_path: content}`` shape.
 
     The same shape the builder holds in ``env_vars["generated_files"]``, so an
-    on-disk agent and an in-memory one go through identical checks.
+    on-disk agent and an in-memory one go through identical checks. Every path
+    component is opened without following symlinks, and one shared budget
+    bounds the number and size of files read.
     """
-    root = Path(agent_path)
     files: Dict[str, str] = {}
-    for folder in ("configs", "tasks", "templates", "tools"):
-        directory = root / folder
-        if not directory.is_dir():
-            continue
-        for path in sorted(directory.iterdir()):
-            if path.suffix not in (".yaml", ".py") or path.name.startswith(
-                "__"
-            ):
-                continue
-            files[f"{folder}/{path.name}"] = path.read_text()
+    budget = ReadBudget(max_files=max_files, max_bytes=max_bytes)
+
+    try:
+        with open_directory(Path(agent_path)) as root_fd:
+            for folder in ("configs", "tasks", "templates", "tools"):
+                try:
+                    metadata = os.stat(
+                        folder, dir_fd=root_fd, follow_symlinks=False
+                    )
+                except FileNotFoundError:
+                    continue
+                if not stat.S_ISDIR(metadata.st_mode):
+                    raise UnsafeExamplePath(
+                        f"Agent entry '{folder}' is not a regular directory"
+                    )
+
+                with open_child_directory(root_fd, folder) as directory_fd:
+                    names = []
+                    remaining = budget.max_files - budget.files_read
+                    with os.scandir(directory_fd) as entries:
+                        for entry in entries:
+                            name = entry.name
+                            if name.startswith("__") or Path(
+                                name
+                            ).suffix not in (
+                                ".yaml",
+                                ".py",
+                            ):
+                                continue
+                            names.append(name)
+                            if len(names) > remaining:
+                                raise ExampleReadLimit(
+                                    f"Agent contains more than {max_files} readable files"
+                                )
+
+                    for name in sorted(names):
+                        files[f"{folder}/{name}"] = read_text_file(
+                            directory_fd,
+                            name,
+                            budget,
+                            max_file_bytes=max_file_bytes,
+                        )
+    except ExampleReadLimit as error:
+        raise AgentReadError(
+            "Agent files exceed validation read limits"
+        ) from error
+    except UnsafeExamplePath as error:
+        raise AgentReadError(
+            "Agent path contains a missing, invalid, or symlinked component"
+        ) from error
+    except UnicodeDecodeError as error:
+        raise AgentReadError("Agent files must be valid UTF-8 text") from error
+    except OSError as error:
+        raise AgentReadError(
+            f"Could not safely read agent files: {error}"
+        ) from error
     return files
 
 
@@ -174,6 +248,33 @@ def _implementation(document: Dict[str, Any]) -> Tuple[str, str]:
     return parts[-2], parts[-1]
 
 
+def _implementation_error(document: Dict[str, Any]) -> Optional[str]:
+    """Return why a tool's implementation path cannot be loaded, if invalid."""
+    path = document.get("implementation_path")
+    if path is None:
+        return "implementation_path is required"
+    if not isinstance(path, str) or not path or path != path.strip():
+        return "implementation_path must be a non-empty string"
+
+    if ":" in path:
+        if path.count(":") != 1:
+            return "implementation_path must contain at most one ':'"
+        module_path, function_name = path.split(":", 1)
+    else:
+        parts = path.split(".")
+        if len(parts) < 2:
+            return "implementation_path must name both a module and a function"
+        module_path = ".".join(parts[:-1])
+        function_name = parts[-1]
+
+    module_parts = module_path.split(".")
+    if not all(part.isidentifier() for part in module_parts):
+        return "implementation_path contains an invalid module name"
+    if not function_name.isidentifier():
+        return "implementation_path contains an invalid function name"
+    return None
+
+
 def _declared_parameters(document: Dict[str, Any]) -> Dict[str, Any]:
     """Return a tool's parameters, accepting both schema styles.
 
@@ -204,9 +305,15 @@ def _check_structure(files: Dict[str, str]) -> List[Finding]:
     # widely used pattern -- only a definition pointing at a missing module is
     # a real break.
     for key, document in _load_yaml(files, "tools").items():
-        module, _ = _implementation(document)
-        if not module:
+        if "__parse_error__" in document:
             continue
+        implementation_error = _implementation_error(document)
+        if implementation_error:
+            findings.append(
+                _finding(key, "tool-definition", implementation_error)
+            )
+            continue
+        module, _ = _implementation(document)
         if f"tools/{module}.py" not in files:
             findings.append(
                 _finding(
@@ -417,7 +524,28 @@ def _check_references(
                 )
                 if finding:
                     errors.append(finding)
-            for entry in document.get("tools") or []:
+            entries = document.get("tools")
+            if entries is None:
+                continue
+            if not isinstance(entries, list):
+                errors.append(
+                    _finding(
+                        key,
+                        "tool-schema",
+                        "tools must be a list of non-empty strings",
+                    )
+                )
+                continue
+            for index, entry in enumerate(entries):
+                if not isinstance(entry, str) or not entry.strip():
+                    errors.append(
+                        _finding(
+                            key,
+                            "tool-schema",
+                            f"tools[{index}] must be a non-empty string",
+                        )
+                    )
+                    continue
                 error, warning = _check_tool_reference(
                     key, entry, own_tools, builtins_registered
                 )
@@ -616,13 +744,37 @@ def local_module_names(agent_path: str, files: Dict[str, str]) -> Set[str]:
         for key in files
         if key.startswith("tools/") and key.endswith(".py")
     }
-    root = Path(agent_path) if agent_path else None
-    if root and root.is_dir():
-        for child in root.iterdir():
-            if child.is_dir() and (child / "__init__.py").exists():
-                names.add(child.name)
-            elif child.suffix == ".py":
-                names.add(child.stem)
+    if not agent_path:
+        return names
+
+    try:
+        with open_directory(Path(agent_path)) as root_fd:
+            with os.scandir(root_fd) as entries:
+                for entry in entries:
+                    if (
+                        entry.is_file(follow_symlinks=False)
+                        and Path(entry.name).suffix == ".py"
+                    ):
+                        names.add(Path(entry.name).stem)
+                        continue
+                    if not entry.is_dir(follow_symlinks=False):
+                        continue
+                    with open_child_directory(root_fd, entry.name) as child_fd:
+                        try:
+                            metadata = os.stat(
+                                "__init__.py",
+                                dir_fd=child_fd,
+                                follow_symlinks=False,
+                            )
+                        except FileNotFoundError:
+                            continue
+                        if stat.S_ISREG(metadata.st_mode):
+                            names.add(entry.name)
+    except (OSError, UnsafeExamplePath):
+        # ``collect_files`` already rejects an unsafe root. A child changing
+        # concurrently must not turn a best-effort dependency hint into a
+        # validator crash.
+        pass
     return names
 
 
@@ -758,15 +910,12 @@ def _key_errors(files: Dict[str, str]) -> List[Finding]:
 
 def validate_agent(
     stack: "Any" = None,
-    agent_path: Optional[str] = None,
     check_imports: bool = False,
 ) -> ToolResponse:
     """Validate a generated agent without executing any of its code.
 
     Args:
         stack: Agent stack (auto-injected)
-        agent_path: Directory to validate. Omit to validate the files the
-            builder has generated so far, before anything reaches disk.
         check_imports: Reserved for the opt-in import check. Importing
             generated code executes it, so this is off by default and is a
             correctness aid, never a security boundary.
@@ -774,32 +923,18 @@ def validate_agent(
     Returns:
         ToolResponse whose content is the validation report.
     """
-    if agent_path:
-        try:
-            files = collect_files(agent_path)
-        except OSError as error:
-            return ToolResponse(
-                is_error=True,
-                content={"error": f"Could not read {agent_path}: {error}"},
-            )
-        if not files:
-            return ToolResponse(
-                is_error=True,
-                content={"error": f"No agent files found in {agent_path}"},
-            )
-    else:
-        files = (
-            stack.agent.environment.env_vars.get("generated_files", {})
-            if stack is not None
-            else {}
+    files = (
+        stack.agent.environment.env_vars.get("generated_files", {})
+        if stack is not None
+        else {}
+    )
+    if not files:
+        return ToolResponse(
+            is_error=True,
+            content={"error": "No files have been generated yet"},
         )
-        if not files:
-            return ToolResponse(
-                is_error=True,
-                content={"error": "No files have been generated yet"},
-            )
 
-    report = validate_files(files, agent_path or "")
+    report = validate_files(files)
     if check_imports:
         report["warnings"].append(
             _finding(

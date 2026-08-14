@@ -5,12 +5,6 @@ description: >-
   without importing or running them. Call this before finishing; write_agent_files
   runs it again and refuses to write a payload that does not pass.
 parameters:
-  agent_path:
-    type: string
-    description: >-
-      Directory to validate. Omit to validate the files generated so far,
-      before anything is written to disk.
-    required: false
   check_imports:
     type: boolean
     description: >-

@@ -48,14 +48,17 @@ Signature:
 ```python
 def validate_agent(
     stack: "Stack",
-    agent_path: Optional[str] = None,
-    check_imports: bool = True,
+    check_imports: bool = False,
 ) -> ToolResponse:
 ```
 
-When `agent_path` is omitted it validates the in-memory
-`env_vars["generated_files"]` by materialising them into a `TemporaryDirectory`.
-This lets it run *before* anything touches the user's filesystem.
+The model-facing tool validates only the in-memory
+`env_vars["generated_files"]`; an arbitrary disk path is deliberately not a
+tool parameter. The explicit `hugin validate` CLI reads on-disk agents through
+descriptor-relative, no-follow, file-count and byte-bounded access, then calls
+the same static `validate_files` checks. This lets the builder validate before
+anything touches the user's filesystem without granting it a general read
+capability.
 
 Checks 1-5 are static — they parse files and never execute generated code.
 Checks 6-7 execute it and are **opt-in, off by default** (see §1.5).

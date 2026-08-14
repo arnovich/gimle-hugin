@@ -6,14 +6,20 @@ it must stay silent on the repo's own agents -- a validator that fails the
 shipped examples is wrong about the framework, not right about the examples.
 """
 
+import argparse
+import inspect
 from pathlib import Path
 
 import pytest
+import yaml
 
 from gimle.hugin.apps.agent_builder.tools.validate_agent import (
+    AgentReadError,
     collect_files,
+    validate_agent,
     validate_files,
 )
+from gimle.hugin.cli.cli import cmd_validate
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -71,6 +77,14 @@ def warnings_of(report, check):
     return [w for w in report["warnings"] if w["check"] == check]
 
 
+def write_agent(root, files=None):
+    """Write an agent fixture to disk for CLI and confinement tests."""
+    for key, content in (files or agent()).items():
+        path = root / key
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+
+
 class TestCleanAgentPasses:
     """A correct agent must produce no findings at all."""
 
@@ -111,6 +125,24 @@ class TestStructure:
             )
         )
         assert errors_of(report, "structure")
+
+    @pytest.mark.parametrize(
+        "implementation_path",
+        [None, "broken", "broken:", ":broken", 3],
+    )
+    def test_invalid_implementation_path_is_an_error(self, implementation_path):
+        """A validator pass must mean Tool can load the advertised callable."""
+        lines = ["name: fetch_prices", "description: Fetch"]
+        if implementation_path is not None:
+            lines.append(f"implementation_path: {implementation_path!r}")
+        report = validate_files(
+            agent(
+                **{
+                    "tools/fetch_prices.yaml": "\n".join(lines) + "\n",
+                }
+            )
+        )
+        assert errors_of(report, "tool-definition")
 
     def test_helper_module_without_a_definition_is_allowed(self):
         """Shared helper modules are a normal pattern, not a defect."""
@@ -225,6 +257,31 @@ class TestReferenceResolution:
     def test_real_builtin_alias_resolves(self):
         """The 'builtins.x:alias' form is the normal spelling."""
         assert validate_files(agent())["ok"]
+
+    @pytest.mark.parametrize(
+        "tools_yaml",
+        [
+            "tools: 3\n",
+            "tools: broken\n",
+            "tools:\n  - 3\n",
+            "tools:\n  - ''\n",
+        ],
+    )
+    def test_malformed_tools_field_is_one_schema_error(self, tools_yaml):
+        """Malformed generated tool grants must not crash or silently pass."""
+        report = validate_files(
+            agent(
+                **{
+                    "configs/demo.yaml": (
+                        "name: demo\n"
+                        "description: A demo\n"
+                        "system_template: demo_system\n"
+                        f"{tools_yaml}"
+                    )
+                }
+            )
+        )
+        assert len(errors_of(report, "tool-schema")) == 1
 
 
 class TestReservedNames:
@@ -651,6 +708,100 @@ class TestPathKeys:
         """Caught here as well as in write_agent_files."""
         report = validate_files(agent(**{"../../evil.py": "pwned"}))
         assert errors_of(report, "path")
+
+
+class TestOnDiskCollection:
+    """CLI validation must not escape its root or read without limits."""
+
+    def test_symlinked_agent_folder_is_rejected(self, tmp_path):
+        """A configs symlink must never expose files outside the agent."""
+        root = tmp_path / "agent"
+        outside = tmp_path / "outside"
+        root.mkdir()
+        outside.mkdir()
+        (outside / "secret.yaml").write_text("secret: value\n")
+        (root / "configs").symlink_to(outside, target_is_directory=True)
+
+        with pytest.raises(AgentReadError):
+            collect_files(str(root))
+
+    def test_symlinked_agent_file_is_rejected(self, tmp_path):
+        """A YAML symlink must not be opened even inside a real folder."""
+        root = tmp_path / "agent"
+        outside = tmp_path / "secret.yaml"
+        (root / "configs").mkdir(parents=True)
+        outside.write_text("secret: value\n")
+        (root / "configs" / "demo.yaml").symlink_to(outside)
+
+        with pytest.raises(AgentReadError):
+            collect_files(str(root))
+
+    def test_file_size_is_bounded(self, tmp_path):
+        """One oversized generated file cannot exhaust validator memory."""
+        root = tmp_path / "agent"
+        (root / "configs").mkdir(parents=True)
+        (root / "configs" / "demo.yaml").write_text("12345")
+
+        with pytest.raises(AgentReadError):
+            collect_files(str(root), max_file_bytes=4)
+
+    def test_file_count_is_bounded(self, tmp_path):
+        """The shared budget applies across all agent subdirectories."""
+        root = tmp_path / "agent"
+        (root / "configs").mkdir(parents=True)
+        (root / "tasks").mkdir()
+        (root / "configs" / "demo.yaml").write_text("a")
+        (root / "tasks" / "main.yaml").write_text("b")
+
+        with pytest.raises(AgentReadError):
+            collect_files(str(root), max_files=1)
+
+    def test_total_bytes_are_bounded(self, tmp_path):
+        """Many individually small files still share one byte budget."""
+        root = tmp_path / "agent"
+        (root / "configs").mkdir(parents=True)
+        (root / "tasks").mkdir()
+        (root / "configs" / "demo.yaml").write_text("1234")
+        (root / "tasks" / "main.yaml").write_text("5678")
+
+        with pytest.raises(AgentReadError):
+            collect_files(str(root), max_bytes=7, max_file_bytes=4)
+
+
+class TestModelFacingValidator:
+    """The builder tool validates generated state, never arbitrary disk paths."""
+
+    def test_agent_path_is_not_a_tool_parameter(self):
+        """Disk access belongs to the explicit CLI caller only."""
+        assert "agent_path" not in inspect.signature(validate_agent).parameters
+
+        definition = yaml.safe_load(
+            (
+                REPO
+                / "src/gimle/hugin/apps/agent_builder/tools/validate_agent.yaml"
+            ).read_text()
+        )
+        assert "agent_path" not in definition["parameters"]
+
+
+class TestValidateCli:
+    """Every explicitly requested recursive root is part of the CI gate."""
+
+    def test_missing_root_fails_even_when_another_root_has_agents(
+        self, tmp_path, capsys
+    ):
+        """One valid root must not hide another root being deleted or renamed."""
+        parent = tmp_path / "agents"
+        write_agent(parent / "demo")
+        missing = tmp_path / "missing"
+        args = argparse.Namespace(
+            paths=[str(parent), str(missing)], recursive=True, quiet=True
+        )
+
+        assert cmd_validate(args) == 1
+        output = capsys.readouterr().out
+        assert f"error {missing}: not a directory" in output
+        assert f"OK   {parent / 'demo'}" in output
 
 
 class TestObservedImports:

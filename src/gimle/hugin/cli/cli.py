@@ -280,23 +280,27 @@ def cmd_install_models(args: argparse.Namespace) -> int:
 def cmd_validate(args: argparse.Namespace) -> int:
     """Statically validate one or more agent directories."""
     from gimle.hugin.apps.agent_builder.tools.validate_agent import (
+        AgentReadError,
         collect_files,
         validate_files,
     )
 
     paths = [Path(p) for p in args.paths]
+    root_failures = 0
     if args.recursive:
         discovered = []
         for parent in paths:
             if not parent.is_dir():
                 # An unreadable or absent path used to abort the CI gate with
                 # a bare iterdir() traceback that read like a validator crash.
-                print(f"    skipping {parent}: not a directory")
+                print(f"    error {parent}: not a directory")
+                root_failures += 1
                 continue
             try:
                 children = sorted(parent.iterdir())
             except OSError as error:
-                print(f"    skipping {parent}: {error}")
+                print(f"    error {parent}: {error}")
+                root_failures += 1
                 continue
             discovered += [
                 child
@@ -313,7 +317,12 @@ def cmd_validate(args: argparse.Namespace) -> int:
 
     failed = 0
     for path in paths:
-        files = collect_files(str(path))
+        try:
+            files = collect_files(str(path))
+        except AgentReadError as error:
+            print(f"    FAIL {path}: {error}")
+            failed += 1
+            continue
         if not files:
             print(f"    {path}: no agent files found")
             failed += 1
@@ -339,7 +348,7 @@ def cmd_validate(args: argparse.Namespace) -> int:
     if len(paths) > 1:
         print()
         print(f"    {len(paths) - failed}/{len(paths)} agents valid")
-    return 1 if failed else 0
+    return 1 if failed or root_failures else 0
 
 
 def cmd_version(args: argparse.Namespace) -> int:

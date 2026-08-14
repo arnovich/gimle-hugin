@@ -93,12 +93,12 @@ Two lines of YAML plus three of prompt. Highest value-per-line in the document.
 
 ### PR 1.3 — `validate_agent` (static checks only) `task/034_validate_agent`
 - [x] Checks: path keys, reserved names, structure, reference resolution
-      (identifier-only heuristic, written here since task 019 is still
-      unimplemented), Jinja binding **as warnings**, AST-based tool contract
+      (using task 019's shared identifier-only heuristic), Jinja binding **as
+      warnings**, AST-based tool contract
 - [x] Compact `{ok, errors, warnings, observed_imports, summary}` payload
 - [x] `check_imports` accepted but **defaulting False** and not implemented —
       it executes generated code, so it lands with its hardening (spec §1.5)
-- [x] `tests/test_validate_agent.py` — 59 tests, one broken fixture per check
+- [x] `tests/test_validate_agent.py` — 88 tests, one broken fixture per check
 - [x] **Acceptance gate:** 26/26 shipped agents clean, parametrized in pytest
       *and* run as a `hugin validate -r` step in `.github/workflows/ci.yml`
 - [x] `hugin validate` CLI pulled forward from PR 1.4, so the validator ships
