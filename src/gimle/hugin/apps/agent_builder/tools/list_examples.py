@@ -4,11 +4,23 @@ List available Hugin examples with descriptions and key concepts.
 Fault-tolerant: falls back to hardcoded metadata if filesystem unavailable.
 """
 
-import os
 import re
 from pathlib import Path
 from typing import List, Optional
 
+from gimle.hugin.apps.agent_builder.tools.example_files import (
+    MAX_CATALOGUE_BYTES,
+    MAX_CATALOGUE_ENTRIES,
+    ExampleReadLimit,
+    ReadBudget,
+    UnsafeExamplePath,
+    child_directory_names,
+    discover_examples_path,
+    has_child_directory,
+    open_child_directory,
+    open_directory,
+    read_optional_text_file,
+)
 from gimle.hugin.tools.tool import ToolResponse
 
 # Hardcoded fallback metadata for when examples folder is unavailable
@@ -129,69 +141,43 @@ FALLBACK_EXAMPLES = [
 
 
 def _get_examples_path() -> Optional[Path]:
-    """Discover examples path with multiple fallbacks."""
-    # Try 1: Relative to hugin package (src/gimle/hugin -> examples)
-    hugin_path = Path(__file__).parent.parent.parent.parent.parent
-    examples_path = hugin_path.parent.parent / "examples"
-    if examples_path.exists() and examples_path.is_dir():
-        return examples_path
-
-    # Try 2: Environment variable
-    env_path = os.environ.get("HUGIN_EXAMPLES_PATH")
-    if env_path:
-        path = Path(env_path)
-        if path.exists() and path.is_dir():
-            return path
-
-    # Try 3: Current working directory
-    cwd_examples = Path.cwd() / "examples"
-    if cwd_examples.exists() and cwd_examples.is_dir():
-        return cwd_examples
-
-    return None
+    """Discover an explicit or source-checkout examples path."""
+    return discover_examples_path()
 
 
-def _parse_readme_description(readme_path: Path) -> Optional[str]:
+def _parse_readme_description(content: str) -> Optional[str]:
     """Extract description from example README."""
-    try:
-        content = readme_path.read_text()
-        # Look for first paragraph after the title
-        lines = content.split("\n")
-        description_lines: List[str] = []
-        in_description = False
-        for line in lines:
-            if line.startswith("# "):
-                in_description = True
-                continue
-            if in_description:
-                if line.strip() == "":
-                    if description_lines:
-                        break
-                    continue
-                if line.startswith("#"):
+    # Look for first paragraph after the title
+    lines = content.split("\n")
+    description_lines: List[str] = []
+    in_description = False
+    for line in lines:
+        if line.startswith("# "):
+            in_description = True
+            continue
+        if in_description:
+            if line.strip() == "":
+                if description_lines:
                     break
-                description_lines.append(line.strip())
-        if description_lines:
-            return " ".join(description_lines)[:200]
-    except Exception:
-        pass
+                continue
+            if line.startswith("#"):
+                break
+            description_lines.append(line.strip())
+    if description_lines:
+        return " ".join(description_lines)[:200]
     return None
 
 
-def _parse_key_concept(readme_path: Path) -> Optional[str]:
+def _parse_key_concept(content: str) -> Optional[str]:
     """Extract key concept from example README."""
-    try:
-        content = readme_path.read_text()
-        # Look for "Key Concept" or similar patterns
-        match = re.search(
-            r"(?:Key Concept|Demonstrates|Shows)[:\s]+(.+?)(?:\n|$)",
-            content,
-            re.IGNORECASE,
-        )
-        if match:
-            return match.group(1).strip()[:100]
-    except Exception:
-        pass
+    # Look for "Key Concept" or similar patterns
+    match = re.search(
+        r"(?:Key Concept|Demonstrates|Shows)[:\s]+(.+?)(?:\n|$)",
+        content,
+        re.IGNORECASE,
+    )
+    if match:
+        return match.group(1).strip()[:100]
     return None
 
 
@@ -236,38 +222,45 @@ def _detect_category(example_name: str) -> str:
 def _list_from_filesystem(
     examples_path: Path, category: Optional[str]
 ) -> List[dict]:
-    """List examples from filesystem."""
+    """List examples through bounded, descriptor-relative reads."""
     examples = []
-    for item in sorted(examples_path.iterdir()):
-        if not item.is_dir():
-            continue
-        if item.name.startswith(".") or item.name.startswith("_"):
-            continue
+    budget = ReadBudget(
+        max_files=MAX_CATALOGUE_ENTRIES, max_bytes=MAX_CATALOGUE_BYTES
+    )
+    with open_directory(examples_path) as examples_fd:
+        for name in child_directory_names(examples_fd):
+            if name.startswith(".") or name.startswith("_"):
+                continue
 
-        readme_path = item / "README.md"
-        tools_dir = item / "tools"
+            with open_child_directory(examples_fd, name) as example_fd:
+                try:
+                    readme = read_optional_text_file(
+                        example_fd, "README.md", budget
+                    )
+                except (
+                    ExampleReadLimit,
+                    UnicodeDecodeError,
+                    UnsafeExamplePath,
+                ):
+                    readme = None
 
-        example_info = {
-            "name": item.name,
-            "description": (
-                _parse_readme_description(readme_path)
-                if readme_path.exists()
-                else None
-            ),
-            "key_concept": (
-                _parse_key_concept(readme_path)
-                if readme_path.exists()
-                else None
-            ),
-            "category": _detect_category(item.name),
-            "has_tools": tools_dir.exists() and tools_dir.is_dir(),
-        }
+                example_info = {
+                    "name": name,
+                    "description": (
+                        _parse_readme_description(readme) if readme else None
+                    ),
+                    "key_concept": (
+                        _parse_key_concept(readme) if readme else None
+                    ),
+                    "category": _detect_category(name),
+                    "has_tools": has_child_directory(example_fd, "tools"),
+                }
 
-        # Apply category filter
-        if category and example_info["category"] != category:
-            continue
+                # Apply category filter
+                if category and example_info["category"] != category:
+                    continue
 
-        examples.append(example_info)
+                examples.append(example_info)
 
     return examples
 

@@ -37,6 +37,7 @@ class ToolCall(Interaction):
         Returns:
             True if the tool call interaction was successful, False otherwise.
         """
+        tool = None
         try:
             tools = self.stack.get_tools(branch=self.branch)
             tool = next(
@@ -61,7 +62,7 @@ class ToolCall(Interaction):
             if not self.tool:
                 raise ValueError("Tool is required")
             self.stack.add_interaction(
-                ToolResult.create_from_tool_response(self, result)
+                ToolResult.create_from_tool_response(self, result, tool=tool)
             )
 
         return True

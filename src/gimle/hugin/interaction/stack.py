@@ -11,6 +11,7 @@ from gimle.hugin.interaction.external_input import ExternalInput
 from gimle.hugin.interaction.interaction import Interaction
 from gimle.hugin.interaction.oracle_response import OracleResponse
 from gimle.hugin.interaction.task_result import TaskResult
+from gimle.hugin.interaction.tool_result import snapshot_tool_context_policy
 from gimle.hugin.interaction.waiting import Waiting
 from gimle.hugin.llm.prompt.message import (
     render_assistant_message,
@@ -219,6 +220,7 @@ class Stack:
         interactions_messages = []
         append_to_context = True
         reduced = False
+        reduced_ignore_list: Optional[List[str]] = None
         message_groups = {}
         total_message_groups = 0
         finished = False
@@ -241,36 +243,38 @@ class Stack:
                     append_to_context = True
                     last_ask_oracle_include = True
                     reduced = False
+                    reduced_ignore_list = None
                     tool_call = interaction.prompt.tool_name
                     if tool_call:
                         if tool_call not in message_groups:
                             message_groups[tool_call] = 0
                         message_groups[tool_call] += 1
                         total_message_groups += 1
-                        # Look the tool up by name rather than testing
-                        # membership of get_tools(): that returns List[Tool],
-                        # so `tool_call in ...` compared a str against
-                        # dataclasses and was always False, leaving every
-                        # context-window option in the codebase dead. Keying
-                        # off the tool itself also survives a task chain
-                        # swapping the agent's config mid-run, which would
-                        # otherwise uncap results at the chained stage.
-                        tool = Tool.get_tool(tool_call, throw_error=False)
-                        if tool is not None:
-                            if (
-                                tool
-                                and tool.options.include_only_in_context_window
-                                and (
-                                    tool.options.context_window
-                                    < message_groups[tool_call]
-                                    or finished
-                                )
+                        # New interactions carry the exact policy used by the
+                        # executed tool.  The registry is process-global and
+                        # later environment loads may overwrite a tool with
+                        # the same name, so consulting it for existing history
+                        # would make context change retroactively.  Fall back
+                        # only for sessions saved before policy snapshots.
+                        policy = interaction.tool_context_policy
+                        if policy is None:
+                            tool = Tool.get_tool(tool_call, throw_error=False)
+                            if tool is not None:
+                                policy = snapshot_tool_context_policy(tool)
+                        if policy is not None:
+                            if policy.get(
+                                "include_only_in_context_window", False
+                            ) and (
+                                policy.get("context_window", 5)
+                                < message_groups[tool_call]
+                                or finished
                             ):
                                 append_to_context = False
                             elif (
-                                tool
-                                and tool.options.reduced_context_window_enabled
-                                and tool.options.reduced_context_window
+                                policy.get(
+                                    "reduced_context_window_enabled", True
+                                )
+                                and policy.get("reduced_context_window", 5)
                                 < total_message_groups
                             ):
                                 if interaction.template_inputs is None:
@@ -281,6 +285,12 @@ class Stack:
                                     append_to_context = False
                                 else:
                                     reduced = True
+                                    reduced_ignore_list = list(
+                                        policy.get(
+                                            "reduced_context_window_ignore_list",
+                                            [],
+                                        )
+                                    )
             elif isinstance(interaction, OracleResponse):
                 # OracleResponse inherits include_in_context from its AskOracle
                 if not last_ask_oracle_include:
@@ -303,7 +313,9 @@ class Stack:
                         {
                             "role": "assistant",
                             "content": render_assistant_message(
-                                interaction, reduced
+                                interaction,
+                                reduced,
+                                reduced_ignore_list,
                             ),
                         }
                     )

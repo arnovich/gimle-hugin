@@ -187,6 +187,132 @@ class TestToolsActuallyWork:
 
         assert result.is_error
 
+    def test_customer_project_examples_are_not_discovered_from_cwd(
+        self, tmp_path, monkeypatch
+    ):
+        """An installed library must not ingest the embedding project's files."""
+        from gimle.hugin.apps.agent_builder.tools import example_files
+        from gimle.hugin.apps.agent_builder.tools.list_examples import (
+            list_examples,
+        )
+        from gimle.hugin.apps.agent_builder.tools.read_example import (
+            read_example,
+        )
+
+        project = tmp_path / "customer_project"
+        private_config = project / "examples" / "private_case" / "configs"
+        private_config.mkdir(parents=True)
+        (private_config / "credentials.yaml").write_text(
+            "token: local-secret\n"
+        )
+        monkeypatch.chdir(project)
+        monkeypatch.delenv("HUGIN_EXAMPLES_PATH", raising=False)
+        monkeypatch.setattr(
+            example_files,
+            "source_examples_path",
+            lambda: tmp_path / "installed_package" / "examples",
+        )
+
+        listed = list_examples()
+        read = read_example(example_name="private_case")
+
+        assert listed.content["source"] == "fallback"
+        assert "private_case" not in {
+            item["name"] for item in listed.content["examples"]
+        }
+        assert read.is_error
+        assert "local-secret" not in str(read.content)
+
+    def test_explicit_examples_path_remains_supported(
+        self, tmp_path, monkeypatch
+    ):
+        """HUGIN_EXAMPLES_PATH is the opt-in path for external catalogues."""
+        from gimle.hugin.apps.agent_builder.tools.list_examples import (
+            list_examples,
+        )
+        from gimle.hugin.apps.agent_builder.tools.read_example import (
+            read_example,
+        )
+
+        examples = tmp_path / "trusted_examples"
+        configs = examples / "trusted_case" / "configs"
+        configs.mkdir(parents=True)
+        (configs / "agent.yaml").write_text("name: trusted\n")
+        monkeypatch.setenv("HUGIN_EXAMPLES_PATH", str(examples))
+
+        listed = list_examples()
+        read = read_example(example_name="trusted_case")
+
+        assert listed.content["source"] == "filesystem"
+        assert [item["name"] for item in listed.content["examples"]] == [
+            "trusted_case"
+        ]
+        assert not read.is_error
+        assert read.content["configs"][0]["content"] == "name: trusted\n"
+
+    def test_descendant_directory_symlink_cannot_escape_catalogue(
+        self, tmp_path, monkeypatch
+    ):
+        """A confined example directory must not make child symlinks safe."""
+        from gimle.hugin.apps.agent_builder.tools.read_example import (
+            read_example,
+        )
+
+        examples = tmp_path / "examples"
+        example = examples / "demo"
+        example.mkdir(parents=True)
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "credentials.yaml").write_text("token: symlink-secret\n")
+        (example / "configs").symlink_to(outside, target_is_directory=True)
+        monkeypatch.setenv("HUGIN_EXAMPLES_PATH", str(examples))
+
+        result = read_example(example_name="demo")
+
+        assert "symlink-secret" not in str(result.content)
+        assert "configs" not in result.content
+
+    def test_symlinked_readme_is_not_read_by_catalogue(
+        self, tmp_path, monkeypatch
+    ):
+        """Catalogue metadata reads use the same no-follow policy."""
+        from gimle.hugin.apps.agent_builder.tools.list_examples import (
+            list_examples,
+        )
+
+        examples = tmp_path / "examples"
+        example = examples / "demo"
+        example.mkdir(parents=True)
+        outside = tmp_path / "private-readme.md"
+        outside.write_text("# Demo\n\nsymlink-secret\n")
+        (example / "README.md").symlink_to(outside)
+        monkeypatch.setenv("HUGIN_EXAMPLES_PATH", str(examples))
+
+        result = list_examples()
+
+        assert "symlink-secret" not in str(result.content)
+        assert result.content["examples"][0]["description"] is None
+
+    def test_oversized_example_file_is_rejected(self, tmp_path, monkeypatch):
+        """One catalogue entry cannot inject unbounded model context."""
+        from gimle.hugin.apps.agent_builder.tools.example_files import (
+            MAX_FILE_BYTES,
+        )
+        from gimle.hugin.apps.agent_builder.tools.read_example import (
+            read_example,
+        )
+
+        examples = tmp_path / "examples"
+        configs = examples / "demo" / "configs"
+        configs.mkdir(parents=True)
+        (configs / "huge.yaml").write_text("x" * (MAX_FILE_BYTES + 1))
+        monkeypatch.setenv("HUGIN_EXAMPLES_PATH", str(examples))
+
+        result = read_example(example_name="demo")
+
+        assert result.is_error
+        assert "exceeds the read limit" in result.content["error"]
+
     def test_neither_tool_declares_stack(self):
         """Both are injected-arg-free; declaring stack would change the call."""
         import inspect

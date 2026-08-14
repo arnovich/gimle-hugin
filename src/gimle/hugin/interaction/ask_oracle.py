@@ -1,5 +1,6 @@
 """Gimle Ask Oracle Interaction."""
 
+import copy
 import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
@@ -16,7 +17,11 @@ if TYPE_CHECKING:
     from gimle.hugin.interaction.external_input import ExternalInput
     from gimle.hugin.interaction.stack import Stack
     from gimle.hugin.interaction.task_definition import TaskDefinition
-from gimle.hugin.interaction.tool_result import ToolResult
+from gimle.hugin.interaction.tool_result import (
+    ToolResult,
+    snapshot_tool_context_policy,
+)
+from gimle.hugin.tools.tool import Tool
 
 logger = logging.getLogger(__name__)
 
@@ -33,11 +38,13 @@ class AskOracle(Interaction):
         prompt: The prompt to send to the oracle.
         template_inputs: Template variables for rendering.
         include_in_context: Whether to include in LLM context rendering.
+        tool_context_policy: Context options captured for this historical call.
     """
 
     prompt: Optional[Prompt] = None
     template_inputs: Optional[Dict[str, Any]] = None
     include_in_context: bool = True
+    tool_context_policy: Optional[Dict[str, Any]] = None
 
     @staticmethod
     def create_from_external_input(
@@ -159,12 +166,18 @@ class AskOracle(Interaction):
         logger.debug(
             f"Rendering user interaction for agent: {tool_result.stack.agent.id} as type={prompt.type}"
         )
+        context_policy = tool_result.tool_context_policy
+        if context_policy is None and tool_result.tool_name:
+            tool = Tool.get_tool(tool_result.tool_name, throw_error=False)
+            if tool is not None:
+                context_policy = snapshot_tool_context_policy(tool)
         return AskOracle(
             stack=tool_result.stack,
             branch=tool_result.branch,
             prompt=prompt,
             template_inputs=template_inputs,
             include_in_context=tool_result.include_in_context,
+            tool_context_policy=copy.deepcopy(context_policy),
         )
 
     @staticmethod
@@ -225,6 +238,9 @@ class AskOracle(Interaction):
             "prompt": prompt,
             "template_inputs": data.get("template_inputs", {}),
             "include_in_context": data.get("include_in_context", True),
+            "tool_context_policy": copy.deepcopy(
+                data.get("tool_context_policy")
+            ),
         }
         if uuid_value is not None:
             kwargs["uuid"] = uuid_value
