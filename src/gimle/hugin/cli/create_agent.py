@@ -465,6 +465,7 @@ Examples:
             max_steps=args.max_steps,
             prefix="    ",
             clear_width=40,
+            session=session,
         )
         if last_error:
             logging.error("Error during agent step", exc_info=last_error)

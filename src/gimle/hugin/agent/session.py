@@ -156,16 +156,26 @@ class Session:
         )
 
     def step(self) -> bool:
-        """Step the session.
+        """Step the session and report an outcome at a terminal boundary.
 
         Returns:
             True if there is any activity in the session, False otherwise.
         """
-        any_activity = False
-        for agent in self.agents:
-            agent_activity = agent.step()
-            if agent_activity:
-                any_activity = True
+        try:
+            any_activity = False
+            for agent in self.agents:
+                agent_activity = agent.step()
+                if agent_activity:
+                    any_activity = True
+        except Exception:
+            self.finalize_router_outcome(error=True)
+            raise
+
+        # ``Session.step`` is the public execution boundary used by the CLI,
+        # TUI, and several apps. A false step may mean either terminal work or
+        # a resumable wait, so let the branch-aware finalizer distinguish them.
+        if not any_activity:
+            self.finalize_router_outcome()
         return any_activity
 
     def run(
@@ -215,50 +225,138 @@ class Session:
             if self.storage:
                 self.storage.save_session(self)
 
-            terminal_success = self._terminal_success()
-            if terminal_success is not None:
-                self._report_router_outcome(terminal_success)
-            elif max_steps_reached:
-                self._report_router_outcome(False)
+            self.finalize_router_outcome(max_steps_reached=max_steps_reached)
             return step_count
         except Exception:
-            self._report_router_outcome(False)
+            self.finalize_router_outcome(error=True)
             raise
+
+    @staticmethod
+    def _task_has_pending_continuation(task: "Task") -> bool:
+        """Return whether an unstepped task result still has work to chain."""
+        if task.next_task is not None:
+            return True
+        if not task.task_sequence:
+            return False
+
+        chain_index = task.parameters.get("_chain_sequence_index")
+        stored_index = (
+            chain_index.get("value") if isinstance(chain_index, dict) else None
+        )
+        if isinstance(stored_index, int):
+            next_index = stored_index + 1
+        elif stored_index is not None:
+            # Corrupt/foreign internal state must not turn observability into a
+            # run failure. Conservatively assume the continuation is pending.
+            return True
+        else:
+            try:
+                next_index = task.task_sequence.index(task.name) + 1
+            except ValueError:
+                next_index = 0
+        return next_index < len(task.task_sequence)
 
     def _terminal_success(self) -> Optional[bool]:
         """Return the completed root-task result, or ``None`` while waiting.
 
-        Child-agent failures are inputs to their caller and must not overwrite
-        the edition's final result.  With several independent root agents, the
-        edition succeeds only when every root task has completed successfully.
+        Child agents and named branches are inputs to their root task and must
+        not overwrite the edition's final result. With several independent root
+        agents, the edition succeeds only when every root task is terminal and
+        successful.
         """
+        from gimle.hugin.interaction.task_chain import TaskChain
         from gimle.hugin.interaction.task_definition import TaskDefinition
         from gimle.hugin.interaction.task_result import TaskResult
 
         results: List[bool] = []
         for agent in self.agents:
-            task_definition = next(
+            main_interactions = [
+                interaction
+                for interaction in agent.stack.interactions
+                if interaction.branch is None
+            ]
+            root_definition = next(
                 (
                     interaction
-                    for interaction in agent.stack.interactions
+                    for interaction in main_interactions
                     if isinstance(interaction, TaskDefinition)
                 ),
                 None,
             )
-            if task_definition is None or task_definition.caller_id is not None:
+            if root_definition is None or root_definition.caller_id is not None:
                 continue
-            task_result = next(
+
+            result_index = next(
                 (
-                    interaction
-                    for interaction in reversed(agent.stack.interactions)
-                    if isinstance(interaction, TaskResult)
+                    index
+                    for index in range(len(main_interactions) - 1, -1, -1)
+                    if isinstance(main_interactions[index], TaskResult)
                 ),
                 None,
             )
-            if task_result is None or task_result.finish_type is None:
+            if result_index is None:
+                return None
+            task_result = main_interactions[result_index]
+            if not isinstance(task_result, TaskResult):
+                return None
+
+            task_definition = next(
+                (
+                    interaction
+                    for interaction in reversed(
+                        main_interactions[:result_index]
+                    )
+                    if isinstance(interaction, TaskDefinition)
+                ),
+                None,
+            )
+            if task_definition is None:
+                return None
+
+            # A later chain/definition means this result belongs to an earlier
+            # stage, not the current root-task boundary.
+            if any(
+                isinstance(interaction, (TaskChain, TaskDefinition))
+                for interaction in main_interactions[result_index + 1 :]
+            ):
+                return None
+
+            # An oracle may create a TaskResult and stop before stepping it. It
+            # is terminal only if that step would not schedule another task.
+            if (
+                result_index == len(main_interactions) - 1
+                and task_definition.task is not None
+                and self._task_has_pending_continuation(task_definition.task)
+            ):
+                return None
+
+            if task_result.finish_type is None:
                 return None
             results.append(task_result.finish_type == "success")
         return all(results) if results else None
+
+    def finalize_router_outcome(
+        self,
+        *,
+        max_steps_reached: bool = False,
+        error: bool = False,
+    ) -> None:
+        """Report an edition outcome when this execution boundary is final.
+
+        This is shared by ``run`` and the step-based CLI/app runners. A
+        resumable wait remains unreported; an unhandled error or exhausted
+        step budget is a failure. Reporting remains idempotent for the lifetime
+        of this ``Session`` instance.
+        """
+        if error:
+            self._report_router_outcome(False)
+            return
+
+        terminal_success = self._terminal_success()
+        if terminal_success is not None:
+            self._report_router_outcome(terminal_success)
+        elif max_steps_reached:
+            self._report_router_outcome(False)
 
     def _report_router_outcome(self, success: bool) -> None:
         """Best-effort, once-per-session bridge to gimle-router."""
