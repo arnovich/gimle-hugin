@@ -12,7 +12,13 @@ template: |
   - Be specific and actionable. Prefer "validate dates before parsing; null
     dates silently produce empty results" over "be careful with data".
   - Prefer quality over quantity. A few high-confidence learnings beat many
-    weak ones. If the memories show no durable pattern, save nothing.
+    weak ones. Never restate a learning already in effect; if the memories add
+    nothing beyond those, save nothing. Judge that against the learnings you
+    were shown, not from scratch — you extend a body of knowledge, you do not
+    decide afresh each time whether one exists.
+  - A learning already in effect can be wrong, or overtaken by later memories.
+    When the memories contradict one, say so in the new learning's prose and
+    cite the memories that show it. Superseding beats accumulating duplicates.
   - Cite your evidence: pass the source artifact ids each learning came from.
   - Set an honest confidence in [0, 1].
 
