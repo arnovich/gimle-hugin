@@ -239,6 +239,57 @@ def test_dedup_sees_every_learning_not_the_render_time_top_n(tmp_path):
         ), f"lesson {i} was hidden from dedup"
 
 
+def test_task_scoped_dream_sees_task_learnings(tmp_path):
+    """The worker must see ids it is allowed to supersede in its exact scope."""
+    from gimle.hugin.artifacts.learning import Learning
+
+    base = str(tmp_path / "storage")
+    storage = _seed_episodic(base)
+    task_def = _researcher_agent(storage).stack.interactions[0]
+    task_learning = Learning(
+        interaction=task_def,
+        content="task-only lesson",
+        scope_config="researcher",
+        scope_task="analyze",
+    )
+    storage.save_artifact(task_learning)
+
+    config_only = _prior_learnings_block(storage, "researcher")
+    task_scope = _prior_learnings_block(
+        storage, "researcher", task_name="analyze"
+    )
+
+    assert task_learning.id not in config_only
+    assert task_learning.id in task_scope
+    assert "scope: config=researcher, task=analyze" in task_scope
+
+
+def test_dedup_omits_superseded_learning(tmp_path):
+    """The dream compares against active knowledge, not retired audit records."""
+    from gimle.hugin.artifacts.learning import Learning
+
+    base = str(tmp_path / "storage")
+    storage = _seed_episodic(base)
+    task_def = _researcher_agent(storage).stack.interactions[0]
+    old = Learning(
+        interaction=task_def,
+        content="old lesson",
+        scope_config="researcher",
+    )
+    current = Learning(
+        interaction=task_def,
+        content="current lesson",
+        scope_config="researcher",
+        supersedes=[old.id],
+    )
+    storage.save_artifact(old)
+    storage.save_artifact(current)
+
+    block = _prior_learnings_block(storage, "researcher")
+    assert old.id not in block
+    assert current.id in block
+
+
 def test_the_ask_is_a_diff_not_an_open_question():
     """The prompt asks what is MISSING, and licenses superseding.
 
@@ -251,3 +302,5 @@ def test_the_ask_is_a_diff_not_an_open_question():
     assert "do NOT already say" in prompt
     assert "Do not restate" in prompt
     assert "overtaken" in prompt
+    assert "supersedes" in prompt
+    assert "same exact scope" in prompt

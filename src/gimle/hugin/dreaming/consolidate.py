@@ -110,7 +110,12 @@ DEDUP_BUDGET = 100
 
 
 def _prior_learnings_block(
-    storage: Storage, config_name: str, budget: int = DEDUP_BUDGET
+    storage: Storage,
+    config_name: str,
+    budget: int = DEDUP_BUDGET,
+    *,
+    task_name: Optional[str] = None,
+    app_name: Optional[str] = None,
 ) -> str:
     """Return the learnings ALREADY in effect for a scope, as worker context.
 
@@ -124,7 +129,13 @@ def _prior_learnings_block(
     not material.
     """
     try:
-        prior = select_learnings(storage, config=config_name, budget=budget)
+        prior = select_learnings(
+            storage,
+            config=config_name,
+            task=task_name,
+            app=app_name,
+            budget=budget,
+        )
     except (
         Exception
     ) as error:  # a store that cannot be read must not kill the dream
@@ -137,9 +148,18 @@ def _prior_learnings_block(
         return NO_PRIOR_LEARNINGS
     if not prior:
         return NO_PRIOR_LEARNINGS
-    return "\n\n".join(
-        f"- [{item.artifact_id}] {item.content}" for item in prior
-    )
+    blocks = []
+    for item in prior:
+        scope = [f"config={item.scope_config}"]
+        if item.scope_task is not None:
+            scope.append(f"task={item.scope_task}")
+        if item.scope_app is not None:
+            scope.append(f"app={item.scope_app}")
+        blocks.append(
+            f"- [{item.artifact_id}] (scope: {', '.join(scope)}) "
+            f"{item.content}"
+        )
+    return "\n\n".join(blocks)
 
 
 def _consolidate_prompt(
@@ -165,12 +185,14 @@ def _consolidate_prompt(
         f"Your question is not 'is there a pattern here?' but what these memories "
         f"show that the learnings above do NOT already say. Save a learning when "
         f"the memories support a durable lesson missing from them, or when one of "
-        f"them has been overtaken by what the memories now show — in that case say "
-        f"so explicitly in the new learning's prose. Do not restate a lesson that "
+        f"them has been overtaken by what the memories now show — in that case "
+        f"pass the old learning's bracketed id in the new learning's supersedes "
+        f"list. Only supersede a learning with the same exact scope; a task-scoped "
+        f"learning must not retire a config-wide one. Do not restate a lesson that "
         f"is already in effect. For each one, call dreaming.save_learning with the "
         f"lesson as prose ready to drop into a prompt, the source artifact ids it "
-        f"came from, and your confidence (0-1). Keep each learning specific and "
-        f"actionable. When done, call finish."
+        f"came from, any same-scope learning ids it supersedes, and your confidence "
+        f"(0-1). Keep each learning specific and actionable. When done, call finish."
     )
 
 
@@ -224,7 +246,9 @@ def run_dream(
         }
         environment.env_vars[DREAM_DRY_RUN_KEY] = dry_run
 
-        prior_block = _prior_learnings_block(storage, config_name)
+        prior_block = _prior_learnings_block(
+            storage, config_name, task_name=task
+        )
         worker_task = Task(
             name="consolidate",
             description=f"Consolidate memories for {config_name}",
