@@ -330,7 +330,7 @@ def run_wizard(builder_model: Optional[str] = None) -> Dict[str, Any]:
         "description": description,
         "llm_model": llm_model,
         "full_implementation": full_implementation,
-        "output_path": str(Path(output_path).resolve()),
+        "output_path": str(Path(output_path).expanduser().resolve()),
         "builder_model": builder_model,
     }
 

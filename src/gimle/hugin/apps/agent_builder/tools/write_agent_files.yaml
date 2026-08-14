@@ -1,8 +1,8 @@
 name: write_agent_files
 description: >-
-  Write the generated files to the output directory. Only files whose content
-  differs from disk are written; nothing is ever deleted, and files present in
-  the directory that were not generated are left untouched.
+  Write generated files without overwriting unknown or user-modified content.
+  Files written by this builder session are tracked by output directory and
+  content hash, so unmodified files can be updated or removed when superseded.
 parameters:
   output_path:
     type: string

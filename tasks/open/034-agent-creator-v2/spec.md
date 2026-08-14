@@ -65,8 +65,9 @@ Checks 6-7 execute it and are **opt-in, off by default** (see §1.5).
    `os.path.normpath` starts with `..`; after resolution, `target.resolve()` must
    be relative to `root.resolve()`; no component may be a symlink. This is a
    **blocking error, not a warning** — see the trust-boundary note in
-   `description.md`. Reuse `sandbox/sandbox.py`'s existing `write_file_nofollow`
-   / `reject_symlink_swap` helpers rather than writing new ones.
+   `description.md`. Walk the output path through directory descriptors opened
+   with `O_NOFOLLOW`, then write and replace relative to the secured parent;
+   protecting only the final filename leaves intermediate-component races.
 2. **Reserved names** — no generated tool, config, task or template name may
    collide with a registered builtin, one of the builder's own tools, or
    `sys.stdlib_module_names`. Without this, `utils/registry.py:20` silently
@@ -247,20 +248,21 @@ silently useless, and it is not optional to fix.
 
 **`write_agent_files.py` — stop destroying directories.** The first draft
 proposed backup-to-`.bak.<timestamp>`, then Phase 4 proposed incremental writes,
-which are incompatible designs for the same tool. Do the incremental model
-**once, here**, and never delete:
+which are incompatible designs for the same tool. Do the ownership-aware
+incremental model **once, here**:
 
 ```python
 def write_agent_files(stack, output_path, agent_name="",
                       dry_run: bool = False)   # always changed-only
 ```
 
-- Write only files whose content differs from disk. Report
-  `{written, unchanged, preserved}` — `preserved` being files already in the
-  directory that the builder does not manage. (Drafted as `conflicting`; there
-  is no conflict once writes are additive, and naming them `preserved` says the
-  useful thing: these are exactly what the old `rmtree` destroyed silently.)
-- A file present on disk that the builder did not generate is **never** touched.
+- Track files actually written by this builder session by resolved output path
+  and content hash. A differing file is updated only when its current hash still
+  matches that record; unknown or user-modified files are blocking conflicts.
+- Remove a superseded file only when that same scoped ownership record still
+  matches its content. Modified and unknown files are **never** touched.
+- Report `{written, unchanged, removed, preserved}` — `preserved` being files
+  already in the directory that the builder does not manage.
 - `dry_run=True` → return the file list and bodies that *would* be written,
   writing nothing.
 - No `rmtree`, no `overwrite` flag, no `.bak` siblings. Backups were their own

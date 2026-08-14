@@ -1,9 +1,13 @@
 """Write generated files to disk."""
 
+import errno
+import hashlib
 import logging
 import os
+import uuid
+from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Tuple
 
 from gimle.hugin.apps.agent_builder.tools.agent_paths import (
     PathConfinementError,
@@ -19,6 +23,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_OWNERSHIP_STATE = "agent_builder_written_files"
+_DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+
 
 def _first_task_name(generated_files: Dict[str, str]) -> Optional[str]:
     """Return the stem of the first generated task, for the run command."""
@@ -29,40 +36,41 @@ def _first_task_name(generated_files: Dict[str, str]) -> Optional[str]:
 
 
 def _classify(
-    files: Dict[str, str], output_dir: Path
-) -> Tuple[Dict[str, str], List[str], List[str]]:
-    """Split ``files`` into those needing a write and those already correct.
+    files: Dict[str, str], output_dir: Path, owned: Dict[str, str]
+) -> Tuple[Dict[str, str], List[str], List[str], List[str]]:
+    """Split files into writable, unchanged, conflicting, and escaping sets.
 
-    Returns ``(to_write, unchanged, escaping)``. A file whose on-disk content
-    already matches is left alone entirely, so re-running the builder over an
-    unchanged agent touches nothing and mtimes stay meaningful.
+    A differing file is writable only when its current content still matches
+    the hash recorded when this builder session wrote it. Unknown or edited
+    files are conflicts, preventing a re-run from destroying user changes.
     """
     to_write: Dict[str, str] = {}
     unchanged: List[str] = []
+    conflicts: List[str] = []
     escaping: List[str] = []
 
     for key, content in files.items():
         try:
-            target = confine(output_dir, key)
+            current = _read_confined(output_dir, key)
+        except FileNotFoundError:
+            to_write[key] = content
+            continue
         except PathConfinementError as error:
             escaping.append(str(error))
             continue
-        if target.exists():
-            try:
-                # Explicit utf-8, matching how content is written. The locale
-                # default made this comparison wrong off UTF-8, and a
-                # UnicodeDecodeError is a ValueError -- not an OSError -- so it
-                # escaped the handler below and aborted the whole agent run.
-                if target.read_text(encoding="utf-8") == content:
-                    unchanged.append(key)
-                    continue
-            except (OSError, UnicodeDecodeError):
-                # Unreadable, or not text -- treat as needing a write so the
-                # error surfaces at write time rather than as a traceback.
-                pass
-        to_write[key] = content
+        except OSError as error:
+            conflicts.append(f"{key}: cannot inspect existing file: {error}")
+            continue
 
-    return to_write, unchanged, escaping
+        desired = content.encode("utf-8")
+        if current == desired:
+            unchanged.append(key)
+        elif owned.get(key) == _digest(current):
+            to_write[key] = content
+        else:
+            conflicts.append(key)
+
+    return to_write, unchanged, conflicts, escaping
 
 
 def _as_bool(value: object) -> bool:
@@ -77,18 +85,174 @@ def _as_bool(value: object) -> bool:
     return bool(value)
 
 
-def _write_text(target: Path, content: str) -> None:
-    """Write ``content`` without following a symlink at the final component.
+def _digest(content: bytes) -> str:
+    """Return the ownership hash for file content."""
+    return hashlib.sha256(content).hexdigest()
 
-    Mirrors ``sandbox.write_file_nofollow`` but leaves the mode to the umask.
-    That helper hardcodes 0o600 for sandbox workspaces; generated agents are
-    ordinary project files, and 0600 made them unreadable to the service
-    account or container user that later runs them.
+
+def _root_key(output_dir: Path) -> str:
+    """Return a stable key that scopes ownership to one output directory."""
+    return os.path.realpath(output_dir)
+
+
+def _owned_files(env_vars: Dict[str, Any], output_dir: Path) -> Dict[str, str]:
+    """Return validated ownership hashes for ``output_dir``."""
+    state = env_vars.get(_OWNERSHIP_STATE)
+    if not isinstance(state, dict):
+        return {}
+    owned = state.get(_root_key(output_dir))
+    if not isinstance(owned, dict):
+        return {}
+    return {
+        key: value
+        for key, value in owned.items()
+        if isinstance(key, str) and isinstance(value, str)
+    }
+
+
+def _set_owned_files(
+    env_vars: Dict[str, Any], output_dir: Path, owned: Dict[str, str]
+) -> None:
+    """Persist ownership hashes without mixing different output directories."""
+    existing = env_vars.get(_OWNERSHIP_STATE)
+    state = dict(existing) if isinstance(existing, dict) else {}
+    root = _root_key(output_dir)
+    if owned:
+        state[root] = dict(sorted(owned.items()))
+    else:
+        state.pop(root, None)
+    env_vars[_OWNERSHIP_STATE] = state
+
+
+@contextmanager
+def _open_directory_tree(path: Path, create: bool) -> Iterator[int]:
+    """Open every directory component with ``O_NOFOLLOW``.
+
+    Holding a descriptor for each next hop while it is opened closes the parent
+    symlink race left by resolving a full path and protecting only its final
+    component.
     """
-    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW
-    handle = os.open(str(target), flags, 0o666)
-    with os.fdopen(handle, "w", encoding="utf-8") as stream:
-        stream.write(content)
+    absolute = Path(os.path.abspath(path))
+    descriptor = os.open(absolute.anchor, _DIRECTORY_FLAGS)
+    try:
+        for component in absolute.parts[1:]:
+            if create:
+                try:
+                    os.mkdir(component, 0o777, dir_fd=descriptor)
+                except FileExistsError:
+                    pass
+            next_descriptor = os.open(
+                component, _DIRECTORY_FLAGS, dir_fd=descriptor
+            )
+            os.close(descriptor)
+            descriptor = next_descriptor
+        yield descriptor
+    except OSError as error:
+        if error.errno in {errno.ELOOP, errno.ENOTDIR}:
+            raise PathConfinementError(
+                f"refusing a symlinked output path component: {path}"
+            ) from error
+        raise
+    finally:
+        os.close(descriptor)
+
+
+@contextmanager
+def _open_confined_parent(
+    root: Path, key: str, create: bool
+) -> Iterator[Tuple[int, str]]:
+    """Yield a no-follow descriptor and basename for a generated key."""
+    confine(root, key)  # Validate the key and reject already-present escapes.
+    parts = Path(key).parts
+    with _open_directory_tree(root, create=create) as root_descriptor:
+        descriptor = os.dup(root_descriptor)
+        try:
+            for component in parts[:-1]:
+                if create:
+                    try:
+                        os.mkdir(component, 0o777, dir_fd=descriptor)
+                    except FileExistsError:
+                        pass
+                next_descriptor = os.open(
+                    component, _DIRECTORY_FLAGS, dir_fd=descriptor
+                )
+                os.close(descriptor)
+                descriptor = next_descriptor
+            yield descriptor, parts[-1]
+        except OSError as error:
+            if error.errno in {
+                errno.ELOOP,
+                errno.ENOTDIR,
+            }:
+                raise PathConfinementError(
+                    f"generated file {key!r} crosses a symlinked directory"
+                ) from error
+            raise
+        finally:
+            os.close(descriptor)
+
+
+def _read_confined(root: Path, key: str) -> bytes:
+    """Read a generated path without following any symlink component."""
+    with _open_confined_parent(root, key, create=False) as (parent, name):
+        try:
+            descriptor = os.open(
+                name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent
+            )
+        except OSError as error:
+            if error.errno == errno.ELOOP:
+                raise PathConfinementError(
+                    f"generated file {key!r} is a symlink"
+                ) from error
+            raise
+        with os.fdopen(descriptor, "rb") as stream:
+            return stream.read()
+
+
+def _write_confined(root: Path, key: str, content: str) -> None:
+    """Atomically write content without following any symlink component.
+
+    The temporary file and destination are addressed relative to a securely
+    opened parent directory. ``os.replace`` replaces a final-component symlink
+    rather than following it and avoids truncating a good file on a short write.
+    """
+    with _open_confined_parent(root, key, create=True) as (parent, name):
+        temporary = f".{name}.hugin-{uuid.uuid4().hex}.tmp"
+        descriptor = os.open(
+            temporary,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+            0o666,
+            dir_fd=parent,
+        )
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                stream.write(content)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(
+                temporary,
+                name,
+                src_dir_fd=parent,
+                dst_dir_fd=parent,
+            )
+        finally:
+            try:
+                os.unlink(temporary, dir_fd=parent)
+            except FileNotFoundError:
+                pass
+
+
+def _unlink_owned(root: Path, key: str, expected_hash: str) -> bool:
+    """Remove an unmodified builder-owned file, returning whether it existed."""
+    try:
+        current = _read_confined(root, key)
+    except FileNotFoundError:
+        return False
+    if _digest(current) != expected_hash:
+        raise FileExistsError(f"superseded file was modified: {key}")
+    with _open_confined_parent(root, key, create=False) as (parent, name):
+        os.unlink(name, dir_fd=parent)
+    return True
 
 
 def write_agent_files(
@@ -99,10 +263,10 @@ def write_agent_files(
 ) -> ToolResponse:
     """Write the generated agent files to ``output_path``.
 
-    Writes are *incremental and additive*: only files whose content differs from
-    disk are written, and nothing is ever deleted. A file the user added or
-    hand-edited that the builder did not generate is left untouched, which is
-    what makes re-running the builder over an existing agent safe.
+    Writes are incremental and ownership-aware. Unknown or user-modified files
+    are never overwritten. Files written by this builder session may be updated
+    while their content still matches its recorded hash, and may be removed when
+    an unmodified file is superseded by a later generation.
 
     This replaces an unconditional ``shutil.rmtree(output_path)`` that destroyed
     whatever the target directory previously held.
@@ -152,7 +316,10 @@ def write_agent_files(
     )
 
     output_dir = Path(output_path).expanduser()
-    to_write, unchanged, escaping = _classify(files, output_dir)
+    owned = _owned_files(env_vars, output_dir)
+    to_write, unchanged, conflicts, escaping = _classify(
+        files, output_dir, owned
+    )
     if escaping:
         return ToolResponse(
             is_error=True,
@@ -161,8 +328,38 @@ def write_agent_files(
                 "escaping": escaping,
             },
         )
+    if conflicts:
+        return ToolResponse(
+            is_error=True,
+            content={
+                "error": (
+                    "Refusing to overwrite files not owned by this builder "
+                    "session, or files modified since it wrote them"
+                ),
+                "conflicts": sorted(conflicts),
+            },
+        )
 
-    preserved = _existing_unmanaged(output_dir, files)
+    superseded, superseded_conflicts = _classify_superseded(
+        owned, files, output_dir
+    )
+    if superseded_conflicts:
+        return ToolResponse(
+            is_error=True,
+            content={
+                "error": (
+                    "Refusing to remove superseded files that were modified "
+                    "after the builder wrote them"
+                ),
+                "conflicts": sorted(superseded_conflicts),
+            },
+        )
+
+    preserved = [
+        key
+        for key in _existing_unmanaged(output_dir, files)
+        if key not in superseded
+    ]
 
     if _as_bool(dry_run):
         return ToolResponse(
@@ -171,6 +368,7 @@ def write_agent_files(
                 "output_path": str(output_dir),
                 "dry_run": True,
                 "would_write": sorted(to_write),
+                "would_remove": sorted(superseded),
                 "unchanged": sorted(unchanged),
                 "preserved": preserved,
                 "message": (
@@ -182,14 +380,18 @@ def write_agent_files(
     written: List[str] = []
     try:
         for key, content in to_write.items():
-            target = confine(output_dir, key)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            # O_NOFOLLOW closes the gap between the confinement check above and
-            # the write: a symlink swapped into the final component afterwards
-            # fails the open rather than being written through.
-            _write_text(target, content)
+            _write_confined(output_dir, key, content)
             written.append(key)
     except (OSError, PathConfinementError) as error:
+        partial_owned = dict(owned)
+        partial_owned.update(
+            _ownership_after_write(owned, files, unchanged, written)
+        )
+        _set_owned_files(
+            env_vars,
+            output_dir,
+            partial_owned,
+        )
         return ToolResponse(
             is_error=True,
             content={
@@ -198,7 +400,34 @@ def write_agent_files(
             },
         )
 
-    removed = _remove_superseded(env_vars, files, output_dir)
+    removed: List[str] = []
+    removal_errors: List[str] = []
+    for key, expected_hash in superseded.items():
+        try:
+            if _unlink_owned(output_dir, key, expected_hash):
+                removed.append(key)
+        except (OSError, PathConfinementError) as error:
+            removal_errors.append(f"{key}: {error}")
+
+    final_owned = _ownership_after_write(owned, files, unchanged, written)
+    for key in removal_errors:
+        failed_key = key.split(":", 1)[0]
+        if failed_key in owned:
+            final_owned[failed_key] = owned[failed_key]
+    _set_owned_files(env_vars, output_dir, final_owned)
+
+    if removal_errors:
+        return ToolResponse(
+            is_error=True,
+            content={
+                "error": "Failed removing superseded builder-owned files",
+                "written": sorted(written),
+                "removed": sorted(removed),
+                "removal_errors": sorted(removal_errors),
+                "preserved": preserved,
+            },
+        )
+
     registered = _register(stack, output_dir)
 
     return ToolResponse(
@@ -215,39 +444,44 @@ def write_agent_files(
     )
 
 
-def _remove_superseded(
-    env_vars: Dict[str, Any], files: Dict[str, str], output_dir: Path
-) -> List[str]:
-    """Delete files this builder wrote earlier but no longer generates.
-
-    Dropping ``rmtree`` removed the invariant that the directory holds exactly
-    the current generation. Without this, a builder that regenerates under new
-    names mid-session leaves the old config and tools behind, and
-    ``load_agent_from_path`` registers *both* -- returning whichever the
-    directory happens to yield last, so the user can be handed the obsolete,
-    known-broken iteration.
-
-    Only files this tool wrote in this session are removed: the record comes
-    from ``env_vars``, never from scanning the directory, so a file the user
-    added or hand-edited is still never touched.
-    """
-    previous = set(env_vars.get("written_keys") or [])
-    current = set(files)
-    env_vars["written_keys"] = sorted(current)
-
-    removed = []
-    for key in sorted(previous - current):
-        try:
-            target = confine(output_dir, key)
-        except PathConfinementError:
+def _classify_superseded(
+    owned: Dict[str, str], files: Dict[str, str], output_dir: Path
+) -> Tuple[Dict[str, str], List[str]]:
+    """Return safely removable superseded files and modified conflicts."""
+    removable: Dict[str, str] = {}
+    conflicts: List[str] = []
+    for key, expected_hash in owned.items():
+        if key in files:
             continue
         try:
-            if target.is_file():
-                target.unlink()
-                removed.append(key)
-        except OSError as error:
-            logger.warning("Could not remove superseded %s: %s", key, error)
-    return removed
+            current = _read_confined(output_dir, key)
+        except FileNotFoundError:
+            continue
+        except (OSError, PathConfinementError) as error:
+            conflicts.append(f"{key}: cannot inspect existing file: {error}")
+            continue
+        if _digest(current) == expected_hash:
+            removable[key] = expected_hash
+        else:
+            conflicts.append(key)
+    return removable, conflicts
+
+
+def _ownership_after_write(
+    previous: Dict[str, str],
+    files: Dict[str, str],
+    unchanged: List[str],
+    written: List[str],
+) -> Dict[str, str]:
+    """Return ownership for files actually written or still builder-owned."""
+    result: Dict[str, str] = {}
+    for key in written:
+        result[key] = _digest(files[key].encode("utf-8"))
+    for key in unchanged:
+        desired_hash = _digest(files[key].encode("utf-8"))
+        if previous.get(key) == desired_hash:
+            result[key] = desired_hash
+    return result
 
 
 def _existing_unmanaged(output_dir: Path, files: Dict[str, str]) -> List[str]:

@@ -6,6 +6,7 @@ Covers the two data-loss bugs PR 1.1 exists to fix: the unconditional
 filesystem.
 """
 
+import shlex
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -19,8 +20,10 @@ from gimle.hugin.apps.agent_builder.tools.agent_paths import (
     validate_generated_key,
 )
 from gimle.hugin.apps.agent_builder.tools.write_agent_files import (
+    _write_confined,
     write_agent_files,
 )
+from gimle.hugin.cli import create_agent
 
 
 @pytest.fixture
@@ -178,6 +181,40 @@ class TestWriterDoesNotDestroy:
 
         assert custom.read_text() == "# mine\n"
 
+    def test_refuses_to_overwrite_existing_generated_path(
+        self, stack, tmp_path
+    ):
+        """A same-named user file is a conflict, not permission to truncate."""
+        output = tmp_path / "demo"
+        (output / "configs").mkdir(parents=True)
+        custom = output / "configs" / "demo.yaml"
+        custom.write_text("# customized\n")
+
+        result = write_agent_files(stack, str(output), "demo")
+
+        assert result.is_error
+        assert result.content["conflicts"] == ["configs/demo.yaml"]
+        assert custom.read_text() == "# customized\n"
+        assert not (output / "tasks" / "main.yaml").exists()
+
+    def test_refuses_to_overwrite_builder_file_modified_by_user(
+        self, stack, tmp_path
+    ):
+        """Ownership ends when on-disk content no longer matches its hash."""
+        output = tmp_path / "demo"
+        write_agent_files(stack, str(output), "demo")
+        config = output / "configs" / "demo.yaml"
+        config.write_text("# user's change\n")
+        stack.agent.environment.env_vars["generated_files"][
+            "configs/demo.yaml"
+        ] = "name: regenerated\n"
+
+        result = write_agent_files(stack, str(output), "demo")
+
+        assert result.is_error
+        assert "configs/demo.yaml" in result.content["conflicts"]
+        assert config.read_text() == "# user's change\n"
+
     def test_second_run_writes_nothing_when_unchanged(self, stack, tmp_path):
         """Re-running over an identical agent is a no-op, not a rewrite."""
         output = tmp_path / "demo"
@@ -308,16 +345,17 @@ class TestEncoding:
 
         assert "templates/demo_system.yaml" in second.content["unchanged"]
 
-    def test_undecodable_existing_file_does_not_escape(self, stack, tmp_path):
-        """A decode error is a ValueError, so it slipped past OSError."""
+    def test_undecodable_existing_file_is_preserved(self, stack, tmp_path):
+        """Unknown binary content is a conflict rather than overwrite fodder."""
         output = tmp_path / "demo"
         (output / "configs").mkdir(parents=True)
-        (output / "configs" / "demo.yaml").write_bytes(b"\xff\xfe\x00bad")
+        existing = output / "configs" / "demo.yaml"
+        existing.write_bytes(b"\xff\xfe\x00bad")
 
         result = write_agent_files(stack, str(output), "demo")
 
-        assert not result.is_error
-        assert "configs/demo.yaml" in result.content["written"]
+        assert result.is_error
+        assert existing.read_bytes() == b"\xff\xfe\x00bad"
 
 
 class TestFileMode:
@@ -390,6 +428,75 @@ class TestSupersededFiles:
 
         assert mine.read_text() == "hand-written"
 
+    def test_modified_builder_file_is_not_removed(self, stack, tmp_path):
+        """A superseded path is deletable only while its ownership hash matches."""
+        output = tmp_path / "demo"
+        write_agent_files(stack, str(output), "demo")
+        old = output / "configs" / "demo.yaml"
+        old.write_text("# user changed this\n")
+
+        files = stack.agent.environment.env_vars["generated_files"]
+        files["configs/renamed.yaml"] = files.pop("configs/demo.yaml")
+        result = write_agent_files(stack, str(output), "demo")
+
+        assert result.is_error
+        assert "configs/demo.yaml" in result.content["conflicts"]
+        assert old.read_text() == "# user changed this\n"
+        assert not (output / "configs" / "renamed.yaml").exists()
+
+    def test_identical_preexisting_file_is_not_claimed_or_removed(
+        self, stack, tmp_path
+    ):
+        """An unchanged file is not proof that this builder created it."""
+        output = tmp_path / "demo"
+        (output / "configs").mkdir(parents=True)
+        old = output / "configs" / "demo.yaml"
+        old.write_text("name: demo\n")
+        write_agent_files(stack, str(output), "demo")
+
+        files = stack.agent.environment.env_vars["generated_files"]
+        files["configs/renamed.yaml"] = files.pop("configs/demo.yaml")
+        result = write_agent_files(stack, str(output), "demo")
+
+        assert not result.is_error
+        assert old.read_text() == "name: demo\n"
+        assert "configs/demo.yaml" in result.content["preserved"]
+
+    def test_ownership_is_scoped_to_output_directory(self, stack, tmp_path):
+        """Writes in one destination never authorize deletion in another."""
+        first = tmp_path / "first"
+        second = tmp_path / "second"
+        write_agent_files(stack, str(first), "demo")
+        (second / "configs").mkdir(parents=True)
+        keep = second / "configs" / "demo.yaml"
+        keep.write_text("name: demo\n")
+
+        files = stack.agent.environment.env_vars["generated_files"]
+        files["configs/renamed.yaml"] = files.pop("configs/demo.yaml")
+        result = write_agent_files(stack, str(second), "demo")
+
+        assert not result.is_error
+        assert keep.exists()
+        assert "configs/demo.yaml" in result.content["preserved"]
+
+
+class TestNoFollowWrites:
+    """Every directory hop is protected, not only the final filename."""
+
+    def test_refuses_symlinked_parent_even_when_target_stays_inside_root(
+        self, tmp_path
+    ):
+        """A parent symlink cannot redirect the descriptor-relative write."""
+        root = tmp_path / "agent"
+        real = root / "real-tools"
+        real.mkdir(parents=True)
+        (root / "tools").symlink_to(real, target_is_directory=True)
+
+        with pytest.raises(PathConfinementError):
+            _write_confined(root, "tools/escape.py", "escaped = True\n")
+
+        assert not (real / "escape.py").exists()
+
 
 class TestHomeDirectoryExpansion:
     """One half of check_output_path expanded ~ and the other did not."""
@@ -401,6 +508,25 @@ class TestHomeDirectoryExpansion:
     def test_tilde_subpath_is_allowed_but_expanded(self, stack, tmp_path):
         """~ paths must not create a literal '~' directory in the cwd."""
         assert check_output_path("~/agents/demo") is None
+
+    def test_wizard_returns_the_expanded_home_path(self, monkeypatch, tmp_path):
+        """Validation and the path handed to the builder must agree."""
+        answers = iter(["demo", "description", "haiku-latest", "~/agents/demo"])
+        confirmations = iter([True, True])
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setattr(
+            create_agent, "prompt_user", lambda *args, **kwargs: next(answers)
+        )
+        monkeypatch.setattr(
+            create_agent,
+            "prompt_yes_no",
+            lambda *args, **kwargs: next(confirmations),
+        )
+        monkeypatch.setattr(create_agent, "show_header", lambda *args: None)
+
+        result = create_agent.run_wizard(builder_model="builder-model")
+
+        assert result["output_path"] == str(tmp_path / "agents" / "demo")
 
 
 class TestGeneratedReadme:
@@ -430,3 +556,18 @@ class TestGeneratedReadme:
         assert run_command("/tmp/demo", None) == (
             "uv run hugin run --task-path /tmp/demo"
         )
+
+    def test_run_command_shell_quotes_output_path(self):
+        """Spaces in a user-selected output directory remain one argument."""
+        command = run_command("/tmp/my generated agent", "main")
+
+        assert shlex.split(command) == [
+            "uv",
+            "run",
+            "hugin",
+            "run",
+            "--task",
+            "main",
+            "--task-path",
+            "/tmp/my generated agent",
+        ]

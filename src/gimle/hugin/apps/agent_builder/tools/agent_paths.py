@@ -15,6 +15,7 @@ still under the root.
 
 import os
 import re
+import shlex
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -188,9 +189,11 @@ def run_command(output_path: str, task_name: Optional[str]) -> str:
     across the writer, the CLI success screen and two docs pages -- one of which
     named a ``run-agent`` entrypoint that does not exist.
     """
+    command = ["uv", "run", "hugin", "run"]
     if task_name:
-        return f"uv run hugin run --task {task_name} --task-path {output_path}"
-    return f"uv run hugin run --task-path {output_path}"
+        command.extend(["--task", task_name])
+    command.extend(["--task-path", output_path])
+    return shlex.join(command)
 
 
 def _readme(
