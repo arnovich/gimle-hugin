@@ -28,6 +28,7 @@ from gimle.hugin.dreaming.consolidate import (
     _prior_learnings_block,
     run_dream,
 )
+from gimle.hugin.dreaming.selector import DEFAULT_BUDGET
 from gimle.hugin.llm.models.model import Model, ModelResponse
 from gimle.hugin.storage.local import LocalStorage
 
@@ -205,6 +206,37 @@ def test_unreadable_store_warns_and_still_dreams(tmp_path, caplog):
         "could not load prior learnings" in record.getMessage()
         for record in caplog.records
     )
+
+
+def test_dedup_sees_every_learning_not_the_render_time_top_n(tmp_path):
+    """Judging "do I already know this?" needs ALL of them, not the injected 5.
+
+    ``selector.DEFAULT_BUDGET`` caps how many learnings are INJECTED into a
+    persona's prompt — a prompt-economy limit. Reusing it here made the worker
+    blind to anything below the cut, and in production it restated a learning it
+    had written itself thirteen minutes earlier: the original had dropped out of
+    the top 5, and the duplicate then competed for the slot that hid it.
+    """
+    from gimle.hugin.artifacts.learning import Learning
+
+    base = str(tmp_path / "storage")
+    storage = _seed_episodic(base)
+    task_def = _researcher_agent(storage).stack.interactions[0]
+    for i in range(DEFAULT_BUDGET + 3):
+        storage.save_artifact(
+            Learning(
+                interaction=task_def,
+                content=f"lesson number {i}",
+                scope_config="researcher",
+            )
+        )
+
+    block = _prior_learnings_block(storage, "researcher")
+
+    for i in range(DEFAULT_BUDGET + 3):
+        assert (
+            f"lesson number {i}" in block
+        ), f"lesson {i} was hidden from dedup"
 
 
 def test_the_ask_is_a_diff_not_an_open_question():

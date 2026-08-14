@@ -18,7 +18,7 @@ from gimle.hugin.dreaming.provenance import (
     group_by_config,
     scan_provenance,
 )
-from gimle.hugin.dreaming.selector import DEFAULT_BUDGET, select_learnings
+from gimle.hugin.dreaming.selector import select_learnings
 from gimle.hugin.storage.storage import Storage
 
 logger = logging.getLogger(__name__)
@@ -98,15 +98,26 @@ def _episodic_block(
 NO_PRIOR_LEARNINGS = "(none yet — this scope has no learnings in effect)"
 
 
+#: How many prior learnings the worker is shown when judging "do I already know
+#: this?". Deliberately NOT ``selector.DEFAULT_BUDGET``: that one caps how many
+#: learnings are INJECTED into a persona's prompt at render time, which is a
+#: prompt-economy limit. Deduplication is a different question and needs the whole
+#: body of knowledge — shown only the render-time top 5, the worker restated a
+#: learning it had written itself thirteen minutes earlier, because that learning
+#: had already dropped below the cut. Cheap to be generous: a scope's entire set
+#: is a few KB.
+DEDUP_BUDGET = 100
+
+
 def _prior_learnings_block(
-    storage: Storage, config_name: str, budget: int = DEFAULT_BUDGET
+    storage: Storage, config_name: str, budget: int = DEDUP_BUDGET
 ) -> str:
     """Return the learnings ALREADY in effect for a scope, as worker context.
 
-    Deliberately the same ``select_learnings`` call, with the same budget, that
-    injects learnings into that config's prompts at render time — so the worker
-    sees exactly what its own consolidation delivers downstream, and nothing
-    below the top-N cut, which has no effect on anything anyway.
+    Everything the scope has concluded, not the render-time top-N. The worker is
+    being asked "what do these memories add that I do not already know?", and it
+    cannot answer that about learnings it is not shown — it re-derives them, and
+    the duplicate then competes for the very top-N slots that hid the original.
 
     Note these stay OUT of the corpus (``scan_provenance`` excludes them, rightly
     — consolidating learnings into learnings compounds drift). They are context,
