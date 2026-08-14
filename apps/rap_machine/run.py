@@ -366,6 +366,10 @@ def run_battle_simulation(
 
         step_count += 1
 
+    session.finalize_router_outcome(
+        max_steps_reached=step_count >= max_steps,
+    )
+
     # Final re-read and save
     battle = _get_live_battle()
     save_battle_state(battle, LIVE_DIR)

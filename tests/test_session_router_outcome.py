@@ -9,6 +9,7 @@ from gimle.hugin.agent.config import Config
 from gimle.hugin.agent.environment import Environment
 from gimle.hugin.agent.session import Session
 from gimle.hugin.agent.task import Task
+from gimle.hugin.cli.ui import run_steps_with_spinner
 from gimle.hugin.interaction.task_definition import TaskDefinition
 from gimle.hugin.interaction.task_result import TaskResult
 from gimle.hugin.interaction.waiting import Waiting
@@ -82,6 +83,52 @@ def test_waiting_session_does_not_report_a_premature_failure():
     report.assert_not_called()
 
 
+def test_direct_session_step_reports_a_terminal_result():
+    """The step-based public runner reports at its terminal boundary."""
+    session = Session(environment=Environment())
+    _agent(session, finish_type="success")
+
+    with patch("gimle.hugin.agent.session.report_outcome") as report:
+        assert session.step() is False
+
+    report.assert_called_once_with(session.id, success=True)
+
+
+def test_spinner_step_loop_reports_budget_exhaustion():
+    """The CLI's step loop finalizes a session that reaches its budget."""
+    session = Session(environment=Environment())
+    agent = Agent(
+        session=session,
+        config=Config(
+            name="test-agent",
+            description="test agent",
+            system_template="test",
+            tools=[],
+        ),
+    )
+    interaction = Mock()
+    interaction.step.return_value = True
+    interaction.artifacts = []
+    interaction.branch = None
+    agent.stack.add_interaction(interaction)
+    session.add_agent(agent)
+
+    with (
+        patch("gimle.hugin.agent.session.report_outcome") as report,
+        patch("gimle.hugin.cli.ui.AnimatedSpinner"),
+    ):
+        steps, error = run_steps_with_spinner(
+            step_fn=session.step,
+            save_fn=Mock(),
+            max_steps=1,
+            session=session,
+        )
+
+    assert steps == 1
+    assert error is None
+    report.assert_called_once_with(session.id, success=False)
+
+
 def test_child_result_does_not_override_root_result():
     """Only the root task decides the edition-level outcome."""
     session = Session(environment=Environment())
@@ -90,6 +137,54 @@ def test_child_result_does_not_override_root_result():
 
     with patch("gimle.hugin.agent.session.report_outcome") as report:
         session.run()
+
+    report.assert_called_once_with(session.id, success=True)
+
+
+def test_named_branch_result_does_not_complete_an_unfinished_root():
+    """A branch result is not an edition result while the root is waiting."""
+    session = Session(environment=Environment())
+    root = _agent(session)
+    root.stack.add_interaction(
+        TaskDefinition(
+            stack=root.stack,
+            task=Task(name="branch", description="branch", prompt="branch"),
+            branch="branch-a",
+        ),
+        branch="branch-a",
+    )
+    root.stack.add_interaction(
+        TaskResult(
+            stack=root.stack,
+            branch="branch-a",
+            finish_type="failure",
+            result={"finish_type": "failure"},
+        ),
+        branch="branch-a",
+    )
+
+    with patch("gimle.hugin.agent.session.report_outcome") as report:
+        session.finalize_router_outcome()
+
+    report.assert_not_called()
+
+
+def test_named_branch_result_does_not_override_root_success():
+    """A later branch failure cannot replace the root branch's success."""
+    session = Session(environment=Environment())
+    root = _agent(session, finish_type="success")
+    root.stack.add_interaction(
+        TaskResult(
+            stack=root.stack,
+            branch="branch-a",
+            finish_type="failure",
+            result={"finish_type": "failure"},
+        ),
+        branch="branch-a",
+    )
+
+    with patch("gimle.hugin.agent.session.report_outcome") as report:
+        session.finalize_router_outcome()
 
     report.assert_called_once_with(session.id, success=True)
 
@@ -130,6 +225,89 @@ def test_terminal_result_wins_when_created_on_the_last_allowed_step():
     report.assert_called_once_with(session.id, success=True)
 
 
+def test_intermediate_task_result_does_not_beat_budget_exhaustion():
+    """A result with a pending next task is not the edition's final result."""
+    session = Session(environment=Environment())
+    agent = Agent(
+        session=session,
+        config=Config(
+            name="test-agent",
+            description="test agent",
+            system_template="test",
+            tools=[],
+        ),
+    )
+    agent.stack.add_interaction(
+        TaskDefinition(
+            stack=agent.stack,
+            task=Task(
+                name="first",
+                description="first",
+                prompt="first",
+                next_task="second",
+            ),
+        )
+    )
+    agent.stack.add_interaction(
+        TaskResult(
+            stack=agent.stack,
+            finish_type="success",
+            result={"finish_type": "success"},
+        )
+    )
+    session.add_agent(agent)
+
+    with patch("gimle.hugin.agent.session.report_outcome") as report:
+        assert session.run(max_steps=1) == 1
+
+    report.assert_called_once_with(session.id, success=False)
+
+
+def test_final_task_sequence_result_is_terminal():
+    """An exhausted task sequence still reports its final result."""
+    session = Session(environment=Environment())
+    agent = Agent(
+        session=session,
+        config=Config(
+            name="test-agent",
+            description="test agent",
+            system_template="test",
+            tools=[],
+        ),
+    )
+    agent.stack.add_interaction(
+        TaskDefinition(
+            stack=agent.stack,
+            task=Task(
+                name="second",
+                description="second",
+                prompt="second",
+                task_sequence=["first", "second"],
+                parameters={
+                    "_chain_sequence_index": {
+                        "type": "integer",
+                        "description": "current sequence index",
+                        "value": 1,
+                    }
+                },
+            ),
+        )
+    )
+    agent.stack.add_interaction(
+        TaskResult(
+            stack=agent.stack,
+            finish_type="success",
+            result={"finish_type": "success"},
+        )
+    )
+    session.add_agent(agent)
+
+    with patch("gimle.hugin.agent.session.report_outcome") as report:
+        assert session.run(max_steps=1) == 1
+
+    report.assert_called_once_with(session.id, success=True)
+
+
 def test_session_exception_reports_failure_and_is_reraised():
     """Unhandled edition errors report failure without changing propagation."""
     session = Session(environment=Environment())
@@ -152,6 +330,32 @@ def test_session_exception_reports_failure_and_is_reraised():
     with patch("gimle.hugin.agent.session.report_outcome") as report:
         with pytest.raises(RuntimeError, match="boom"):
             session.run()
+
+    report.assert_called_once_with(session.id, success=False)
+
+
+def test_direct_session_step_exception_reports_failure_and_is_reraised():
+    """Direct step runners preserve the same unhandled-error contract."""
+    session = Session(environment=Environment())
+    agent = Agent(
+        session=session,
+        config=Config(
+            name="test-agent",
+            description="test agent",
+            system_template="test",
+            tools=[],
+        ),
+    )
+    interaction = Mock()
+    interaction.step.side_effect = RuntimeError("boom")
+    interaction.artifacts = []
+    interaction.branch = None
+    agent.stack.add_interaction(interaction)
+    session.add_agent(agent)
+
+    with patch("gimle.hugin.agent.session.report_outcome") as report:
+        with pytest.raises(RuntimeError, match="boom"):
+            session.step()
 
     report.assert_called_once_with(session.id, success=False)
 

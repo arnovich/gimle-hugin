@@ -375,6 +375,7 @@ class NewAgentScreen(BaseScreen):
                 # Set agent context for logging
                 set_agent_context(agent.id, session.id)
                 step_count = 0
+                run_error = False
                 try:
                     while step_count < self.max_steps:
                         # Check controller before each step
@@ -392,8 +393,13 @@ class NewAgentScreen(BaseScreen):
                         step_count += 1
                         self.state.storage.save_session(session)
                 except Exception as e:
+                    run_error = True
                     self.error_message = f"Agent error: {e}"
                 finally:
+                    session.finalize_router_outcome(
+                        max_steps_reached=step_count >= self.max_steps,
+                        error=run_error,
+                    )
                     clear_agent_context()
                     self.state.storage.save_session(session)
                     # Refresh state to show new agent

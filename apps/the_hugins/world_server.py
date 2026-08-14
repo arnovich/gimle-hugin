@@ -533,7 +533,9 @@ class WorldHTTPRequestHandler(BaseHTTPRequestHandler):
                     if not any_activity:
                         time.sleep(1.0)
                         continue
+                session.finalize_router_outcome(max_steps_reached=True)
             except Exception as e:
+                session.finalize_router_outcome(error=True)
                 logger.error(f"Simulation error: {e}", exc_info=True)
 
         WorldHTTPRequestHandler._simulation_thread = threading.Thread(

@@ -304,6 +304,7 @@ class AgentsScreen(BaseScreen):
             # Set agent context for logging
             set_agent_context(agent.id, self.state.selected_session_id)
             step_count = 0
+            run_error = False
             try:
                 while step_count < max_steps:
                     # Check controller before each step
@@ -320,8 +321,12 @@ class AgentsScreen(BaseScreen):
                     step_count += 1
                     self.state.storage.save_session(session)
             except Exception:
-                pass
+                run_error = True
             finally:
+                session.finalize_router_outcome(
+                    max_steps_reached=step_count >= max_steps,
+                    error=run_error,
+                )
                 clear_agent_context()
                 self.state.storage.save_session(session)
                 # Refresh state to show updated agent

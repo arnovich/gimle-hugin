@@ -266,6 +266,7 @@ def run_steps_with_spinner(
         clear_width: Width to clear when done
         spinner: Deprecated, uses AnimatedSpinner frames
         session: Optional Session object for detecting AskHuman interactions
+            and finalizing its router outcome when this loop ends
         interactive: Whether to prompt for human input (default True)
         step_delay: Delay in seconds between steps (default 0.0)
 
@@ -318,6 +319,14 @@ def run_steps_with_spinner(
                 break
     finally:
         animated.stop(show_completed=True)
+
+    if session is not None:
+        session.finalize_router_outcome(
+            max_steps_reached=(
+                max_steps is not None and step_count >= max_steps
+            ),
+            error=last_error is not None,
+        )
 
     return step_count, last_error
 
