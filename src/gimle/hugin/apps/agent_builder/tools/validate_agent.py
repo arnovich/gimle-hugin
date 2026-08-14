@@ -32,14 +32,19 @@ from typing import (
 
 import yaml
 
+from gimle.hugin.agent.environment import _BARE_TEMPLATE_REFERENCE
 from gimle.hugin.apps.agent_builder.tools.agent_paths import (
     validate_generated_key,
 )
 from gimle.hugin.tools.tool import ToolResponse
 
-# Mirrors the identifier-only heuristic a bare template reference must match,
-# so prose system prompts are not mistaken for a broken reference.
-BARE_REFERENCE = re.compile(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$")
+# The identifier-only heuristic a bare template reference must match, so prose
+# system prompts are not mistaken for a broken reference. Taken from the
+# renderer's own definition rather than restated: this validator's job is to
+# agree with what the framework actually does, and two copies of the rule would
+# eventually disagree. It was duplicated while task 019 was still open; now
+# that 019 has landed on main there is a single definition to point at.
+BARE_REFERENCE = _BARE_TEMPLATE_REFERENCE
 
 # Names the renderer injects into every template namespace. Referencing one is
 # legitimate even though no task declares it.
