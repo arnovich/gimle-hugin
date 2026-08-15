@@ -80,6 +80,31 @@ class MemoryStorage(Storage):
         """Delete an artifact from memory."""
         self._artifacts.pop(artifact.uuid, None)
 
+    def _detach_artifact_reference(
+        self, interaction_id: str, artifact_id: str
+    ) -> None:
+        """Remove an artifact id from a persisted interaction record."""
+        record = self._interactions.get(interaction_id)
+        if record is None:
+            return
+        data = record.get("data", record)
+        if not isinstance(data, dict):
+            raise ValueError(
+                f"Interaction {interaction_id} has malformed persisted data"
+            )
+        if "artifacts" not in data:
+            return
+        artifact_ids = data["artifacts"]
+        if not isinstance(artifact_ids, list):
+            raise ValueError(
+                f"Interaction {interaction_id} has malformed artifact references"
+            )
+        remaining = [item for item in artifact_ids if item != artifact_id]
+        if remaining:
+            data["artifacts"] = remaining
+        else:
+            data.pop("artifacts")
+
     # -- session --
 
     def _load_session(self, uuid: str, environment: Any) -> Session:

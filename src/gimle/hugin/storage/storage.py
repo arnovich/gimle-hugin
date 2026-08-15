@@ -107,14 +107,98 @@ class Storage(ABC):
     def _delete_artifact(self, artifact: Artifact) -> None:
         raise NotImplementedError("Subclasses must implement this method")
 
+    def _detach_artifact_reference(
+        self, interaction_id: str, artifact_id: str
+    ) -> None:
+        """Persist removal of an artifact id from its owning interaction.
+
+        Backends must implement this as an idempotent operation. It deliberately
+        is not abstract so existing third-party ``Storage`` subclasses can still
+        be instantiated, but deletion fails safely until they adopt the hook.
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} must implement "
+            "_detach_artifact_reference for safe artifact deletion"
+        )
+
+    def _artifact_interaction_id(
+        self, artifact: Artifact, *, artifact_exists: Optional[bool] = None
+    ) -> Optional[str]:
+        """Return the persisted owner id, falling back to the live artifact."""
+        if artifact_exists is None:
+            artifact_exists = artifact.id in self.list_artifacts()
+        if artifact_exists:
+            record = self.load_artifact_record(artifact.id)
+            data = record.get("data", record)
+            if not isinstance(data, dict):
+                raise ValueError(
+                    f"Artifact {artifact.id} has malformed persisted data"
+                )
+            interaction_id = data.get("interaction")
+            if interaction_id is not None:
+                if not isinstance(interaction_id, str) or not interaction_id:
+                    raise ValueError(
+                        f"Artifact {artifact.id} has an invalid interaction id"
+                    )
+                return interaction_id
+
+        interaction = artifact.interaction
+        interaction_id = getattr(interaction, "uuid", None)
+        if isinstance(interaction_id, str):
+            return interaction_id
+        if artifact_exists:
+            raise ValueError(
+                f"Artifact {artifact.id} cannot be safely deleted without an "
+                "owning interaction id"
+            )
+        return None
+
+    def _detach_loaded_artifact_reference(
+        self,
+        interaction: Optional[Interaction],
+        interaction_id: str,
+        artifact_id: str,
+    ) -> None:
+        """Keep a live or cached interaction aligned with persisted storage."""
+        if (
+            interaction is None
+            or getattr(interaction, "uuid", None) != interaction_id
+        ):
+            return
+        interaction.artifacts[:] = [
+            item for item in interaction.artifacts if item.id != artifact_id
+        ]
+
     def delete_artifact(self, artifact: Artifact) -> None:
-        """Delete an artifact and its associated feedback."""
+        """Delete an artifact, its feedback, and owning interaction reference.
+
+        The persisted interaction is detached first. If that step fails, no
+        artifact or feedback is deleted, avoiding a dangling reference. Repeated
+        deletion of the same artifact is safe.
+        """
+        artifact_exists = artifact.id in self.list_artifacts()
+        interaction_id = self._artifact_interaction_id(
+            artifact, artifact_exists=artifact_exists
+        )
+        if interaction_id is not None:
+            self._detach_artifact_reference(interaction_id, artifact.id)
+            self._detach_loaded_artifact_reference(
+                artifact.interaction, interaction_id, artifact.id
+            )
+            cached_interaction = self.store.get(f"interaction:{interaction_id}")
+            if isinstance(cached_interaction, Interaction):
+                self._detach_loaded_artifact_reference(
+                    cached_interaction, interaction_id, artifact.id
+                )
+
         # Cascade delete feedback — clear cache, then bulk-delete
         for feedback_uuid in self.list_feedback(artifact.id):
             self.store.pop(f"feedback:{feedback_uuid}", None)
         self._delete_feedback_for_artifact(artifact.id)
-        self._delete_artifact(artifact)
+        if artifact_exists:
+            self._delete_artifact(artifact)
         self.store.pop(f"artifact:{artifact.id}", None)
+        self.store.pop(f"artifact_record:{artifact.id}", None)
 
     @abstractmethod
     def _load_session(self, uuid: str, environment: "Environment") -> Session:
@@ -224,7 +308,9 @@ class Storage(ABC):
 
     def delete_interaction(self, interaction: Interaction) -> None:
         """Delete an interaction."""
-        for artifact in interaction.artifacts:
+        # Artifact deletion removes each item from ``interaction.artifacts``.
+        # Iterate over a copy so that cascade deletion cannot skip siblings.
+        for artifact in list(interaction.artifacts):
             self.delete_artifact(artifact)
         self._delete_interaction(interaction)
         self.store.pop(f"interaction:{interaction.id}", None)

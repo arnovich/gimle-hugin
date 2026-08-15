@@ -140,3 +140,12 @@ storage = LocalStorage(base_path="./storage")
 ```
 
 File-based storage for development and single-machine deployments.
+
+### Artifact deletion
+
+`storage.delete_artifact(artifact)` removes the artifact's ID from its persisted
+owning interaction before deleting the artifact and its feedback. The detach is
+idempotent, and deletion stops if the interaction update cannot be persisted, so
+a storage failure cannot leave a dangling artifact reference. Storage backends
+must implement the protected `_detach_artifact_reference()` hook with those
+semantics.
