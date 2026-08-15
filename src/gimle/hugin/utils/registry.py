@@ -1,6 +1,9 @@
 """Registry class for maintaining a registry of instances."""
 
+import logging
 from typing import Dict, Generic, Optional, TypeVar
+
+logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
@@ -12,11 +15,40 @@ class Registry(Generic[T]):
         """Initialize an empty registry."""
         self._items: Dict[str, T] = {}
 
-    def register(self, instance: T, name: Optional[str] = None) -> T:
-        """Register an instance in the registry."""
+    def register(
+        self,
+        instance: T,
+        name: Optional[str] = None,
+        replace: bool = True,
+    ) -> T:
+        """Register an instance in the registry.
+
+        Args:
+            instance: The instance to register.
+            name: Registry key; defaults to ``instance.name``.
+            replace: When False, refuse to shadow an existing entry.
+
+        Raises:
+            ValueError: If ``replace`` is False and ``name`` is already taken.
+
+        This used to be a bare ``self._items[name] = instance``, which silently
+        shadowed whatever was already registered. Because ``Tool.registry`` is
+        a process-global shared by every loaded agent, a generated tool that
+        happened to be called ``finish`` replaced the real one for the rest of
+        the run, with nothing said. The default stays permissive so reloading
+        an environment still works; callers that know a collision is a bug --
+        anything loading generated code -- pass ``replace=False``.
+        """
         # Get the name attribute - assumes all registered classes have a 'name' attribute
         if name is None:
             name = getattr(instance, "name")
+        existing = self._items.get(name)
+        if existing is not None and existing is not instance:
+            if not replace:
+                raise ValueError(
+                    f"'{name}' is already registered; refusing to shadow it"
+                )
+            logger.debug("Replacing already-registered '%s'", name)
         self._items[name] = instance
         return instance
 

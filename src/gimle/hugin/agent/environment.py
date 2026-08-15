@@ -6,7 +6,15 @@ import os
 import sys
 from difflib import get_close_matches
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Dict, Optional, Set
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    ClassVar,
+    Dict,
+    List,
+    Optional,
+    Set,
+)
 
 import yaml
 
@@ -22,6 +30,51 @@ if TYPE_CHECKING:
     from gimle.hugin.storage.storage import Storage
 
 logger = logging.getLogger(__name__)
+
+
+def invalidate_modules_under(path: str) -> List[str]:
+    """Drop cached modules imported from ``path``, returning their names.
+
+    ``Tool._load_implementation`` calls ``importlib.import_module`` with no
+    reload, and generated tools are imported by their bare module name off a
+    ``sys.path`` entry. So the second time an agent is loaded in one process --
+    exactly what a fix-and-retest loop does -- Python hands back the module it
+    already has, and the freshly written code on disk is never executed. The
+    loop then diagnoses the same failure it just repaired.
+
+    Called explicitly rather than on every load: reloading a module rebinds its
+    classes and functions, which is right after regenerating an agent and wrong
+    for a long-running app that merely loads one twice.
+    """
+    root = os.path.realpath(path)
+    dropped = []
+
+    # Cached bytecode is validated on (mtime, size), so a regenerated file of
+    # the same length written within the same second is served from __pycache__
+    # even after sys.modules is cleared -- the exact shape of a small repair.
+    # Dropping the cache is cheap next to re-running a build.
+    for cache in Path(root).rglob("__pycache__"):
+        for compiled in cache.glob("*.pyc"):
+            try:
+                compiled.unlink()
+            except OSError:  # pragma: no cover - defensive
+                pass
+
+    for name, module in list(sys.modules.items()):
+        origin = getattr(module, "__file__", None)
+        if not origin:
+            continue
+        try:
+            resolved = os.path.realpath(origin)
+        except OSError:  # pragma: no cover - defensive
+            continue
+        if resolved == root or resolved.startswith(root + os.sep):
+            del sys.modules[name]
+            dropped.append(name)
+
+    # Let the import system notice files that appeared since it last looked.
+    importlib.invalidate_caches()
+    return dropped
 
 
 def _env_truthy(name: str) -> bool:

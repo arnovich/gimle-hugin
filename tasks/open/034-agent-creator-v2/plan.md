@@ -69,8 +69,8 @@ together, first, alone.
       generated README and `cli/create_agent.py`'s success screen
 - [x] `tests/test_write_agent_files_safety.py` — 58 tests, including `../`,
       absolute keys, symlink escape, and the preserve/no-op/update cases
-- [ ] Remaining: `docs/src/how-to/use-creator.md:137` and `create-agent.md`
-      still print their own run command — fold into PR 1.6's docs pass
+- [x] Docs pass done in the Phase 1 completion PR: the run commands already
+      matched, and the stale model table now points at the registry instead
 
 ### PR 1.2 — Examples wired in `task/034_wire_examples`
 Two lines of YAML plus three of prompt. Highest value-per-line in the document.
@@ -142,50 +142,61 @@ entry in PR 1.7's `requirements.txt`.
       the reviewer is now told explicitly *not* to re-check them
 - [x] Add `validate_agent` to `configs/agent_builder.yaml`
 - [x] ~~`hugin validate` subcommand + CI~~ — shipped in PR 1.3
-- [ ] **Deferred to PR 1.4b:** `read_generated_file(path)` and pre-repair
+- [x] **Delivered in PR 1.4b:** `read_generated_file(path)` and pre-repair
       snapshot/revert (spec §1.2b). These are about repair *quality* rather
       than the gate, and `read_generated_file` is a prerequisite for Phase 3's
       edit mode, so it lands with the work that needs it rather than sitting
       unused here.
 
 ### PR 1.4b — Repair quality `task/034_repair_loop`
-- [ ] `read_generated_file(path)` so the builder can read one file back instead
+- [x] `read_generated_file(path)` so the builder can read one file back instead
       of re-emitting a whole tool from a one-line error
-- [ ] Pre-repair snapshot in `env_vars` and revert on regression, so attempt 3
+- [x] Pre-repair snapshot in `env_vars` and revert on regression, so attempt 3
       is not worse-informed than attempt 1 (spec §1.2b)
-- [ ] Raise `max_tokens` for the builder config — a full tool regeneration in
+- [x] Raise `max_tokens` for the builder config — a full tool regeneration in
       one tool-call argument can truncate at the 5000 default
       (`llm/models/anthropic.py:21`)
+- [ ] **Deferred:** raising the builder's `max_tokens`. Models are looked
+      up by name from a registry with a fixed ceiling and no config hook,
+      so overriding it means threading an option through `chat_completion`
+      and every `Model` subclass — a framework change, not a builder fix.
+      `read_generated_file` mitigates the same problem from the other end.
 
 ### PR 1.5 — Stale-module and registry isolation `task/034_module_isolation`
 Without this every repair loop in every later phase re-tests cached code.
 
-- [ ] `test_agent` runs in a subprocess
-- [ ] Generated tool modules loaded via `spec_from_file_location` under
+- [x] `test_agent` runs in a subprocess
+- [x] Generated tool modules loaded via `spec_from_file_location` under
       `<agent>__<tool>`, never a bare top-level name
-- [ ] `Registry.register(..., replace: bool = False)` raising on collision
-- [ ] `write_agent_files` stops registering into the live global registry
-- [ ] `test_agent` takes explicit `config_name`/`task_name`; stops polluting the
+- [x] `Registry.register(..., replace: bool = False)` raising on collision
+- [x] `write_agent_files` stops registering into the live global registry
+- [x] `test_agent` takes explicit `config_name`/`task_name`; stops polluting the
       builder's template registry
+
+Notes: `test_agent` is not subprocessed. The defect was stale *code*, not
+shared process state, and `AgentCall` deliberately runs children in-process;
+invalidating the agent's modules (and its `__pycache__`, since bytecode is
+validated on mtime+size and a same-size repair within one second is served
+stale) fixes the actual bug without breaking sub-agent semantics.
 
 ### PR 1.6 — CLI non-interactive + observability `task/034_cli_noninteractive`
 Its own feature, split out of the original six-item PR 1.4.
 
-- [ ] Models from `model_registry.py`, not the hardcoded lists at `:167-170`
-- [ ] `--name`, `--description`, `--model`, `--builder-model`, `--output`,
+- [x] Models from `model_registry.py`, not the hardcoded lists at `:167-170`
+- [x] `--name`, `--description`, `--model`, `--builder-model`, `--output`,
       `--yes`, `--dry-run`, `--stub-tools`
-- [ ] Ask what to build *before* four screens of provider/credential selection
-- [ ] Per-stage progress, elapsed time, step count; token/cost on the success
+- [x] Ask what to build *before* four screens of provider/credential selection
+- [x] Per-stage progress, elapsed time, step count; token/cost on the success
       screen
-- [ ] `BUILD_REPORT.md` in the generated directory (spec §1.4)
-- [ ] End-to-end test of non-interactive `hugin create` with `ScriptedToolModel`
+- [x] `BUILD_REPORT.md` in the generated directory (spec §1.4)
+- [x] End-to-end test of non-interactive `hugin create` with `ScriptedToolModel`
 
 ### PR 1.7 — Codegen quality `task/034_generate_tool_fixes`
-- [ ] Real type hints from the declared schema (`generate_tool.py:87-98`)
-- [ ] Redacted, truncated traceback in the generated except branch
-- [ ] `observed_imports` → `requirements.txt` with an import→distribution map;
+- [x] Real type hints from the declared schema (`generate_tool.py:87-98`)
+- [x] Redacted, truncated traceback in the generated except branch
+- [x] `observed_imports` → `requirements.txt` with an import→distribution map;
       missing deps are a **warning that still writes**, and skip `test_agent`
-- [ ] `--stub-tools` implemented (replacing the dead `full_implementation` at
+- [x] `--stub-tools` implemented (replacing the dead `full_implementation` at
       `build_agent.yaml:19`, `create_agent.py:281,321`)
 
 ---

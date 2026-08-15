@@ -43,6 +43,8 @@ FRAMEWORK_FILES = (
     "tools/__init__.py",
     "README.md",
     "VALIDATION_REPORT.md",
+    "requirements.txt",
+    "BUILD_REPORT.md",
 )
 
 
@@ -173,6 +175,8 @@ def materialise(
     description: str,
     output_path: str,
     task_name: Optional[str] = None,
+    observed_imports: Optional[List[str]] = None,
+    warnings: Optional[List[str]] = None,
 ) -> Dict[str, str]:
     """Return the complete file set for an agent, framework files included.
 
@@ -186,7 +190,97 @@ def materialise(
     files["README.md"] = _readme(
         agent_name, description, output_path, task_name
     )
+    if observed_imports:
+        files["requirements.txt"] = _requirements(observed_imports)
+    files["BUILD_REPORT.md"] = _build_report(
+        agent_name,
+        description,
+        generated_files,
+        output_path,
+        task_name,
+        observed_imports or [],
+        warnings or [],
+    )
     return files
+
+
+def _build_report(
+    agent_name: str,
+    description: str,
+    generated_files: Dict[str, str],
+    output_path: str,
+    task_name: Optional[str],
+    observed_imports: List[str],
+    warnings: List[str],
+) -> str:
+    """Explain what was built, in the directory rather than in a trace.
+
+    Understanding your own generated agent previously meant opening
+    ``hugin monitor``; the success screen printed a path and a run command and
+    nothing else.
+    """
+    tools = sorted(
+        Path(key).stem
+        for key in generated_files
+        if key.startswith("tools/") and key.endswith(".yaml")
+    )
+    tasks = sorted(
+        Path(key).stem
+        for key in generated_files
+        if key.startswith("tasks/") and key.endswith(".yaml")
+    )
+    lines = [
+        f"# {agent_name}",
+        "",
+        "## What was asked for",
+        "",
+        description,
+        "",
+        "## Run it",
+        "",
+        "```bash",
+        run_command(output_path, task_name),
+        "```",
+        "",
+        "## Tools",
+        "",
+    ]
+    lines += [f"- `{name}`" for name in tools] or ["- (none)"]
+    lines += ["", "## Tasks", ""]
+    lines += [f"- `{name}`" for name in tasks] or ["- (none)"]
+    if observed_imports:
+        lines += [
+            "",
+            "## Observed dependencies",
+            "",
+            "Read out of the generated code, not verified. Install with:",
+            "",
+            "```bash",
+            f"uv pip install -r {output_path}/requirements.txt",
+            "```",
+            "",
+        ]
+        lines += [f"- {name}" for name in sorted(set(observed_imports))]
+    if warnings:
+        lines += ["", "## Validator warnings", ""]
+        lines += [f"- {w}" for w in warnings]
+    return "\n".join(lines) + "\n"
+
+
+def _requirements(observed_imports: List[str]) -> str:
+    """Render the observed third-party imports as a requirements file.
+
+    Deliberately labelled as *observed*, not verified: the import names come
+    from LLM-written code, so an entry may be a hallucinated or typosquatted
+    package. Nothing installs this automatically.
+    """
+    lines = [
+        "# Observed imports from the generated tools. These were read out of",
+        "# the code, not verified against any index -- check them before",
+        "# installing.",
+    ]
+    lines += sorted(set(observed_imports))
+    return "\n".join(lines) + "\n"
 
 
 def run_command(output_path: str, task_name: Optional[str]) -> str:

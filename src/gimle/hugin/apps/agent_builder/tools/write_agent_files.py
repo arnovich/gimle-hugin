@@ -338,6 +338,10 @@ def write_agent_files(
         description=user_input.get("description", "A Hugin agent"),
         output_path=output_path,
         task_name=_first_task_name(generated_files),
+        observed_imports=report.get("observed_imports"),
+        warnings=[
+            f"{w['file']}: {w['message']}" for w in report.get("warnings", [])
+        ],
     )
 
     output_dir = Path(output_path).expanduser()
@@ -629,17 +633,17 @@ def _existing_unmanaged(output_dir: Path, files: Dict[str, str]) -> List[str]:
 
 
 def _register(stack: "Stack", output_dir: Path) -> Optional[str]:
-    """Register the freshly written agent with the live environment.
+    """Deliberately does not register the generated agent. Returns None.
 
-    Best effort: a generated agent that cannot be loaded is a validation
-    concern (PR 1.3), not a reason to report the write itself as failed.
+    Writing an agent used to load it straight into the live environment, which
+    put its tools into the process-global ``Tool.registry``. A generated tool
+    named after a builtin then replaced the real one for every agent in the
+    process, and a second generated agent could shadow the first -- neither
+    with any warning, because the registry overwrote silently.
+
+    Nothing needs it: ``test_agent`` loads the agent itself, in its own
+    environment, after invalidating stale modules. The write step's job is to
+    put files on disk.
     """
-    try:
-        environment = stack.agent.environment
-        name = environment.load_agent_from_path(str(output_dir))
-        if name:
-            logger.info("Registered new agent '%s' in environment", name)
-        return name
-    except Exception as error:  # noqa: BLE001 - registration is advisory
-        logger.warning("Could not register generated agent: %s", error)
-        return None
+    del stack, output_dir
+    return None
