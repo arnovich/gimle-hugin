@@ -17,6 +17,17 @@ BANNER = HUGIN_LOGO
 APPS_GITHUB_URL = "https://github.com/anthropics/hugin-apps"
 
 
+def _non_negative_int(value: str) -> int:
+    """Parse a non-negative command-line integer."""
+    try:
+        parsed = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("must be an integer") from error
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("must be non-negative")
+    return parsed
+
+
 def get_apps_dir() -> Optional[Path]:
     """Get the apps directory path from current working directory."""
     apps_dir = Path.cwd() / "apps"
@@ -266,6 +277,35 @@ def cmd_dream(args: argparse.Namespace) -> int:
         scope = result.get("scope_config") or "?"
         task_scope = result.get("scope_task") or "*"
         print(f"  - {scope}/{task_scope}: {result.get('id')}")
+    return 0
+
+
+def cmd_prune_learnings(args: argparse.Namespace) -> int:
+    """Preview or apply conservative pruning of superseded learnings."""
+    from gimle.hugin.dreaming.prune import prune_learnings
+    from gimle.hugin.storage.local import LocalStorage
+
+    storage_path = args.storage_path or "./storage"
+    storage = LocalStorage(base_path=storage_path)
+    candidates = prune_learnings(
+        storage,
+        retention_days=args.retention_days,
+        apply=args.apply,
+    )
+
+    verb = "Pruned" if args.apply else "Dry run: would prune"
+    print(
+        f"{verb} {len(candidates)} superseded learning(s) retained for at "
+        f"least {args.retention_days} day(s)."
+    )
+    for candidate in candidates:
+        replacements = ", ".join(candidate.superseded_by)
+        print(
+            f"  - {candidate.artifact_id} (superseded "
+            f"{candidate.superseded_at} by {replacements})"
+        )
+    if not args.apply:
+        print("No changes made. Re-run with --apply to delete these learnings.")
     return 0
 
 
@@ -546,6 +586,31 @@ Examples:
         "--model", help="Override the dream worker's llm_model"
     )
     dream_parser.set_defaults(func=cmd_dream)
+
+    # prune-learnings command (conservative semantic-memory lifecycle)
+    prune_learnings_parser = subparsers.add_parser(
+        "prune-learnings",
+        help="Preview or delete retained superseded learnings",
+        description=(
+            "Find structurally superseded Learning artifacts whose retention "
+            "window elapsed. The command is a dry run unless --apply is set."
+        ),
+    )
+    prune_learnings_parser.add_argument(
+        "-s", "--storage-path", help="Path to agent storage"
+    )
+    prune_learnings_parser.add_argument(
+        "--retention-days",
+        type=_non_negative_int,
+        default=30,
+        help="Days to retain a learning after supersession (default: 30)",
+    )
+    prune_learnings_parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Delete the reported candidates; without this flag, preview only",
+    )
+    prune_learnings_parser.set_defaults(func=cmd_prune_learnings)
 
     # apps command (list apps)
     apps_parser = subparsers.add_parser(

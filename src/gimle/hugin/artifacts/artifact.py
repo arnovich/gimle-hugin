@@ -117,9 +117,10 @@ class Artifact:
         if created_at_value is not None:
             artifact_data["created_at"] = created_at_value
 
-        # Add loaded interaction
-        if interaction is not None:
-            artifact_data["interaction"] = interaction
+        # Always initialize the dataclass field. When hydration is disabled the
+        # caller may attach the owning interaction later, but raw-record users
+        # must still receive a valid standalone Artifact with ``None`` here.
+        artifact_data["interaction"] = interaction
 
         if artifact_type and artifact_type in cls._registry:
             artifact_class = cls._registry[artifact_type]

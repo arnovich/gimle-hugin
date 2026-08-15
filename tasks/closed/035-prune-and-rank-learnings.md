@@ -1,6 +1,6 @@
 ---
 title: Learnings accumulate forever and are selected by recency — prune and rank them
-state: OPEN
+state: CLOSED
 labels: [dreaming, memory, enhancement]
 priority: medium
 ---
@@ -20,8 +20,9 @@ the ranking mechanism, which is here.
 `Storage.delete_artifact` now detaches the artifact id from its persisted owning
 interaction before deleting the artifact and its feedback. Local filesystem
 detachment is atomic, failed detachment aborts deletion, and repeated deletion is
-safe. The remaining physical-garbage-collection work is candidate and retention
-policy, not reference integrity.
+safe. `hugin prune-learnings` completes the lifecycle with a preview-by-default,
+explicit-apply policy for structurally superseded records whose retention window
+has elapsed.
 
 ## Progress
 
@@ -31,10 +32,10 @@ policy, not reference integrity.
       ratings are authoritative once present; otherwise agent ratings are the
       fallback, and equal scores use evidence count plus a stable artifact-id
       tie-break rather than recency.
-- [ ] Safe physical pruning.
+- [x] Safe physical pruning.
   - [x] Reference-safe deletion: persisted/live interaction references are
         detached before artifact and feedback removal.
-  - [ ] Opt-in, dry-run-first candidate and retention policy for superseded
+  - [x] Opt-in, dry-run-first candidate and retention policy for superseded
         learnings.
 
 ## The problem
@@ -75,22 +76,23 @@ then artifact id; `created_at` no longer affects selection.
 
 ### 2. The store grows without bound
 
-No learning lifecycle currently deletes a learning. Observed in gimle-heimdall's
-newspaper personas (2026-08-14): 23 learnings each for `newspaper_columnist` and
-`newspaper_quant`, 9 for `newspaper_editor`, of which **5** are ever injected.
-The inactive records still cost physical storage. Structurally superseded
-learnings no longer enter selection or dream deduplication, but remain stored for
-audit until an explicit pruning policy exists.
+Before this task, no learning lifecycle deleted a learning. Observed in
+gimle-heimdall's newspaper personas (2026-08-14): 23 learnings each for
+`newspaper_columnist` and `newspaper_quant`, 9 for `newspaper_editor`, of which
+**5** were ever injected. Structurally superseded learnings now leave active
+selection and dream deduplication immediately, remain stored through the
+configured audit window, and become physical-pruning candidates only afterward.
 
 ### Why #91 raised the stakes rather than settling them
 
 Before #91 the dream saw only the injected top 5, so it re-derived lessons that
 had fallen below the cut — it restated its own learning thirteen minutes after
 writing it. #91 made deduplication consider the full active set. Structural
-supersession and source-aware ranking have since aligned the active set and its
-top 5; only physical retention of inactive audit records remains unresolved.
+supersession and source-aware ranking then aligned the active set and its top 5;
+the final retention policy in this task bounds inactive physical records without
+using rank as a deletion signal.
 
-## The honest blocker
+## The conservative boundary
 
 There is still no generic signal for *"did this learning help?"*. Confidence is
 self-assessed at birth, human review is optional, and Hugin cannot infer an app's
@@ -118,17 +120,19 @@ outcome attribution. The implemented signals are deliberately conservative:
    human ratings are authoritative once present, agent confidence is the
    fallback for unreviewed learnings, and deterministic ties no longer use
    `created_at`.
-3. **Actual pruning.** Reference-safe deletion is now implemented: the owning
-   persisted interaction is detached before the artifact disappears. The
-   remaining increment is an explicit, opt-in, dry-run-first policy that selects
-   structurally superseded learnings and applies a retention window before using
-   that primitive. Ranking alone must never authorize deletion.
+3. **Actual pruning.** Reference-safe deletion detaches the owning persisted
+   interaction before the artifact disappears. `hugin prune-learnings` now
+   previews by default and requires `--apply`; it selects only structurally
+   superseded learnings whose retention window elapsed. The replacement's
+   timestamp starts that window, malformed chronology fails closed, and ranking
+   alone never authorizes deletion.
 
 Structural links are monotonic and exact-scope: `C -> B -> A` leaves only C
-active, while all three records remain auditable. `save_learning` rejects missing,
-non-Learning, cross-scope, self-referential, and cyclic targets. Selection also
-ignores invalid imported edges so malformed historical data cannot retire an
-unrelated scope.
+active, while all three records remain auditable until the explicit retention
+policy is applied. `save_learning` rejects missing, non-Learning, cross-scope,
+self-referential, and cyclic targets. Selection and pruning also ignore invalid
+imported edges so malformed historical data cannot retire or delete an unrelated
+scope.
 
 ## Provenance
 
