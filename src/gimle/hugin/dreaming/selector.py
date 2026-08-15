@@ -138,8 +138,10 @@ def _reaches(
     return False
 
 
-def _superseded_ids(records: Mapping[str, Dict[str, Any]]) -> Set[str]:
-    """Return monotonically retired ids from valid, acyclic same-scope edges.
+def _valid_supersession_graph(
+    records: Mapping[str, Dict[str, Any]],
+) -> Dict[str, List[str]]:
+    """Return valid, acyclic same-scope supersession edges.
 
     An edge remains effective even when its source is later superseded. This
     makes a chain ``C -> B -> A`` retire both B and A rather than resurrecting
@@ -165,33 +167,30 @@ def _superseded_ids(records: Mapping[str, Dict[str, Any]]) -> Set[str]:
         )
     }
 
-    retired: Set[str] = set()
+    valid_graph: Dict[str, List[str]] = {}
     for source_id, targets in graph.items():
         if source_id in cyclic_sources:
             logger.warning(
                 "dream: ignoring links from cyclic supersession Learning %s",
                 source_id,
             )
-            continue
-        for target_id in targets:
-            retired.add(target_id)
-    return retired
+            valid_graph[source_id] = []
+        else:
+            valid_graph[source_id] = targets
+    return valid_graph
 
 
-def select_learnings(
-    storage: Storage,
-    config: Optional[str] = None,
-    task: Optional[str] = None,
-    app: Optional[str] = None,
-    budget: int = DEFAULT_BUDGET,
-) -> List[SelectedLearning]:
-    """Return the applicable learnings for a context, ranked and budget-capped.
+def _superseded_ids(records: Mapping[str, Dict[str, Any]]) -> Set[str]:
+    """Return monotonically retired ids from valid supersession edges."""
+    return {
+        target_id
+        for targets in _valid_supersession_graph(records).values()
+        for target_id in targets
+    }
 
-    Human ratings are authoritative once present; otherwise agent ratings are
-    used, with unrated learnings neutral. Equal scores prefer human-reviewed
-    evidence, then a larger evidence count, then artifact id for a stable final
-    tie-break. Creation time deliberately does not affect selection.
-    """
+
+def _learning_records(storage: Storage) -> Dict[str, Dict[str, Any]]:
+    """Load well-formed raw Learning records without hydrating interactions."""
     records: Dict[str, Dict[str, Any]] = {}
     for artifact_id in storage.list_artifacts():
         try:
@@ -208,6 +207,24 @@ def select_learnings(
             logger.warning("dream: skipping malformed Learning %s", artifact_id)
             continue
         records[artifact_id] = data
+    return records
+
+
+def select_learnings(
+    storage: Storage,
+    config: Optional[str] = None,
+    task: Optional[str] = None,
+    app: Optional[str] = None,
+    budget: int = DEFAULT_BUDGET,
+) -> List[SelectedLearning]:
+    """Return the applicable learnings for a context, ranked and budget-capped.
+
+    Human ratings are authoritative once present; otherwise agent ratings are
+    used, with unrated learnings neutral. Equal scores prefer human-reviewed
+    evidence, then a larger evidence count, then artifact id for a stable final
+    tie-break. Creation time deliberately does not affect selection.
+    """
+    records = _learning_records(storage)
 
     retired = _superseded_ids(records)
     ratings = _ratings_map(storage)

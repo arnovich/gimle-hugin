@@ -34,6 +34,7 @@ takeaway rather than the raw experience. It carries:
 | `content` | The lesson, written as prose ready to drop into a prompt |
 | `scope_config` / `scope_task` | Who the lesson applies to |
 | `source_artifact_ids` | The episodic artifacts it was distilled from (evidence) |
+| `supersedes` | Same-scope Learning IDs this lesson structurally retires |
 | `confidence` | The dream's self-assessed confidence in the lesson |
 | `derived_from` | Marker (`"dream"`) used to keep dreams from eating their own output |
 
@@ -106,6 +107,30 @@ The dream itself is bounded by `--max-steps` and picks an LLM via `--model`,
 exactly like `hugin run`. Because it reuses the existing storage layer, the
 same `--storage-path` you pass to a run is what the dream consolidates over —
 and what the next run injects from.
+
+## Pruning superseded learnings
+
+Structural supersession removes a replaced learning from active selection but
+keeps its artifact as an audit record. Hugin can physically prune those records
+after a retention window. The command previews by default:
+
+```bash
+# Preview superseded learnings retired for at least 30 days (the default)
+uv run hugin prune-learnings --storage-path ./storage
+
+# Choose a different retention window; this still changes nothing
+uv run hugin prune-learnings --storage-path ./storage --retention-days 90
+
+# Apply exactly the currently eligible policy
+uv run hugin prune-learnings --storage-path ./storage \
+  --retention-days 90 --apply
+```
+
+The retention clock starts at the superseding learning's creation time, when
+the structural retirement was recorded. Only valid, acyclic, exact-scope
+supersession links authorize deletion. Age, selection rank, confidence, and
+ratings never do. Missing or inconsistent timestamps retain the artifact, and
+artifact deletion first removes its owning interaction reference and feedback.
 
 ## Seeing the loop work
 
