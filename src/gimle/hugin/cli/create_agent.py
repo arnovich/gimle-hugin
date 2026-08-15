@@ -285,9 +285,20 @@ def run_wizard(builder_model: Optional[str] = None) -> Dict[str, Any]:
 
     # Output path
     print()
-    output_path = prompt_user(
-        "    Output directory path", f"./agents/{agent_name}"
+    # Checked here, not only at write time: these refusals used to surface
+    # after the entire multi-stage LLM build had already run and been paid for.
+    from gimle.hugin.apps.agent_builder.tools.agent_paths import (
+        check_output_path,
     )
+
+    default_output = f"./agents/{agent_name}"
+    output_path = prompt_user("    Output directory path", default_output)
+    while True:
+        problem = check_output_path(output_path)
+        if not problem:
+            break
+        print(f"        {problem}")
+        output_path = prompt_user("    Output directory path", default_output)
 
     # Confirmation screen
     show_header("Ready to Build", "Review your configuration")
@@ -319,9 +330,27 @@ def run_wizard(builder_model: Optional[str] = None) -> Dict[str, Any]:
         "description": description,
         "llm_model": llm_model,
         "full_implementation": full_implementation,
-        "output_path": str(Path(output_path).resolve()),
+        "output_path": str(Path(output_path).expanduser().resolve()),
         "builder_model": builder_model,
     }
+
+
+def _generated_run_command(output_path: str) -> str:
+    """Return the run command for a freshly generated agent.
+
+    Delegates to the same helper the generated README uses, so the CLI and the
+    README cannot disagree -- they previously gave two different commands, and
+    the README's named an entrypoint that does not exist.
+    """
+    from gimle.hugin.apps.agent_builder.tools.agent_paths import run_command
+
+    tasks_dir = Path(output_path) / "tasks"
+    task_name = None
+    if tasks_dir.is_dir():
+        tasks = sorted(tasks_dir.glob("*.yaml"))
+        if tasks:
+            task_name = tasks[0].stem
+    return run_command(output_path, task_name)
 
 
 def setup_file_logging(log_dir: Path, log_level: str) -> Path:
@@ -523,7 +552,7 @@ Examples:
     print()
     print("    Run your new agent with:")
     print()
-    print(f"        hugin run -p {user_input['output_path']}")
+    print(f"        {_generated_run_command(user_input['output_path'])}")
     print()
 
     # Ask if user wants to run the agent now

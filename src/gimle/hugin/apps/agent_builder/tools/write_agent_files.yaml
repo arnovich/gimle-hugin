@@ -1,5 +1,8 @@
 name: write_agent_files
-description: Write all generated files to the output directory. Creates the directory structure and saves all files.
+description: >-
+  Write generated files without overwriting unknown or user-modified content.
+  Files written by this builder session are tracked by output directory and
+  content hash, so unmodified files can be updated or removed when superseded.
 parameters:
   output_path:
     type: string
@@ -9,6 +12,12 @@ parameters:
     type: string
     description: Name of the agent being created
     required: false
+  dry_run:
+    type: boolean
+    description: >-
+      Report which files would be written without touching the filesystem.
+    required: false
+    default: false
 is_interactive: false
 implementation_path: agent_builder.tools.write_agent_files:write_agent_files
 options: {}
