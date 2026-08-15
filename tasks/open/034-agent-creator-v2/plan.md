@@ -8,6 +8,64 @@ state: OPEN
 Incremental PRs, each independently mergeable, each leaving `main` working.
 Branch per PR off `main`, snake_case, `task/` prefix. See `spec.md` for design.
 
+## Status — start here
+
+**Last updated: 2026-08-16. Phase 1 is complete.**
+
+| PR | What | State |
+|---|---|---|
+| #82 | 1.1 Safe writes, path confinement | merged |
+| #83 | 1.2 Examples wired in | merged |
+| #85 | 1.3 Static validator, `hugin validate`, CI gate | merged |
+| #87 | 1.4 The gate, in code | merged |
+| #97 | 1.5 + 1.4b + 1.6 + 1.7 — the rest of Phase 1 | **open, green, awaiting merge** |
+
+### Pick up here
+
+**Next is Phase 1.5: PR 1.8 then PR 1.9 (`hugin analyze`).** Read-only trace
+analysis. Chosen next deliberately: it is zero LLM tokens, works on
+hand-written agents, depends on nothing from Phases 2-4, and surfaces the
+storage-API problem early rather than in Phase 5.
+
+Know before starting PR 1.8: `load_interaction(uuid, stack)` needs a `Stack`
+that does not exist for a foreign agent's historic runs, and
+`list_interactions()` is a flat unscoped listing. Follow what `hugin monitor`
+already does (`cli/monitor_agents.py:671,747`): read `storage/agents/<uuid>`
+JSON for `stack.interactions`, then `LocalStorage.load_interaction_metadata`.
+That helper is on `LocalStorage`, not the `Storage` ABC — lift it or scope the
+work to local storage, and record which.
+
+### Things to decide before Phase 2, not during it
+
+- **PR 2.1 (move reference docs into the package) may not be worth doing.** It
+  was the panel's most-criticised item: all the cost, no benefit until 2.2, and
+  it degrades the Claude Code plugin in between. Now that examples are wired in
+  and read at build time, re-ask whether the packaged knowledge base earns its
+  keep at all.
+- **Move PR 2.5 (golden-set eval harness) ahead of PR 2.2.** Nothing built so
+  far measures the *model*; every test pins mechanics. 2.2 changes the builder's
+  prompt, and without the harness there is no way to tell whether it helped.
+
+### Known issues not caused by this task
+
+- `pre-commit run --all-files` is red on `main`: `tests/test_dream_pruning.py`
+  fails D102/D103 (from #96). The pre-commit hook carries `flake8-docstrings`
+  while CI's `flake8 src examples tests apps` does not, so CI is green and the
+  divergence is invisible there. Anyone running pre-commit locally hits a
+  failure they did not cause.
+- The `mypy` pre-commit hook fails with an internal error on
+  `openai/_client.py`. Long-standing, unrelated.
+
+### Working notes
+
+- **PRs here are squash-merged.** After one merges, the branches above it go
+  DIRTY because GitHub retargets them and their commits are not on `main`.
+  Restack with `git rebase --onto origin/main <old-base-tip> <branch>` — a plain
+  rebase replays commits the squash already contains and conflicts.
+- A clean rebase does not mean a correct one. #87's rebase produced no conflicts
+  and 19 test failures: the writer's fixtures were stubs that the newly added
+  gate refused. Run the suite after every restack.
+
 ## Sequencing rationale
 
 Revised after a five-judge panel review. Four changes to the original order:
