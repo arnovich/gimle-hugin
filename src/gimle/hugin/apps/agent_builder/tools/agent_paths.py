@@ -35,8 +35,15 @@ GENERATED_KEY = re.compile(
 )
 
 # Written by the builder itself rather than generated, so exempt from the
-# snake_case key rule (dunder names would never match it).
-FRAMEWORK_FILES = ("__init__.py", "tools/__init__.py", "README.md")
+# generated-key shape rule (dunder and top-level names would never match it).
+# These are fixed constants chosen here, never LLM input, so exempting them
+# gives up nothing: confinement still applies to where they resolve.
+FRAMEWORK_FILES = (
+    "__init__.py",
+    "tools/__init__.py",
+    "README.md",
+    "VALIDATION_REPORT.md",
+)
 
 
 class PathConfinementError(Exception):

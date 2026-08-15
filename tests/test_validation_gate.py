@@ -272,26 +272,33 @@ class TestRetryDoesNotBypassTheGate:
 
 
 class TestValidatingAnotherAgentIsIsolated:
-    """agent_path is exposed to the model and shares env_vars."""
+    """The model must not be able to point the validator anywhere.
 
-    def test_validating_a_path_does_not_poison_the_build(self, tmp_path):
-        """It used to store a foreign baseline with no way to recover."""
-        other = tmp_path / "other"
-        (other / "configs").mkdir(parents=True)
-        (other / "tasks").mkdir()
-        (other / "configs" / "other.yaml").write_text(
-            "name: other\ndescription: x\nsystem_template: Inline prompt.\n"
+    An earlier version accepted ``agent_path`` and stored that directory's
+    capabilities as the repair baseline, after which the real payload was
+    refused for "removing" every capability of an unrelated agent -- with no
+    bypass, so the correct agent could never be written. The parameter was then
+    removed outright, which is stronger than making it harmless: there is no
+    foreign baseline to store because there is no way to name one.
+    """
+
+    def test_tool_exposes_no_agent_path(self):
+        """The YAML bounds what the model can actually pass."""
+        import yaml
+
+        definition = yaml.safe_load(
+            Path(
+                "src/gimle/hugin/apps/agent_builder/tools/validate_agent.yaml"
+            ).read_text()
         )
-        (other / "tasks" / "t.yaml").write_text(
-            "name: t\ndescription: x\nprompt: go\n"
-        )
 
-        stack = make_stack(VALID)
-        validate_agent(stack, agent_path=str(other))
+        assert "agent_path" not in (definition["parameters"] or {})
 
-        result = write_agent_files(stack, str(tmp_path / "demo"), "demo")
+    def test_function_takes_no_agent_path(self):
+        """And neither does the implementation behind it."""
+        import inspect
 
-        assert not result.is_error, result.content
+        assert "agent_path" not in inspect.signature(validate_agent).parameters
 
 
 class TestNoPreReviewWrite:

@@ -542,13 +542,15 @@ def dump_rejected(
         rejected.mkdir(parents=True)
         for key, content in generated_files.items():
             try:
-                target = confine(rejected, key)
-            except PathConfinementError:
+                _write_confined(rejected, key, content)
+            except (PathConfinementError, OSError):
+                # A key that cannot be confined is exactly what the rescue
+                # path must not write; skip it rather than fall back to a
+                # plain join, which is how the main write path used to escape.
                 continue
-            target.parent.mkdir(parents=True, exist_ok=True)
-            _write_text(target, content)
-        _write_text(
-            rejected / "VALIDATION_REPORT.md",
+        _write_confined(
+            rejected,
+            "VALIDATION_REPORT.md",
             _rejection_report(report, output_path),
         )
     except OSError as error:

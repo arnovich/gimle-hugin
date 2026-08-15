@@ -1078,24 +1078,19 @@ def check_capability_shrink(
 def validate_with_state(
     files: Dict[str, str],
     env_vars: Dict[str, Any],
-    agent_path: str = "",
 ) -> Dict[str, Any]:
     """Validate, and compare against the previous attempt in ``env_vars``.
 
     Repair state lives here rather than in a prompt saying "maximum 3
     attempts": ``task_sequence`` cannot loop, so a prose bound is not a bound.
-    """
-    report = validate_files(files, agent_path)
 
-    if agent_path:
-        # Validating some other directory on request must not touch the repair
-        # state of the agent being built. It previously stored that directory's
-        # capabilities as the baseline, so the next write of the real payload
-        # was refused with a capability-shrink error for every tool of an
-        # unrelated agent -- and with no bypass, the correct agent could then
-        # never be written at all.
-        report["attempt"] = 0
-        return report
+    Only ever called for the in-memory payload. An earlier version guarded
+    against a caller passing a foreign ``agent_path`` here, which would have
+    stored an unrelated agent's capabilities as the repair baseline; that guard
+    is gone because the tool no longer exposes ``agent_path`` at all, which
+    removes the hazard rather than compensating for it.
+    """
+    report = validate_files(files)
 
     state = env_vars.setdefault("validation_state", {})
     previous = state.get("snapshot")
