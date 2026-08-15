@@ -26,16 +26,20 @@ introduce an archival/tombstone mechanism.
 
 - [x] Structural supersession: same-scope learning ids can be retired without
       deletion; active selection and dream dedup both exclude them.
-- [ ] Ranking that distinguishes human feedback from birth confidence.
+- [x] Ranking that distinguishes human feedback from birth confidence: human
+      ratings are authoritative once present; otherwise agent ratings are the
+      fallback, and equal scores use evidence count plus a stable artifact-id
+      tie-break rather than recency.
 - [ ] Safe physical pruning with interaction-reference integrity.
 
 ## The problem
 
 Two failures that look like one.
 
-### 1. Selection is effectively by recency
+### 1. Selection was effectively by recency
 
-`select_learnings` sorts by `(average_rating, created_at)` descending and keeps
+Before the source-aware ranking phase, `select_learnings` sorted by
+`(average_rating, created_at)` descending and kept
 `DEFAULT_BUDGET = 5`. Ratings come from `_ratings_map`, which reads
 `ArtifactFeedback` rows. In practice a learning has exactly **one** rating, written
 by `save_learning` at creation from the dream's own self-assessed confidence:
@@ -54,10 +58,15 @@ callers are three human paths — `cli/rate_artifact.py`,
 `cli/interactive/screens/artifact.py`, `cli/monitor_agents.py` — none of which
 runs in a batch pipeline.
 
-Consequence: **a good old learning is permanently evicted the moment five newer
-confident ones exist**, and can never come back, because nothing can raise its
-rating and nothing lowers the newcomers'. Selection drifts toward whatever was
-written last, not what works.
+The consequence was that **a good old learning was permanently evicted once five
+newer confident ones existed**, and could never come back, because nothing could
+raise its rating and nothing lowered the newcomers'. Selection drifted toward
+whatever was written last, not what worked.
+
+Selection now groups feedback by `source`. Human ratings replace agent ratings
+as the ranking signal once present, while the dream's confidence remains useful
+for unreviewed learnings. Equal scores prefer human evidence, then more ratings,
+then artifact id; `created_at` no longer affects selection.
 
 ### 2. The store grows without bound
 
@@ -102,10 +111,10 @@ the obvious candidates is free:
    and throwing it away. It bounds the **active selection set** for the common
    case (refinement) without deleting anything, which keeps the audit trail; it
    does not yet bound physical storage.
-2. **Ranking that is not recency.** At minimum, break rating ties on something
-   other than `created_at` — or stop treating a self-assessed confidence as a
-   peer of a human rating (they are both `ArtifactFeedback`, indistinguishable
-   downstream except by `source`, which `_ratings_map` discards).
+2. **Ranking that is not recency.** Implemented with source-aware feedback:
+   human ratings are authoritative once present, agent confidence is the
+   fallback for unreviewed learnings, and deterministic ties no longer use
+   `created_at`.
 3. **Actual pruning.** Only once 1 and 2 exist. Deleting on recency-derived rank
    would delete the good old ones first, which is the current bug with a harder
    edge. Deletion must also preserve or deliberately rewrite artifact references

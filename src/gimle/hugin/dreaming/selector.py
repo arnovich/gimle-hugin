@@ -3,8 +3,10 @@
 The keyword ``ArtifactQueryEngine`` filters by type and searches content, not by
 metadata predicates, so learning selection is a dedicated scan over the raw
 artifact records filtering by ``scope_config`` / ``scope_task`` / ``scope_app``.
-Results are ranked by rating then recency and truncated to a budget, so injected
-prompts cannot grow unboundedly across consolidation cycles.
+Results are ranked by source-aware feedback and truncated to a budget, so
+injected prompts cannot grow unboundedly across consolidation cycles. Human
+ratings are authoritative once present; agent self-ratings remain the fallback
+signal for learnings that have not been independently reviewed.
 """
 
 import logging
@@ -36,18 +38,42 @@ class SelectedLearning:
     average_rating: float
     rating_count: int
     created_at: Optional[str]
+    rating_source: Optional[str] = None
 
 
-def _ratings_map(storage: Storage) -> Dict[str, List[int]]:
-    """Pre-load feedback ratings grouped by artifact id."""
-    ratings: Dict[str, List[int]] = defaultdict(list)
+def _ratings_map(storage: Storage) -> Dict[str, Dict[str, List[int]]]:
+    """Pre-load feedback ratings grouped by artifact id and source."""
+    ratings: Dict[str, Dict[str, List[int]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
     for feedback_uuid in storage.list_feedback():
         try:
             feedback = storage.load_feedback(feedback_uuid)
-            ratings[feedback.artifact_id].append(feedback.rating)
+            ratings[feedback.artifact_id][feedback.source].append(
+                feedback.rating
+            )
         except (ValueError, OSError) as error:
             logger.warning("Skipping feedback %s: %s", feedback_uuid, error)
-    return dict(ratings)
+    return {
+        artifact_id: dict(by_source)
+        for artifact_id, by_source in ratings.items()
+    }
+
+
+def _ranking_signal(
+    ratings_by_source: Mapping[str, List[int]],
+) -> Tuple[float, int, Optional[str]]:
+    """Return the authoritative rating average, evidence count, and source.
+
+    Human feedback replaces agent feedback once it exists rather than being
+    averaged with the learning's birth confidence. Agent ratings remain useful
+    before independent review, and a learning with no feedback is neutral.
+    """
+    for source in ("human", "agent"):
+        ratings = ratings_by_source.get(source, [])
+        if ratings:
+            return sum(ratings) / len(ratings), len(ratings), source
+    return NEUTRAL_RATING, 0, None
 
 
 def _matches_scope(
@@ -161,9 +187,10 @@ def select_learnings(
 ) -> List[SelectedLearning]:
     """Return the applicable learnings for a context, ranked and budget-capped.
 
-    Sorted by average rating (neutral when unrated) then recency, then truncated
-    to ``budget`` (top-N). Higher-rated, fresher learnings win; low-rated ones
-    decay out of selection.
+    Human ratings are authoritative once present; otherwise agent ratings are
+    used, with unrated learnings neutral. Equal scores prefer human-reviewed
+    evidence, then a larger evidence count, then artifact id for a stable final
+    tie-break. Creation time deliberately does not affect selection.
     """
     records: Dict[str, Dict[str, Any]] = {}
     for artifact_id in storage.list_artifacts():
@@ -190,10 +217,7 @@ def select_learnings(
             continue
         if not _matches_scope(data, config, task, app):
             continue
-        artifact_ratings = ratings.get(artifact_id, [])
-        count = len(artifact_ratings)
-        # Unrated learnings rank neutrally — neither boosted nor buried.
-        average = sum(artifact_ratings) / count if count else NEUTRAL_RATING
+        average, count, source = _ranking_signal(ratings.get(artifact_id, {}))
         selected.append(
             SelectedLearning(
                 artifact_id=artifact_id,
@@ -203,14 +227,24 @@ def select_learnings(
                 scope_app=data.get("scope_app"),
                 average_rating=average,
                 rating_count=count,
+                rating_source=source,
                 created_at=data.get("created_at"),
             )
         )
 
-    def sort_key(item: SelectedLearning) -> tuple:
-        return (item.average_rating, item.created_at or "")
+    # Establish a stable ascending final tie-break first. Python's sort is
+    # stable, so the source-aware descending ranking below preserves it when
+    # every quality signal is equal.
+    selected.sort(key=lambda item: item.artifact_id)
 
-    selected.sort(key=sort_key, reverse=True)
+    selected.sort(
+        key=lambda item: (
+            item.average_rating,
+            item.rating_source == "human",
+            item.rating_count,
+        ),
+        reverse=True,
+    )
     if budget >= 0:
         selected = selected[:budget]
     return selected
