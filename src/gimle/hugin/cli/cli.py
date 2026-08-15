@@ -317,6 +317,80 @@ def cmd_install_models(args: argparse.Namespace) -> int:
     return install_main()
 
 
+def cmd_validate(args: argparse.Namespace) -> int:
+    """Statically validate one or more agent directories."""
+    from gimle.hugin.apps.agent_builder.tools.validate_agent import (
+        AgentReadError,
+        collect_files,
+        validate_files,
+    )
+
+    paths = [Path(p) for p in args.paths]
+    root_failures = 0
+    if args.recursive:
+        discovered = []
+        for parent in paths:
+            if not parent.is_dir():
+                # An unreadable or absent path used to abort the CI gate with
+                # a bare iterdir() traceback that read like a validator crash.
+                print(f"    error {parent}: not a directory")
+                root_failures += 1
+                continue
+            try:
+                children = sorted(parent.iterdir())
+            except OSError as error:
+                print(f"    error {parent}: {error}")
+                root_failures += 1
+                continue
+            discovered += [
+                child
+                for child in children
+                if child.is_dir()
+                and ((child / "configs").is_dir() or (child / "tasks").is_dir())
+            ]
+        if not discovered:
+            # Exiting 0 here made the CI gate a silent no-op the moment a
+            # directory layout changed.
+            print("    No agent directories found. Nothing was validated.")
+            return 1
+        paths = discovered
+
+    failed = 0
+    for path in paths:
+        try:
+            files = collect_files(str(path))
+        except AgentReadError as error:
+            print(f"    FAIL {path}: {error}")
+            failed += 1
+            continue
+        if not files:
+            print(f"    {path}: no agent files found")
+            failed += 1
+            continue
+
+        report = validate_files(files, str(path))
+        status = "OK  " if report["ok"] else "FAIL"
+        print(f"    {status} {path}  ({report['summary']})")
+        for finding in report["errors"]:
+            print(f"           error   {finding['file']}: {finding['message']}")
+        if not args.quiet:
+            for finding in report["warnings"]:
+                print(
+                    f"           warning {finding['file']}: "
+                    f"{finding['message']}"
+                )
+        if report["observed_imports"] and not args.quiet:
+            joined = ", ".join(report["observed_imports"])
+            print(f"           requires: {joined}")
+        if not report["ok"]:
+            failed += 1
+
+    if len(paths) > 1:
+        print()
+        print(f"    {len(paths) - failed}/{len(paths)} agents valid")
+    return 1 if failed or root_failures else 0
+
+
 def cmd_version(args: argparse.Namespace) -> int:
     """Show version information."""
     print(BANNER)
@@ -631,6 +705,31 @@ Examples:
         "extra_args", nargs="*", help="Additional arguments for the app"
     )
     app_parser.set_defaults(func=cmd_app)
+
+    # validate command
+    validate_parser = subparsers.add_parser(
+        "validate",
+        help="Statically validate an agent directory",
+        description="Check an agent's structure, template and tool "
+        "references, prompt variables and tool contracts. Parses files "
+        "without importing or running them.",
+    )
+    validate_parser.add_argument(
+        "paths", nargs="+", help="Agent directories to validate"
+    )
+    validate_parser.add_argument(
+        "-r",
+        "--recursive",
+        action="store_true",
+        help="Treat each path as a parent of agent directories",
+    )
+    validate_parser.add_argument(
+        "-q",
+        "--quiet",
+        action="store_true",
+        help="Show errors only, suppressing warnings and dependencies",
+    )
+    validate_parser.set_defaults(func=cmd_validate)
 
     # install-models command
     install_parser = subparsers.add_parser(

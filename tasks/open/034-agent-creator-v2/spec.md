@@ -48,14 +48,17 @@ Signature:
 ```python
 def validate_agent(
     stack: "Stack",
-    agent_path: Optional[str] = None,
-    check_imports: bool = True,
+    check_imports: bool = False,
 ) -> ToolResponse:
 ```
 
-When `agent_path` is omitted it validates the in-memory
-`env_vars["generated_files"]` by materialising them into a `TemporaryDirectory`.
-This lets it run *before* anything touches the user's filesystem.
+The model-facing tool validates only the in-memory
+`env_vars["generated_files"]`; an arbitrary disk path is deliberately not a
+tool parameter. The explicit `hugin validate` CLI reads on-disk agents through
+descriptor-relative, no-follow, file-count and byte-bounded access, then calls
+the same static `validate_files` checks. This lets the builder validate before
+anything touches the user's filesystem without granting it a general read
+capability.
 
 Checks 1-5 are static — they parse files and never execute generated code.
 Checks 6-7 execute it and are **opt-in, off by default** (see §1.5).
@@ -79,12 +82,12 @@ Checks 6-7 execute it and are **opt-in, off by default** (see §1.5).
      inline prompt. Only flag when it *looks like* a reference — an
      identifier-only heuristic (`^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$`), so
      plain-prose system prompts are not rejected.
-     Note: `tasks/open/019-warn-on-unknown-template-reference.md` is **still
-     unimplemented**. A working draft of it was briefly present in the working
-     tree during this task's review and has since been reverted, so there is
-     nothing to reuse — this is new work. Best done as task 019 proper, inside
-     `Environment.load()` so hand-written agents get the warning too, with
-     `validate_agent` calling it.
+     Task 019 has since landed on `main` (closed 2026-08-12), so
+     `_BARE_TEMPLATE_REFERENCE` now exists in `agent/environment.py` and
+     `validate_agent` imports it rather than restating the pattern — the
+     validator's job is to agree with what the framework does, and two copies
+     of the rule would eventually disagree. `Environment.load()` also warns
+     on its own now, so hand-written agents get the same diagnostic.
    - Every entry in `config.tools` resolves: `builtins.X:Y` exists in the builtin
      registry, or `X` names a generated tool.
    - `task.tools`, when present, is a subset of the resolvable tool set.

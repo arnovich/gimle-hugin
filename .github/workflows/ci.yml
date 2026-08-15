@@ -52,6 +52,12 @@ jobs:
       - name: Run type checking
         run: uv run mypy src examples
 
+      # Every agent this repo ships must pass the same validator that gates
+      # generated agents. A validator that fails these is wrong about the
+      # framework, not right about the agents.
+      - name: Validate shipped agents
+        run: uv run hugin validate -r examples apps src/gimle/hugin/apps
+
       - name: Run tests
         run: uv run pytest --cov --cov-report=xml
 
