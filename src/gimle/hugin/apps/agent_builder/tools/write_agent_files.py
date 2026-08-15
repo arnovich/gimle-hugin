@@ -4,7 +4,7 @@ import errno
 import hashlib
 import logging
 import os
-import shutil
+import shlex
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
@@ -453,6 +453,10 @@ def write_agent_files(
             },
         )
 
+    # ``create_agent`` uses this marker to distinguish an actual write from a
+    # model merely claiming that it finished. Set it only after every required
+    # write and removal has completed successfully.
+    env_vars["written_keys"] = sorted(files)
     registered = _register(stack, output_dir)
 
     return ToolResponse(
@@ -512,7 +516,7 @@ def _ownership_after_write(
 def dump_rejected(
     generated_files: Dict[str, str], output_path: str
 ) -> Optional[str]:
-    """Write an unwritable payload to ``<output_path>.rejected/``.
+    """Write an unwritable payload to a fresh ``<output_path>.rejected*``.
 
     A build that fails validation, errors, or runs out of steps has still cost
     the user a full multi-stage run. Leaving them with nothing on disk is worse
@@ -526,20 +530,9 @@ def dump_rejected(
     if not generated_files or not output_path:
         return None
 
-    expanded = Path(output_path).expanduser()
-    rejected = Path(f"{str(expanded).rstrip('/')}.rejected")
     report = validate_files(generated_files)
     try:
-        # Replace rather than merge: two failed builds in a row otherwise leave
-        # a directory mixing both attempts, so `hugin validate` on it reports
-        # errors for files the latest attempt never produced.
-        if rejected.is_symlink():
-            # The rescue path gets the same discipline as the main write path;
-            # a symlink here would redirect the whole payload elsewhere.
-            rejected.unlink()
-        elif rejected.is_dir():
-            shutil.rmtree(rejected)
-        rejected.mkdir(parents=True)
+        rejected = _reserve_rejected_directory(output_path)
         for key, content in generated_files.items():
             try:
                 _write_confined(rejected, key, content)
@@ -551,15 +544,30 @@ def dump_rejected(
         _write_confined(
             rejected,
             "VALIDATION_REPORT.md",
-            _rejection_report(report, output_path),
+            _rejection_report(report, output_path, str(rejected)),
         )
-    except OSError as error:
+    except (OSError, PathConfinementError) as error:
         logger.warning("Could not write rejected payload: %s", error)
         return None
     return str(rejected)
 
 
-def _rejection_report(report: Dict[str, Any], output_path: str) -> str:
+def _reserve_rejected_directory(output_path: str) -> Path:
+    """Create a fresh rejected-payload directory without deleting anything."""
+    expanded = Path(output_path).expanduser()
+    base = Path(f"{str(expanded).rstrip('/')}.rejected")
+    candidate = base
+    while True:
+        try:
+            candidate.mkdir(parents=True, exist_ok=False)
+            return candidate
+        except FileExistsError:
+            candidate = Path(f"{base}-{uuid.uuid4().hex[:8]}")
+
+
+def _rejection_report(
+    report: Dict[str, Any], output_path: str, rejected_path: str
+) -> str:
     """Explain why the build did not land, and what to do next."""
     lines = [
         "# Build did not complete",
@@ -593,7 +601,7 @@ def _rejection_report(report: Dict[str, Any], output_path: str) -> str:
         "Fix the errors above, then re-check with:",
         "",
         "```bash",
-        f"uv run hugin validate {output_path}.rejected",
+        f"uv run hugin validate {shlex.quote(rejected_path)}",
         "```",
         "",
         "Once it reports no errors, move the directory into place.",

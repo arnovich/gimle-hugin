@@ -86,10 +86,10 @@ class TestGateBlocksInvalidWrites:
 
     def test_invalid_payload_is_refused(self, tmp_path):
         """A config pointing at a missing template must not reach disk."""
-        result = write_agent_files(
-            make_stack(BROKEN), str(tmp_path / "demo"), "demo"
-        )
+        stack = make_stack(BROKEN)
+        result = write_agent_files(stack, str(tmp_path / "demo"), "demo")
         assert result.is_error
+        assert "written_keys" not in stack.agent.environment.env_vars
 
     def test_nothing_is_written_when_refused(self, tmp_path):
         """Refusal means no partial agent, not a half-written one."""
@@ -107,9 +107,53 @@ class TestGateBlocksInvalidWrites:
     def test_valid_payload_still_writes(self, tmp_path):
         """The gate must not block correct agents."""
         output = tmp_path / "demo"
-        result = write_agent_files(make_stack(VALID), str(output), "demo")
+        stack = make_stack(VALID)
+        result = write_agent_files(stack, str(output), "demo")
         assert not result.is_error, result.content
         assert (output / "configs" / "demo.yaml").exists()
+        assert "configs/demo.yaml" in (
+            stack.agent.environment.env_vars["written_keys"]
+        )
+
+    def test_dry_run_does_not_set_the_write_marker(self, tmp_path):
+        """Previewing valid files must not make the CLI report completion."""
+        stack = make_stack(VALID)
+
+        result = write_agent_files(
+            stack, str(tmp_path / "demo"), "demo", dry_run=True
+        )
+
+        assert not result.is_error
+        assert "written_keys" not in stack.agent.environment.env_vars
+
+    @pytest.mark.parametrize(
+        ("key", "content"),
+        [
+            (
+                "tasks/main.yaml",
+                "name: main\ndescription: Main\nparameters: [ticker]\n"
+                "prompt: Look up a ticker.\n",
+            ),
+            (
+                "configs/demo.yaml",
+                "name: demo\ndescription: A demo\n"
+                "system_template: demo_system\ntools: 7\n",
+            ),
+        ],
+    )
+    def test_malformed_capability_shapes_are_reported(
+        self, tmp_path, key, content
+    ):
+        """Schema errors must be returned instead of crashing the gate."""
+        files = dict(VALID)
+        files[key] = content
+
+        result = write_agent_files(
+            make_stack(files), str(tmp_path / "demo"), "demo"
+        )
+
+        assert result.is_error
+        assert result.content["errors"]
 
     def test_no_argument_disables_the_gate(self):
         """An escape hatch the model can reach is not a gate."""
@@ -270,6 +314,15 @@ class TestRetryDoesNotBypassTheGate:
 
         assert not check_capability_shrink(after, before, [])
 
+    def test_rename_does_not_hide_a_capability_removal(self):
+        """A rename and deletion together must still report the deletion."""
+        before = {"config-tools:configs/demo.yaml": ["alpha", "beta"]}
+        after = {"config-tools:configs/renamed.yaml": ["alpha"]}
+
+        findings = check_capability_shrink(after, before, [])
+
+        assert any("'beta'" in finding["message"] for finding in findings)
+
 
 class TestValidatingAnotherAgentIsIsolated:
     """The model must not be able to point the validator anywhere.
@@ -350,6 +403,21 @@ class TestRejectedPayload:
 
         assert "no_such_template" in report
         assert "hugin validate" in report
+
+    def test_existing_rejected_payload_is_preserved(self, tmp_path):
+        """A later failed build must not destroy an earlier rescue payload."""
+        existing = tmp_path / "demo.rejected"
+        existing.mkdir()
+        sentinel = existing / "keep.txt"
+        sentinel.write_text("first build")
+
+        path = dump_rejected(dict(BROKEN), str(tmp_path / "demo"))
+
+        assert sentinel.read_text() == "first build"
+        assert path != str(existing)
+        assert Path(path).name.startswith("demo.rejected-")
+        report = (Path(path) / "VALIDATION_REPORT.md").read_text()
+        assert path in report
 
     def test_nothing_generated_writes_nothing(self, tmp_path):
         """No empty .rejected directory when there was no payload."""

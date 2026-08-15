@@ -1015,13 +1015,16 @@ def capability_snapshot(files: Dict[str, str]) -> Dict[str, List[str]]:
     snapshot: Dict[str, List[str]] = {}
     snapshot["tools"] = sorted(_own_tool_names(files))
     for key, document in _load_yaml(files, "configs").items():
-        entries = document.get("tools") or []
+        raw_entries = document.get("tools")
+        entries = raw_entries if isinstance(raw_entries, list) else []
         snapshot[f"config-tools:{key}"] = sorted(
             str(e) for e in entries if isinstance(e, str)
         )
     for key, document in _load_yaml(files, "tasks").items():
+        raw_parameters = document.get("parameters")
+        parameters = raw_parameters if isinstance(raw_parameters, dict) else {}
         snapshot[f"task-parameters:{key}"] = sorted(
-            (document.get("parameters") or {}).keys()
+            name for name in parameters if isinstance(name, str)
         )
     return snapshot
 
@@ -1055,12 +1058,22 @@ def check_capability_shrink(
     excused = " ".join(finding["message"] for finding in previous_errors)
     findings = []
     for category, before in previous.items():
-        if category not in current:
-            # The whole file is gone. A rename is a legitimate repair for a
-            # name collision, and keying categories by file name made every
-            # tool and parameter it declared look deleted.
-            continue
-        after = set(current.get(category, []))
+        if category in current:
+            after = set(current[category])
+        elif ":" in category:
+            # A config or task may be renamed while it is repaired. Compare a
+            # missing file category against every current category of the same
+            # kind: a pure rename keeps the same capabilities, while renaming
+            # and deleting capabilities no longer bypasses this guard.
+            prefix = f"{category.split(':', 1)[0]}:"
+            after = {
+                item
+                for current_category, items in current.items()
+                if current_category.startswith(prefix)
+                for item in items
+            }
+        else:
+            after = set()
         for item in sorted(set(before) - after):
             if _is_named_in(item, excused):
                 continue
