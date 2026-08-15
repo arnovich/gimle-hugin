@@ -142,6 +142,112 @@ class TestRankingAndBudget:
         assert len(select_learnings(storage, config="r", budget=2)) == 2
 
 
+class TestStructuralSupersession:
+    """Supersession retires active memory without deleting its audit record."""
+
+    def test_superseded_learning_is_excluded_regardless_of_rating(
+        self, storage_and_interaction
+    ):
+        """A high old rating cannot resurrect a structurally retired lesson."""
+        storage, interaction = storage_and_interaction
+        old = _save_learning(
+            storage, interaction, "old", scope_config="researcher"
+        )
+        replacement = _save_learning(
+            storage,
+            interaction,
+            "replacement",
+            scope_config="researcher",
+            supersedes=[old.id],
+        )
+        _rate(storage, old.id, 5)
+        _rate(storage, replacement.id, 1)
+
+        selected = select_learnings(storage, config="researcher")
+        assert [item.artifact_id for item in selected] == [replacement.id]
+        assert set(storage.list_artifacts()) == {old.id, replacement.id}
+
+    def test_supersession_chain_is_monotonic(self, storage_and_interaction):
+        """C replacing B replacing A leaves only C active."""
+        storage, interaction = storage_and_interaction
+        first = _save_learning(
+            storage, interaction, "first", scope_config="researcher"
+        )
+        second = _save_learning(
+            storage,
+            interaction,
+            "second",
+            scope_config="researcher",
+            supersedes=[first.id],
+        )
+        third = _save_learning(
+            storage,
+            interaction,
+            "third",
+            scope_config="researcher",
+            supersedes=[second.id],
+        )
+
+        selected = select_learnings(storage, config="researcher")
+        assert [item.artifact_id for item in selected] == [third.id]
+
+    def test_cross_scope_edge_is_ignored(self, storage_and_interaction):
+        """Corrupt imported data cannot retire another config's learning."""
+        storage, interaction = storage_and_interaction
+        old = _save_learning(
+            storage, interaction, "research lesson", scope_config="researcher"
+        )
+        _save_learning(
+            storage,
+            interaction,
+            "other lesson",
+            scope_config="other",
+            supersedes=[old.id],
+        )
+
+        selected = select_learnings(storage, config="researcher")
+        assert [item.artifact_id for item in selected] == [old.id]
+
+    def test_cyclic_imported_edges_are_ignored(
+        self, storage_and_interaction, caplog
+    ):
+        """Malformed historical cycles must not hide every learning involved."""
+        storage, interaction = storage_and_interaction
+        third = _save_learning(
+            storage,
+            interaction,
+            "unrelated target",
+            scope_config="researcher",
+            uuid="third-id",
+        )
+        first = _save_learning(
+            storage,
+            interaction,
+            "first",
+            scope_config="researcher",
+            supersedes=["second-id", third.id],
+            uuid="first-id",
+        )
+        second = _save_learning(
+            storage,
+            interaction,
+            "second",
+            scope_config="researcher",
+            supersedes=[first.id],
+            uuid="second-id",
+        )
+
+        selected = select_learnings(storage, config="researcher")
+        assert {item.artifact_id for item in selected} == {
+            first.id,
+            second.id,
+            third.id,
+        }
+        assert any(
+            "cyclic supersession" in record.message for record in caplog.records
+        )
+
+
 class TestRenderBlock:
     """The injected text block formatting."""
 

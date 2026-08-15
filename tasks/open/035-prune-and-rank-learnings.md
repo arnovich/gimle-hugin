@@ -17,7 +17,17 @@ ranking just to know what is safe to delete, and would fix the problem only for
 its own agents — every Hugin app that dreams rots identically. The defect is in
 the ranking mechanism, which is here.
 
-`Storage.delete_artifact` already exists, so the primitive is in place.
+`Storage.delete_artifact` exists, but it is not yet a safe pruning primitive by
+itself: persisted interactions retain artifact ids and currently expect those
+ids to load. Physical garbage collection must either clean those references or
+introduce an archival/tombstone mechanism.
+
+## Progress
+
+- [x] Structural supersession: same-scope learning ids can be retired without
+      deletion; active selection and dream dedup both exclude them.
+- [ ] Ranking that distinguishes human feedback from birth confidence.
+- [ ] Safe physical pruning with interaction-reference integrity.
 
 ## The problem
 
@@ -87,17 +97,25 @@ the obvious candidates is free:
 
 1. **Structural supersession.** Give `save_learning` an optional
    `supersedes: List[str]`, and have `select_learnings` skip any learning that a
-   live learning supersedes. This is the one increment that needs no new signal —
-   the dream is already making the judgement, in prose, and throwing it away. It
-   also bounds growth for the common case (refinement) without deleting anything,
-   which keeps the audit trail.
+   valid same-scope supersession chain retires. This is the one increment that
+   needs no new signal — the dream is already making the judgement, in prose,
+   and throwing it away. It bounds the **active selection set** for the common
+   case (refinement) without deleting anything, which keeps the audit trail; it
+   does not yet bound physical storage.
 2. **Ranking that is not recency.** At minimum, break rating ties on something
    other than `created_at` — or stop treating a self-assessed confidence as a
    peer of a human rating (they are both `ArtifactFeedback`, indistinguishable
    downstream except by `source`, which `_ratings_map` discards).
 3. **Actual pruning.** Only once 1 and 2 exist. Deleting on recency-derived rank
    would delete the good old ones first, which is the current bug with a harder
-   edge.
+   edge. Deletion must also preserve or deliberately rewrite artifact references
+   held by persisted interactions.
+
+Structural links are monotonic and exact-scope: `C -> B -> A` leaves only C
+active, while all three records remain auditable. `save_learning` rejects missing,
+non-Learning, cross-scope, self-referential, and cyclic targets. Selection also
+ignores invalid imported edges so malformed historical data cannot retire an
+unrelated scope.
 
 ## Provenance
 
