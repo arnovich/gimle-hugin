@@ -18,6 +18,8 @@ from gimle.hugin.dreaming.provenance import (
     group_by_config,
     scan_provenance,
 )
+from gimle.hugin.dreaming.selector import select_learnings
+from gimle.hugin.storage.storage import Storage
 
 logger = logging.getLogger(__name__)
 
@@ -90,18 +92,107 @@ def _episodic_block(
     return "\n".join(entry for _, entry in reversed(chosen))
 
 
-def _consolidate_prompt(config_name: str, episodic_block: str) -> str:
-    """Build the dream worker's task prompt for one scope."""
+#: Shown when a scope has no learnings in effect yet — stated explicitly rather
+#: than left blank, so the worker can tell "nothing learned yet" (write the first
+#: ones) from "the block failed to load" (say nothing confidently).
+NO_PRIOR_LEARNINGS = "(none yet — this scope has no learnings in effect)"
+
+
+#: How many prior learnings the worker is shown when judging "do I already know
+#: this?". Deliberately NOT ``selector.DEFAULT_BUDGET``: that one caps how many
+#: learnings are INJECTED into a persona's prompt at render time, which is a
+#: prompt-economy limit. Deduplication is a different question and needs the whole
+#: body of knowledge — shown only the render-time top 5, the worker restated a
+#: learning it had written itself thirteen minutes earlier, because that learning
+#: had already dropped below the cut. Cheap to be generous: a scope's entire set
+#: is a few KB.
+DEDUP_BUDGET = 100
+
+
+def _prior_learnings_block(
+    storage: Storage,
+    config_name: str,
+    budget: int = DEDUP_BUDGET,
+    *,
+    task_name: Optional[str] = None,
+    app_name: Optional[str] = None,
+) -> str:
+    """Return the learnings ALREADY in effect for a scope, as worker context.
+
+    Everything the scope has concluded, not the render-time top-N. The worker is
+    being asked "what do these memories add that I do not already know?", and it
+    cannot answer that about learnings it is not shown — it re-derives them, and
+    the duplicate then competes for the very top-N slots that hid the original.
+
+    Note these stay OUT of the corpus (``scan_provenance`` excludes them, rightly
+    — consolidating learnings into learnings compounds drift). They are context,
+    not material.
+    """
+    try:
+        prior = select_learnings(
+            storage,
+            config=config_name,
+            task=task_name,
+            app=app_name,
+            budget=budget,
+        )
+    except (
+        Exception
+    ) as error:  # a store that cannot be read must not kill the dream
+        logger.warning(
+            "dream: could not load prior learnings for '%s': %s — consolidating "
+            "without them, so it may restate what it already knows",
+            config_name,
+            error,
+        )
+        return NO_PRIOR_LEARNINGS
+    if not prior:
+        return NO_PRIOR_LEARNINGS
+    blocks = []
+    for item in prior:
+        scope = [f"config={item.scope_config}"]
+        if item.scope_task is not None:
+            scope.append(f"task={item.scope_task}")
+        if item.scope_app is not None:
+            scope.append(f"app={item.scope_app}")
+        blocks.append(
+            f"- [{item.artifact_id}] (scope: {', '.join(scope)}) "
+            f"{item.content}"
+        )
+    return "\n\n".join(blocks)
+
+
+def _consolidate_prompt(
+    config_name: str, episodic_block: str, prior_learnings_block: str
+) -> str:
+    """Build the dream worker's task prompt for one scope.
+
+    The ask is a DIFF against what is already known, not an open "find patterns".
+    Asked the open question the worker re-answers the same judgement call over a
+    near-identical corpus every night, holding a standing licence to save nothing
+    — so identical runs minutes apart produced ten learnings and zero. It could
+    not do better: prior learnings are excluded from the corpus, so it had no way
+    to know the answer was already on disk, nor to supersede a stale one.
+    """
     return (
         f"You are consolidating the episodic memories produced by the "
         f"'{config_name}' agent configuration into reusable learnings.\n\n"
+        f"Learnings ALREADY in effect for '{config_name}' — these are injected "
+        f"into its prompts today:\n"
+        f"{prior_learnings_block}\n\n"
         f"Episodic memories (insights saved during past runs):\n"
         f"{episodic_block}\n\n"
-        f"Find cross-cutting patterns, recurring mistakes, and durable lessons. "
-        f"For each distinct lesson, call dreaming.save_learning with the lesson "
-        f"as prose ready to drop into a prompt, the source artifact ids it came "
-        f"from, and your confidence (0-1). Keep each learning specific and "
-        f"actionable. When done, call finish."
+        f"Your question is not 'is there a pattern here?' but what these memories "
+        f"show that the learnings above do NOT already say. Save a learning when "
+        f"the memories support a durable lesson missing from them, or when one of "
+        f"them has been overtaken by what the memories now show — in that case "
+        f"pass the old learning's bracketed id in the new learning's supersedes "
+        f"list. Only supersede a learning with the same exact scope; a task-scoped "
+        f"learning must not retire a config-wide one. Do not restate a lesson that "
+        f"is already in effect. For each one, call dreaming.save_learning with the "
+        f"lesson as prose ready to drop into a prompt, the source artifact ids it "
+        f"came from, any same-scope learning ids it supersedes, and your confidence "
+        f"(0-1). Keep each learning specific and actionable. When done, call finish."
     )
 
 
@@ -155,20 +246,31 @@ def run_dream(
         }
         environment.env_vars[DREAM_DRY_RUN_KEY] = dry_run
 
+        prior_block = _prior_learnings_block(
+            storage, config_name, task_name=task
+        )
         worker_task = Task(
             name="consolidate",
             description=f"Consolidate memories for {config_name}",
             parameters={},
             prompt=_consolidate_prompt(
-                config_name, _episodic_block(environment, provenances)
+                config_name,
+                _episodic_block(environment, provenances),
+                prior_block,
             ),
             tools=[],
         )
         agent = Agent.create_from_task(session, dreamer_config, worker_task)
         logger.info(
-            "dream: consolidating '%s' (%d episodic artifacts)",
+            "dream: consolidating '%s' (%d episodic artifacts, %d learnings "
+            "already in effect)",
             config_name,
             len(provenances),
+            (
+                0
+                if prior_block == NO_PRIOR_LEARNINGS
+                else prior_block.count("\n\n") + 1
+            ),
         )
         steps = 0
         while steps < max_steps and agent.step():
