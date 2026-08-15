@@ -124,18 +124,38 @@ Also: `observed_imports` filters modules that ship with the agent
 entry in PR 1.7's `requirements.txt`.
 
 ### PR 1.4 — The gate, in code `task/034_validation_gate`
-- [ ] `write_agent_files` calls the validator itself and refuses unless `ok`; no
-      `force` exposed to the model (spec §1.0)
-- [ ] `next_tool` chaining `validate_agent → write_agent_files`
-- [ ] Attempt counter in `env_vars`, per file, inside `validate_agent`
-- [ ] `read_generated_file(path)` + pre-repair snapshot/revert (spec §1.2b)
-- [ ] Capability-shrink check: tool/param/config-tool sets may not shrink across
-      a repair unless an error named the removed item
-- [ ] Failure path: `<output>.rejected/` + `VALIDATION_REPORT.md` + verbatim
-      errors in the CLI (spec §1.2c)
-- [ ] Strip the now-mechanical checks from `templates/reviewer_system.yaml`
-- [ ] Add `validate_agent` to `configs/agent_builder.yaml`
+- [x] `write_agent_files` calls the validator itself and refuses unless `ok`.
+      No bypass parameter exists at all — not on the function, not in the tool
+      YAML — so there is nothing for the model to reach for (spec §1.0)
+- [x] `next_tool` chaining `validate_agent → write_agent_files` when the
+      payload is clean, so "validate, then write anyway" is not expressible
+- [x] Attempt counter in `env_vars` via `validate_with_state`
+- [x] Capability-shrink check: tools, config tool lists and task parameters may
+      not shrink across a repair unless a previous error named the removed item.
+      Enforced at the **write gate**, not only in the validator tool — otherwise
+      the model could skip validation and write a payload that passes precisely
+      *because* the broken tool was deleted
+- [x] Failure path: `dump_rejected` writes to `<output>.rejected/` with a
+      `VALIDATION_REPORT.md`, wired into all three CLI exits plus a new one for
+      "builder finished but wrote nothing" (spec §1.2c)
+- [x] Strip the now-mechanical checks from `templates/reviewer_system.yaml`;
+      the reviewer is now told explicitly *not* to re-check them
+- [x] Add `validate_agent` to `configs/agent_builder.yaml`
 - [x] ~~`hugin validate` subcommand + CI~~ — shipped in PR 1.3
+- [ ] **Deferred to PR 1.4b:** `read_generated_file(path)` and pre-repair
+      snapshot/revert (spec §1.2b). These are about repair *quality* rather
+      than the gate, and `read_generated_file` is a prerequisite for Phase 3's
+      edit mode, so it lands with the work that needs it rather than sitting
+      unused here.
+
+### PR 1.4b — Repair quality `task/034_repair_loop`
+- [ ] `read_generated_file(path)` so the builder can read one file back instead
+      of re-emitting a whole tool from a one-line error
+- [ ] Pre-repair snapshot in `env_vars` and revert on regression, so attempt 3
+      is not worse-informed than attempt 1 (spec §1.2b)
+- [ ] Raise `max_tokens` for the builder config — a full tool regeneration in
+      one tool-call argument can truncate at the 5000 default
+      (`llm/models/anthropic.py:21`)
 
 ### PR 1.5 — Stale-module and registry isolation `task/034_module_isolation`
 Without this every repair loop in every later phase re-tests cached code.

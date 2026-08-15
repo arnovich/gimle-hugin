@@ -28,12 +28,43 @@ from gimle.hugin.cli import create_agent
 
 @pytest.fixture
 def generated_files():
-    """Return a minimal, valid generated-agent payload."""
+    """Return a minimal generated-agent payload that actually validates.
+
+    These fields were once omitted, because the writer only moved bytes and
+    never looked at them. It now validates its own payload before writing, so
+    a stub that could never load is no longer a usable fixture for testing
+    writes -- every write would be refused before reaching the filesystem.
+    """
     return {
-        "configs/demo.yaml": "name: demo\n",
-        "tasks/main.yaml": "name: main\n",
-        "templates/demo_system.yaml": "name: demo_system\n",
+        "configs/demo.yaml": (
+            "name: demo\n"
+            "description: A demo agent\n"
+            "system_template: demo_system\n"
+            "tools:\n"
+            "  - builtins.finish:finish\n"
+        ),
+        "tasks/main.yaml": (
+            "name: main\n"
+            "description: The demo task\n"
+            "prompt: Do the thing.\n"
+        ),
+        "templates/demo_system.yaml": (
+            "name: demo_system\ntemplate: You are a demo agent.\n"
+        ),
     }
+
+
+# A second, still-valid version of the config. Tests that mean "the builder
+# regenerated this file" need content that differs *and* validates -- the
+# writer now refuses an invalid payload before it looks at what changed, so a
+# stub like "name: demo2" would exercise the gate rather than the write path.
+REGENERATED_CONFIG = (
+    "name: demo\n"
+    "description: A demo agent, revised\n"
+    "system_template: demo_system\n"
+    "tools:\n"
+    "  - builtins.finish:finish\n"
+)
 
 
 @pytest.fixture
@@ -207,7 +238,7 @@ class TestWriterDoesNotDestroy:
         config.write_text("# user's change\n")
         stack.agent.environment.env_vars["generated_files"][
             "configs/demo.yaml"
-        ] = "name: regenerated\n"
+        ] = REGENERATED_CONFIG
 
         result = write_agent_files(stack, str(output), "demo")
 
@@ -232,7 +263,7 @@ class TestWriterDoesNotDestroy:
         write_agent_files(stack, str(output), "demo")
 
         env_vars = stack.agent.environment.env_vars
-        env_vars["generated_files"]["configs/demo.yaml"] = "name: demo2\n"
+        env_vars["generated_files"]["configs/demo.yaml"] = REGENERATED_CONFIG
 
         result = write_agent_files(stack, str(output), "demo")
 
