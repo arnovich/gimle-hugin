@@ -17,10 +17,11 @@ ranking just to know what is safe to delete, and would fix the problem only for
 its own agents — every Hugin app that dreams rots identically. The defect is in
 the ranking mechanism, which is here.
 
-`Storage.delete_artifact` exists, but it is not yet a safe pruning primitive by
-itself: persisted interactions retain artifact ids and currently expect those
-ids to load. Physical garbage collection must either clean those references or
-introduce an archival/tombstone mechanism.
+`Storage.delete_artifact` now detaches the artifact id from its persisted owning
+interaction before deleting the artifact and its feedback. Local filesystem
+detachment is atomic, failed detachment aborts deletion, and repeated deletion is
+safe. The remaining physical-garbage-collection work is candidate and retention
+policy, not reference integrity.
 
 ## Progress
 
@@ -30,7 +31,11 @@ introduce an archival/tombstone mechanism.
       ratings are authoritative once present; otherwise agent ratings are the
       fallback, and equal scores use evidence count plus a stable artifact-id
       tie-break rather than recency.
-- [ ] Safe physical pruning with interaction-reference integrity.
+- [ ] Safe physical pruning.
+  - [x] Reference-safe deletion: persisted/live interaction references are
+        detached before artifact and feedback removal.
+  - [ ] Opt-in, dry-run-first candidate and retention policy for superseded
+        learnings.
 
 ## The problem
 
@@ -70,37 +75,35 @@ then artifact id; `created_at` no longer affects selection.
 
 ### 2. The store grows without bound
 
-Nothing deletes a learning, ever. Observed in gimle-heimdall's newspaper personas
-(2026-08-14): 23 learnings each for `newspaper_columnist` and `newspaper_quant`,
-9 for `newspaper_editor`, of which **5** are ever injected. The other 18 are
-inert — they cost storage and dream-prompt space (they are shown to the worker
-for dedup since #91) and influence nothing downstream.
+No learning lifecycle currently deletes a learning. Observed in gimle-heimdall's
+newspaper personas (2026-08-14): 23 learnings each for `newspaper_columnist` and
+`newspaper_quant`, 9 for `newspaper_editor`, of which **5** are ever injected.
+The inactive records still cost physical storage. Structurally superseded
+learnings no longer enter selection or dream deduplication, but remain stored for
+audit until an explicit pruning policy exists.
 
 ### Why #91 raised the stakes rather than settling them
 
 Before #91 the dream saw only the injected top 5, so it re-derived lessons that
 had fallen below the cut — it restated its own learning thirteen minutes after
-writing it. #91 shows it all of them (`DEDUP_BUDGET = 100`), which stopped the
-duplication. But that means the **dreamer** now knows all 23 while the
-**personas** still see 5 chosen largely by recency. The two halves of the memory
-system disagree about what the agent knows.
+writing it. #91 made deduplication consider the full active set. Structural
+supersession and source-aware ranking have since aligned the active set and its
+top 5; only physical retention of inactive audit records remains unresolved.
 
 ## The honest blocker
 
-There is no signal for *"did this learning help?"*. Confidence is self-assessed at
-birth and never revisited. Any ranking better than recency needs one, and none of
-the obvious candidates is free:
+There is still no generic signal for *"did this learning help?"*. Confidence is
+self-assessed at birth, human review is optional, and Hugin cannot infer an app's
+outcome attribution. The implemented signals are deliberately conservative:
 
 - **Human ratings** — already supported, but require someone to sit in the monitor.
   Fine for a curated app, useless for a nightly batch.
 - **Usage/outcome feedback** — did an edition that injected learning X score better?
   Requires the app to attribute an outcome back to a specific injected learning,
   which Hugin cannot do generically.
-- **Dream-assessed decay** — let the dream, which already reads all of them, mark
-  one superseded or wrong. Cheapest, and it fits: #90's prompt already licenses
-  *"say so explicitly in the new learning's prose"* when a memory overtakes a prior
-  learning. But that supersession is **prose only** — nothing links the new artifact
-  to the old one or retires it, so both stay in the pool competing on equal footing.
+- **Dream-assessed supersession** — implemented as exact-scope structural links.
+  It safely identifies inactive predecessors without claiming a generic quality
+  score, making superseded learnings the first defensible pruning candidates.
 
 ## Sketch, smallest useful first
 
@@ -115,10 +118,11 @@ the obvious candidates is free:
    human ratings are authoritative once present, agent confidence is the
    fallback for unreviewed learnings, and deterministic ties no longer use
    `created_at`.
-3. **Actual pruning.** Only once 1 and 2 exist. Deleting on recency-derived rank
-   would delete the good old ones first, which is the current bug with a harder
-   edge. Deletion must also preserve or deliberately rewrite artifact references
-   held by persisted interactions.
+3. **Actual pruning.** Reference-safe deletion is now implemented: the owning
+   persisted interaction is detached before the artifact disappears. The
+   remaining increment is an explicit, opt-in, dry-run-first policy that selects
+   structurally superseded learnings and applies a retention window before using
+   that primitive. Ranking alone must never authorize deletion.
 
 Structural links are monotonic and exact-scope: `C -> B -> A` leaves only C
 active, while all three records remain auditable. `save_learning` rejects missing,
