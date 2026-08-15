@@ -390,21 +390,21 @@ def write_agent_files(
         if key not in superseded
     ]
 
-    if _as_bool(dry_run):
-        return ToolResponse(
-            is_error=False,
-            content={
-                "output_path": str(output_dir),
-                "dry_run": True,
-                "would_write": sorted(to_write),
-                "would_remove": sorted(superseded),
-                "unchanged": sorted(unchanged),
-                "preserved": preserved,
-                "message": (
-                    f"Would write {len(to_write)} file(s) to {output_dir}"
-                ),
-            },
-        )
+    requested_dry_run = _as_bool(dry_run) or _as_bool(
+        user_input.get("dry_run", False)
+    )
+    if requested_dry_run:
+        preview = {
+            "output_path": str(output_dir),
+            "dry_run": True,
+            "would_write": sorted(to_write),
+            "would_remove": sorted(superseded),
+            "unchanged": sorted(unchanged),
+            "preserved": preserved,
+            "message": f"Would write {len(to_write)} file(s) to {output_dir}",
+        }
+        env_vars["dry_run_result"] = preview
+        return ToolResponse(is_error=False, content=preview)
 
     written: List[str] = []
     try:

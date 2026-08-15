@@ -67,6 +67,17 @@ class TestRegistryCollisions:
 
         assert registry.get("thing") is instance
 
+    def test_identity_checked_unregister_preserves_a_replacement(self):
+        """Cleanup from one loader must not remove another loader's value."""
+        registry = Registry()
+        first = SimpleNamespace(name="thing")
+        replacement = SimpleNamespace(name="thing")
+        registry.register(first)
+        registry.register(replacement)
+
+        assert not registry.unregister("thing", first)
+        assert registry.get("thing") is replacement
+
 
 class TestModuleInvalidation:
     """import_module has no reload, so a repair loop re-ran the old code."""
@@ -106,6 +117,30 @@ class TestModuleInvalidation:
         """Nothing cached under the path means nothing to drop."""
         assert invalidate_modules_under(str(tmp_path)) == []
 
+    def test_unrelated_nested_bytecode_is_not_deleted(self, tmp_path):
+        """Invalidation may clear tool caches, not recursively sweep a path."""
+        cache = tmp_path / "package" / "__pycache__"
+        cache.mkdir(parents=True)
+        bytecode = cache / "valuable.cpython-312.pyc"
+        bytecode.write_bytes(b"unrelated")
+
+        invalidate_modules_under(str(tmp_path))
+
+        assert bytecode.read_bytes() == b"unrelated"
+
+    def test_matching_standard_library_module_is_not_evicted(self, tmp_path):
+        """A generated filename must not invalidate an unrelated module."""
+        import json
+        import sys
+
+        tools = tmp_path / "tools"
+        tools.mkdir()
+        (tools / "json.py").write_text("VALUE = 'generated'\n")
+
+        invalidate_modules_under(str(tmp_path))
+
+        assert sys.modules["json"] is json
+
 
 class TestWriterDoesNotTouchTheGlobalRegistry:
     """Writing files should not load them into the running process."""
@@ -134,6 +169,43 @@ class TestWriterDoesNotTouchTheGlobalRegistry:
 
         assert not result.is_error, result.content
         assert result.content["registered_config"] is None
+
+    def test_cli_dry_run_cannot_be_overridden_by_the_model(self, tmp_path):
+        """The user-facing flag is enforcement, not prompt guidance."""
+        from gimle.hugin.apps.agent_builder.tools.write_agent_files import (
+            write_agent_files,
+        )
+
+        files = {
+            "configs/demo.yaml": (
+                "name: demo\ndescription: d\nsystem_template: demo_system\n"
+                "tools:\n  - builtins.finish:finish\n"
+            ),
+            "tasks/main.yaml": (
+                "name: main\ndescription: d\nprompt: Do the thing.\n"
+            ),
+            "templates/demo_system.yaml": (
+                "name: demo_system\ntemplate: You are demo.\n"
+            ),
+        }
+        stack = make_stack(
+            files,
+            {
+                "agent_name": "demo",
+                "description": "d",
+                "dry_run": True,
+            },
+        )
+        output = tmp_path / "demo"
+
+        result = write_agent_files(stack, str(output), "demo", dry_run=False)
+
+        assert not result.is_error
+        assert result.content["dry_run"] is True
+        assert not output.exists()
+        assert (
+            stack.agent.environment.env_vars["dry_run_result"] == result.content
+        )
 
 
 class TestReadGeneratedFile:
@@ -343,6 +415,7 @@ class TestNonInteractiveWizard:
             "output": None,
             "stub_tools": False,
             "yes": False,
+            "dry_run": False,
         }
         values.update(overrides)
         return argparse.Namespace(**values)
@@ -378,6 +451,91 @@ class TestNonInteractiveWizard:
         )
 
         assert result["full_implementation"] is False
+
+    def test_dry_run_flag_reaches_the_build(self, tmp_path):
+        """The writer can enforce preview mode from shared build state."""
+        from gimle.hugin.cli.create_agent import run_wizard
+
+        result = run_wizard(
+            args=self._args(
+                name="a",
+                description="d",
+                output=str(tmp_path / "out"),
+                yes=True,
+                dry_run=True,
+            )
+        )
+
+        assert result["dry_run"] is True
+
+    def test_public_cli_forwards_option_style_arguments(self, monkeypatch):
+        """`hugin create --yes ...` must reach the create command parser."""
+        import sys
+
+        from gimle.hugin.cli import cli
+
+        received = []
+
+        def fake_create(args):
+            received.extend(args.extra_args)
+            return 0
+
+        monkeypatch.setattr(cli, "cmd_create", fake_create)
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "hugin",
+                "create",
+                "--yes",
+                "--name",
+                "a",
+                "--description",
+                "d",
+                "--dry-run",
+            ],
+        )
+
+        assert cli.main() == 0
+        assert received == [
+            "--yes",
+            "--name",
+            "a",
+            "--description",
+            "d",
+            "--dry-run",
+        ]
+
+    def test_create_as_an_app_name_is_not_treated_as_the_subcommand(
+        self, monkeypatch
+    ):
+        """Only a top-level create command activates argument forwarding."""
+        import sys
+
+        from gimle.hugin.cli import cli
+
+        received = []
+
+        def fake_app(args):
+            received.append(args.name)
+            return 0
+
+        monkeypatch.setattr(cli, "cmd_app", fake_app)
+        monkeypatch.setattr(sys, "argv", ["hugin", "app", "create"])
+
+        assert cli.main() == 0
+        assert received == ["create"]
+
+    def test_yes_never_prompts_to_launch_the_agent(self, monkeypatch):
+        """An unattended build must stay unattended after it succeeds."""
+        from gimle.hugin.cli import create_agent
+
+        def fail_prompt(*args, **kwargs):
+            pytest.fail("non-interactive completion prompted for input")
+
+        monkeypatch.setattr(create_agent, "prompt_yes_no", fail_prompt)
+
+        assert create_agent._should_run_after_build(True) is False
 
     def test_yes_without_a_description_exits(self, tmp_path):
         """Failing fast beats prompting a script that cannot answer."""

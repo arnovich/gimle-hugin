@@ -8,8 +8,12 @@ import sys
 import textwrap
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
+# Establish builtin tool registration before Environment imports the
+# interaction package. Starting from Environment in a fresh CLI process enters
+# the inverse import order and leaves AgentCall partially initialised.
+import gimle.hugin.tools  # noqa: F401
 from gimle.hugin.agent.environment import Environment
 from gimle.hugin.agent.session import Session
 from gimle.hugin.cli.ui import (
@@ -281,6 +285,7 @@ def run_wizard(
     args = args or argparse.Namespace()
     supplied = _supplied(args)
     non_interactive = bool(getattr(args, "yes", False))
+    dry_run = bool(getattr(args, "dry_run", False))
 
     if non_interactive and not (
         supplied.get("name") and supplied.get("description")
@@ -387,6 +392,7 @@ def run_wizard(
             "description": description,
             "llm_model": llm_model,
             "full_implementation": full_implementation,
+            "dry_run": dry_run,
             "output_path": str(Path(output_path).expanduser().resolve()),
             "builder_model": builder_model,
         }
@@ -402,6 +408,7 @@ def run_wizard(
     print(f"        Name:        {agent_name}")
     print(f"        Agent LLM:   {llm_model}")
     print(f"        Tool style:  {impl_style}")
+    print(f"        Dry run:     {'yes' if dry_run else 'no'}")
     print(f"        Output:      {output_path}")
     print(f"        Builder LLM: {builder_model}")
     print()
@@ -421,6 +428,7 @@ def run_wizard(
         "description": description,
         "llm_model": llm_model,
         "full_implementation": full_implementation,
+        "dry_run": dry_run,
         "output_path": str(Path(output_path).expanduser().resolve()),
         "builder_model": builder_model,
     }
@@ -480,6 +488,13 @@ def _generated_run_command(output_path: str) -> str:
     return run_command(output_path, task_name)
 
 
+def _should_run_after_build(non_interactive: bool) -> bool:
+    """Ask to launch the agent unless this is an unattended build."""
+    if non_interactive:
+        return False
+    return prompt_yes_no("    Run your new agent now?", default=True)
+
+
 def setup_file_logging(log_dir: Path, log_level: str) -> Path:
     """Configure logging to write to a file instead of stdout.
 
@@ -508,7 +523,7 @@ def setup_file_logging(log_dir: Path, log_level: str) -> Path:
     return log_file
 
 
-def main() -> int:
+def main(argv: Optional[List[str]] = None) -> int:
     """Run the agent builder wizard."""
     parser = argparse.ArgumentParser(
         description="Interactive wizard for creating new Hugin agents",
@@ -547,6 +562,11 @@ Examples:
         help="Do not prompt; requires --name and --description",
     )
     parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Build and validate without writing the agent directory",
+    )
+    parser.add_argument(
         "--max-steps",
         type=int,
         default=200,
@@ -558,7 +578,7 @@ Examples:
         default="WARNING",
         help="Logging level for log file (default: WARNING)",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     # Run wizard
     user_input = run_wizard(args=args)
@@ -625,6 +645,13 @@ Examples:
 
         # Inject user input as task parameters
         task = task.set_input_parameters(user_input)
+        if user_input.get("dry_run") and task.task_sequence:
+            # There is no on-disk agent to execute in preview mode. Review and
+            # final validation still run; the writer is forced into dry-run by
+            # the environment value and records its preview for this CLI.
+            task.task_sequence = [
+                name for name in task.task_sequence if name != "test_agent"
+            ]
 
         # Create and run session
         session = Session(environment=env)
@@ -675,7 +702,10 @@ Examples:
             print(f"    Monitor session: hugin monitor -s {storage_path}")
             return 1
 
-        if not env.env_vars.get("written_keys"):
+        dry_run_result = env.env_vars.get("dry_run_result")
+        if not env.env_vars.get("written_keys") and not (
+            user_input.get("dry_run") and dry_run_result
+        ):
             # Ask whether the writer actually succeeded, not whether the
             # directory exists. Re-running the builder over an existing agent,
             # or any earlier partial write, leaves the directory in place, so
@@ -711,6 +741,19 @@ Examples:
         if session is not None:
             session.close()
 
+    if user_input.get("dry_run"):
+        show_header(
+            "Dry Run Complete", "The agent passed without being written"
+        )
+        preview = env.env_vars["dry_run_result"]
+        print(f"    Target: {user_input['output_path']}")
+        print(f"    Would write: {len(preview.get('would_write', []))} file(s)")
+        print(
+            f"    Would remove: {len(preview.get('would_remove', []))} file(s)"
+        )
+        print(f"    Built in: {elapsed:.0f}s over {step_count} steps")
+        return 0
+
     # Success screen
     show_header("Agent Created Successfully!", "Your agent is ready to use")
 
@@ -734,7 +777,7 @@ Examples:
     print()
 
     # Ask if user wants to run the agent now
-    if prompt_yes_no("    Run your new agent now?", default=True):
+    if _should_run_after_build(args.yes):
         print()
         print("    Starting agent runner...")
         print()

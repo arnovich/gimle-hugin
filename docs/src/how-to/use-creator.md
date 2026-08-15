@@ -41,7 +41,8 @@ default. Other flags: `--model` (the generated agent's model),
 `--builder-model` (the model that does the building), and `--stub-tools`,
 which emits tool signatures raising `NotImplementedError` instead of generated
 bodies — better than plausible-looking code for anything that needs an API key
-you have to wire in yourself.
+you have to wire in yourself. Add `--dry-run` to build and validate without
+writing the target directory.
 
 ### What you get
 

@@ -58,6 +58,20 @@ class Registry(Generic[T]):
             raise ValueError(f"Item {name} not found in registry")
         return self._items[name]
 
+    def unregister(self, name: str, instance: Optional[T] = None) -> bool:
+        """Remove ``name`` when it still refers to ``instance``.
+
+        The optional identity check lets scoped loaders clean up objects they
+        own without deleting a replacement registered by another caller.
+        """
+        current = self._items.get(name)
+        if current is None or (
+            instance is not None and current is not instance
+        ):
+            return False
+        del self._items[name]
+        return True
+
     def registered(self) -> Dict[str, T]:
         """Get all registered instances."""
         return self._items.copy()
