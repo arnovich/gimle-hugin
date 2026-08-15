@@ -7,4 +7,9 @@ parameters:
     required: false
 is_interactive: false
 implementation_path: agent_builder.tools.list_examples:list_examples
-options: {}
+options:
+  # The index is a catalogue, useful once. The builder's four stages share one
+  # never-truncated stack, so without a cap every re-listing accumulates for the
+  # rest of the build.
+  include_only_in_context_window: true
+  context_window: 1

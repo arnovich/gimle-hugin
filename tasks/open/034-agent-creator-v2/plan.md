@@ -75,12 +75,21 @@ together, first, alone.
 ### PR 1.2 — Examples wired in `task/034_wire_examples`
 Two lines of YAML plus three of prompt. Highest value-per-line in the document.
 
-- [ ] `list_examples`, `read_example` into `configs/agent_builder.yaml`
-- [ ] `builtins.read_file`, `builtins.list_files` into the same config
-- [ ] Three lines in `builder_system.yaml` telling the builder to study the
-      closest example before generating
-- [ ] `include_only_in_context_window` + small `context_window` on both, so they
+- [x] `list_examples`, `read_example` into `configs/agent_builder.yaml`, with
+      `read_example` confined to a single name inside `examples/` (unconfined,
+      wiring it in made an arbitrary-directory reader live)
+- [x] Study step in `builder_system.yaml` **and** in `tasks/build_agent.yaml` —
+      the task prompt is a concrete numbered recipe that previously began at
+      `generate_config`, and a concrete recipe wins over a system-prompt
+      suggestion, so the system template alone would have left it unused
+- [x] `include_only_in_context_window` + small `context_window` on both, so they
       do not accumulate in a never-truncated stack
+- [x] `tests/test_agent_builder_examples_wired.py` — 12 tests pinning the
+      wiring, the caps, the prompt ordering, and that both tools still work
+- [ ] **Deferred to PR 2.4:** `builtins.read_file` / `builtins.list_files`.
+      They have no caller until the `reference_files` parameter exists, and
+      2.4 is where they get the untrusted-input wrapping. Adding them here
+      would land exactly the unreachable-capability problem this PR fixes.
 
 ### PR 1.3 — `validate_agent` (static checks only) `task/034_validate_agent`
 - [ ] Checks 3-6: structure, reference resolution (reusing

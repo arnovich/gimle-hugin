@@ -18,6 +18,7 @@ because an exception escaping a tool leaves the stack's step-lock held and kills
 the agent for the rest of the session.
 """
 
+import copy
 import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
@@ -28,6 +29,7 @@ from gimle.hugin.llm.prompt.prompt import Prompt
 from gimle.hugin.utils.uuid import with_uuid
 
 if TYPE_CHECKING:
+    from gimle.hugin.interaction.tool_call import ToolCall
     from gimle.hugin.sandbox.background import BackgroundExecutor
 
 logger = logging.getLogger(__name__)
@@ -57,17 +59,32 @@ class BashWaiting(Interaction):
             return True  # still running: park, siblings run
 
         content, is_error = self._collect(background)
+        tool_call = self._originating_tool_call()
         self.stack.add_interaction(
             AskOracle(
                 stack=self.stack,
                 branch=self.branch,
-                prompt=self._result_prompt(),
+                prompt=self._result_prompt(tool_call),
                 template_inputs={**content, "is_error": is_error},
+                tool_context_policy=copy.deepcopy(
+                    tool_call.tool_context_policy if tool_call else None
+                ),
             )
         )
         return True
 
-    def _result_prompt(self) -> Prompt:
+    def _originating_tool_call(self) -> Optional["ToolCall"]:
+        """Return the latest branch-local tool call that parked this branch."""
+        from gimle.hugin.interaction.tool_call import ToolCall
+
+        for interaction in reversed(self.stack.interactions):
+            if interaction.branch == self.branch and isinstance(
+                interaction, ToolCall
+            ):
+                return interaction
+        return None
+
+    def _result_prompt(self, tool_call: Optional["ToolCall"] = None) -> Prompt:
         """Build the tool_result prompt bound to THIS branch's originating call.
 
         The lookup is **branch-filtered**: ``get_last_tool_call_interaction``
@@ -79,15 +96,8 @@ class BashWaiting(Interaction):
         prompt if the id is missing, mirroring
         ``AskOracle.create_from_tool_result``.
         """
-        from gimle.hugin.interaction.tool_call import ToolCall
-
-        tool_call = None
-        for interaction in reversed(self.stack.interactions):
-            if interaction.branch == self.branch and isinstance(
-                interaction, ToolCall
-            ):
-                tool_call = interaction
-                break
+        if tool_call is None:
+            tool_call = self._originating_tool_call()
         if tool_call is None or tool_call.tool_call_id is None:
             return Prompt(type="text")
         return Prompt(

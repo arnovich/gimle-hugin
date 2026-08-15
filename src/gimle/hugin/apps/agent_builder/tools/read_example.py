@@ -8,83 +8,106 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from gimle.hugin.apps.agent_builder.tools.example_files import (
+    MAX_EXAMPLE_BYTES,
+    MAX_EXAMPLE_FILES,
+    ReadBudget,
+    child_directory_names,
+    discover_examples_path,
+    has_child_directory,
+    open_child_directory,
+    open_directory,
+    read_optional_text_file,
+    read_text_file,
+)
 from gimle.hugin.tools.tool import ToolResponse
 
 
 def _get_examples_path() -> Optional[Path]:
-    """Discover examples path with multiple fallbacks."""
-    # Try 1: Relative to hugin package (src/gimle/hugin -> examples)
-    hugin_path = Path(__file__).parent.parent.parent.parent.parent
-    examples_path = hugin_path.parent.parent / "examples"
-    if examples_path.exists() and examples_path.is_dir():
-        return examples_path
-
-    # Try 2: Environment variable
-    env_path = os.environ.get("HUGIN_EXAMPLES_PATH")
-    if env_path:
-        path = Path(env_path)
-        if path.exists() and path.is_dir():
-            return path
-
-    # Try 3: Current working directory
-    cwd_examples = Path.cwd() / "examples"
-    if cwd_examples.exists() and cwd_examples.is_dir():
-        return cwd_examples
-
-    return None
+    """Discover an explicit or source-checkout examples path."""
+    return discover_examples_path()
 
 
-def _read_yaml_files(directory: Path) -> List[Dict[str, str]]:
-    """Read all YAML files in a directory."""
+def _confine_example(examples_path: Path, name: str) -> Optional[Path]:
+    """Validate ``name`` as one directory beneath ``examples_path``.
+
+    ``example_name`` is chosen by the model, and ``examples_path / name`` is
+    the same unconfined join the writer side guards against: ``pathlib`` does
+    not normalise ``..`` and an absolute operand replaces the left-hand side
+    entirely. Unconfined, this tool read any directory on the host that
+    happened to look like an example -- another repo, the builder's own source
+    -- straight into model context and into persisted interaction JSON.
+
+    A single path component is all a legitimate example name ever needs, so the
+    rule is deliberately narrow rather than clever.
+    """
+    if not name or name.strip() != name:
+        return None
+    if name in (".", "..") or "/" in name or "\\" in name:
+        return None
+    if Path(name).is_absolute() or name.startswith("~"):
+        return None
+    return examples_path / name
+
+
+def _read_yaml_files(
+    example_fd: int, directory_name: str, budget: ReadBudget
+) -> List[Dict[str, str]]:
+    """Read YAML files from one real child directory."""
     files: List[Dict[str, str]] = []
-    if not directory.exists():
+    if not has_child_directory(example_fd, directory_name):
         return files
-    for item in sorted(directory.iterdir()):
-        if item.suffix in (".yaml", ".yml"):
-            try:
+
+    with open_child_directory(example_fd, directory_name) as directory_fd:
+        for filename in sorted(os.listdir(directory_fd)):
+            if Path(filename).suffix in (".yaml", ".yml"):
                 files.append(
                     {
-                        "filename": item.name,
-                        "content": item.read_text(),
+                        "filename": filename,
+                        "content": read_text_file(
+                            directory_fd, filename, budget
+                        ),
                     }
                 )
-            except Exception:
-                pass
     return files
 
 
-def _read_tool_files(tools_dir: Path) -> List[Dict[str, Any]]:
-    """Read tool implementations (both .py and .yaml)."""
+def _read_tool_files(
+    example_fd: int, budget: ReadBudget
+) -> List[Dict[str, Any]]:
+    """Read tool implementations from a real child directory."""
     tools: List[Dict[str, Any]] = []
-    if not tools_dir.exists():
+    if not has_child_directory(example_fd, "tools"):
         return tools
 
-    # Find all tool names (from .yaml files)
-    tool_names = set()
-    for item in tools_dir.iterdir():
-        if item.suffix in (".yaml", ".yml"):
-            tool_names.add(item.stem)
+    with open_child_directory(example_fd, "tools") as tools_fd:
+        filenames = sorted(os.listdir(tools_fd))
+        tool_names = {
+            Path(filename).stem
+            for filename in filenames
+            if Path(filename).suffix in (".yaml", ".yml")
+        }
 
-    for tool_name in sorted(tool_names):
-        tool_info: Dict[str, Any] = {"name": tool_name}
+        for tool_name in sorted(tool_names):
+            tool_info: Dict[str, Any] = {"name": tool_name}
+            yaml_content = read_optional_text_file(
+                tools_fd, f"{tool_name}.yaml", budget
+            )
+            if yaml_content is None:
+                yaml_content = read_optional_text_file(
+                    tools_fd, f"{tool_name}.yml", budget
+                )
+            if yaml_content is not None:
+                tool_info["yaml"] = yaml_content
 
-        yaml_file = tools_dir / f"{tool_name}.yaml"
-        py_file = tools_dir / f"{tool_name}.py"
+            python_content = read_optional_text_file(
+                tools_fd, f"{tool_name}.py", budget
+            )
+            if python_content is not None:
+                tool_info["python"] = python_content
 
-        if yaml_file.exists():
-            try:
-                tool_info["yaml"] = yaml_file.read_text()
-            except Exception:
-                pass
-
-        if py_file.exists():
-            try:
-                tool_info["python"] = py_file.read_text()
-            except Exception:
-                pass
-
-        if "yaml" in tool_info or "python" in tool_info:
-            tools.append(tool_info)
+            if "yaml" in tool_info or "python" in tool_info:
+                tools.append(tool_info)
 
     return tools
 
@@ -110,57 +133,65 @@ def read_example(
                 is_error=True,
                 content={
                     "error": "Examples folder not found. Cannot read example details.",
-                    "hint": "Set HUGIN_EXAMPLES_PATH environment variable "
-                    "or run from project root.",
+                    "hint": "Set HUGIN_EXAMPLES_PATH to a trusted examples "
+                    "directory, or use a source checkout.",
                 },
             )
 
-        example_dir = examples_path / example_name
-        if not example_dir.exists() or not example_dir.is_dir():
-            # List available examples to help the user
-            available = [
-                d.name
-                for d in examples_path.iterdir()
-                if d.is_dir() and not d.name.startswith(".")
-            ]
+        example_dir = _confine_example(examples_path, example_name)
+        if example_dir is None:
             return ToolResponse(
                 is_error=True,
                 content={
-                    "error": f"Example '{example_name}' not found.",
-                    "available_examples": sorted(available),
+                    "error": (
+                        f"'{example_name}' is not an example name. Pass a "
+                        "single name from list_examples, not a path."
+                    )
                 },
             )
+        budget = ReadBudget(
+            max_files=MAX_EXAMPLE_FILES, max_bytes=MAX_EXAMPLE_BYTES
+        )
+        with open_directory(examples_path) as examples_fd:
+            available = [
+                name
+                for name in child_directory_names(examples_fd)
+                if not name.startswith(".") and not name.startswith("_")
+            ]
+            if example_name not in available:
+                return ToolResponse(
+                    is_error=True,
+                    content={
+                        "error": f"Example '{example_name}' not found.",
+                        "available_examples": available,
+                    },
+                )
 
-        result: Dict[str, Any] = {"name": example_name}
+            with open_child_directory(examples_fd, example_name) as example_fd:
+                result: Dict[str, Any] = {"name": example_name}
 
-        # Read README
-        readme_path = example_dir / "README.md"
-        if readme_path.exists():
-            try:
-                result["readme"] = readme_path.read_text()
-            except Exception:
-                pass
+                readme = read_optional_text_file(
+                    example_fd, "README.md", budget
+                )
+                if readme is not None:
+                    result["readme"] = readme
 
-        # Read configs
-        configs = _read_yaml_files(example_dir / "configs")
-        if configs:
-            result["configs"] = configs
+                configs = _read_yaml_files(example_fd, "configs", budget)
+                if configs:
+                    result["configs"] = configs
 
-        # Read tasks
-        tasks = _read_yaml_files(example_dir / "tasks")
-        if tasks:
-            result["tasks"] = tasks
+                tasks = _read_yaml_files(example_fd, "tasks", budget)
+                if tasks:
+                    result["tasks"] = tasks
 
-        # Read templates
-        templates = _read_yaml_files(example_dir / "templates")
-        if templates:
-            result["templates"] = templates
+                templates = _read_yaml_files(example_fd, "templates", budget)
+                if templates:
+                    result["templates"] = templates
 
-        # Read tools if requested
-        if include_tools:
-            tools = _read_tool_files(example_dir / "tools")
-            if tools:
-                result["tools"] = tools
+                if include_tools:
+                    tools = _read_tool_files(example_fd, budget)
+                    if tools:
+                        result["tools"] = tools
 
         return ToolResponse(
             is_error=False,
