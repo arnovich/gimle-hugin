@@ -10,7 +10,7 @@ prompts cannot grow unboundedly across consolidation cycles.
 import logging
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional, Set, Tuple
 
 from gimle.hugin.storage.storage import Storage
 
@@ -76,6 +76,82 @@ def _matches_scope(
     )
 
 
+def _scope_key(
+    data: Mapping[str, Any],
+) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    """Return the exact scope used to validate a supersession edge."""
+    return (
+        data.get("scope_config"),
+        data.get("scope_task"),
+        data.get("scope_app"),
+    )
+
+
+def _supersession_targets(data: Mapping[str, Any]) -> List[str]:
+    """Return well-formed target ids from one raw Learning record."""
+    targets = data.get("supersedes", [])
+    if not isinstance(targets, list):
+        return []
+    return [target for target in targets if isinstance(target, str) and target]
+
+
+def _reaches(
+    graph: Mapping[str, List[str]], start: str, destination: str
+) -> bool:
+    """Return whether ``start`` reaches ``destination`` in the graph."""
+    pending = [start]
+    seen: Set[str] = set()
+    while pending:
+        current = pending.pop()
+        if current == destination:
+            return True
+        if current in seen:
+            continue
+        seen.add(current)
+        pending.extend(graph.get(current, []))
+    return False
+
+
+def _superseded_ids(records: Mapping[str, Dict[str, Any]]) -> Set[str]:
+    """Return monotonically retired ids from valid, acyclic same-scope edges.
+
+    An edge remains effective even when its source is later superseded. This
+    makes a chain ``C -> B -> A`` retire both B and A rather than resurrecting
+    A. Invalid cross-scope, dangling, self-referential, or cyclic edges are
+    ignored so corrupt historical data cannot hide an entire scope.
+    """
+    graph: Dict[str, List[str]] = {}
+    for source_id, source in records.items():
+        targets = []
+        for target_id in _supersession_targets(source):
+            target = records.get(target_id)
+            if target is None or _scope_key(target) != _scope_key(source):
+                continue
+            targets.append(target_id)
+        graph[source_id] = targets
+
+    cyclic_sources = {
+        source_id
+        for source_id, targets in graph.items()
+        if any(
+            source_id == target_id or _reaches(graph, target_id, source_id)
+            for target_id in targets
+        )
+    }
+
+    retired: Set[str] = set()
+    for source_id, targets in graph.items():
+        if source_id in cyclic_sources:
+            logger.warning(
+                "dream: ignoring links from cyclic supersession Learning %s",
+                source_id,
+            )
+            continue
+        for target_id in targets:
+            retired.add(target_id)
+    return retired
+
+
 def select_learnings(
     storage: Storage,
     config: Optional[str] = None,
@@ -89,8 +165,7 @@ def select_learnings(
     to ``budget`` (top-N). Higher-rated, fresher learnings win; low-rated ones
     decay out of selection.
     """
-    ratings = _ratings_map(storage)
-    selected: List[SelectedLearning] = []
+    records: Dict[str, Dict[str, Any]] = {}
     for artifact_id in storage.list_artifacts():
         try:
             record = storage.load_artifact_record(artifact_id)
@@ -102,6 +177,17 @@ def select_learnings(
         if record.get("type") != LEARNING_TYPE:
             continue
         data = record.get("data", {})
+        if not isinstance(data, dict):
+            logger.warning("dream: skipping malformed Learning %s", artifact_id)
+            continue
+        records[artifact_id] = data
+
+    retired = _superseded_ids(records)
+    ratings = _ratings_map(storage)
+    selected: List[SelectedLearning] = []
+    for artifact_id, data in records.items():
+        if artifact_id in retired:
+            continue
         if not _matches_scope(data, config, task, app):
             continue
         artifact_ratings = ratings.get(artifact_id, [])

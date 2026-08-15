@@ -27,6 +27,8 @@ class Learning(Artifact):
         scope_app: An optional coarser app/world scope key (v2).
         source_artifact_ids: The episodic artifacts this was distilled from
             (evidence / traceability).
+        supersedes: Learning artifact ids this learning structurally retires.
+            Retired artifacts remain stored for audit but are not selected.
         confidence: The dream's self-assessed confidence in [0, 1].
         derived_from: Provenance marker; "dream" for consolidated learnings.
             Used to exclude learnings from the dream's own input
@@ -38,5 +40,27 @@ class Learning(Artifact):
     scope_task: Optional[str] = None
     scope_app: Optional[str] = None
     source_artifact_ids: List[str] = field(default_factory=list)
+    supersedes: List[str] = field(default_factory=list)
     confidence: float = 0.0
     derived_from: str = "dream"
+
+    def __post_init__(self) -> None:
+        """Keep supersession links well-formed and deterministic."""
+        if not isinstance(self.supersedes, list):
+            raise TypeError("supersedes must be a list of learning ids")
+
+        normalized: List[str] = []
+        seen: set[str] = set()
+        for artifact_id in self.supersedes:
+            if not isinstance(artifact_id, str) or not artifact_id.strip():
+                raise ValueError(
+                    "supersedes must contain only non-empty learning ids"
+                )
+            if artifact_id != artifact_id.strip():
+                raise ValueError("supersedes ids must not contain whitespace")
+            if artifact_id == self.id:
+                raise ValueError("a learning cannot supersede itself")
+            if artifact_id not in seen:
+                normalized.append(artifact_id)
+                seen.add(artifact_id)
+        self.supersedes = normalized
