@@ -3,7 +3,6 @@
 import importlib.util
 import logging
 import os
-import re
 import sys
 from difflib import get_close_matches
 from pathlib import Path
@@ -13,6 +12,7 @@ import yaml
 
 from gimle.hugin.agent.config import Config
 from gimle.hugin.agent.task import Task
+from gimle.hugin.agent.template_reference import BARE_TEMPLATE_REFERENCE
 from gimle.hugin.artifacts.query_engine import ArtifactQueryEngine
 from gimle.hugin.llm.prompt.template import Template
 from gimle.hugin.tools.tool import Tool
@@ -22,8 +22,6 @@ if TYPE_CHECKING:
     from gimle.hugin.storage.storage import Storage
 
 logger = logging.getLogger(__name__)
-
-_BARE_TEMPLATE_REFERENCE = re.compile(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$")
 
 
 def _env_truthy(name: str) -> bool:
@@ -310,7 +308,7 @@ class Environment:
                     reference = getattr(instance, field_name)
                     if not isinstance(reference, str):
                         continue
-                    if not _BARE_TEMPLATE_REFERENCE.fullmatch(reference):
+                    if not BARE_TEMPLATE_REFERENCE.fullmatch(reference):
                         continue
                     if reference in template_names:
                         continue

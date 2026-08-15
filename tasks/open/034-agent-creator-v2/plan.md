@@ -92,13 +92,36 @@ Two lines of YAML plus three of prompt. Highest value-per-line in the document.
       would land exactly the unreachable-capability problem this PR fixes.
 
 ### PR 1.3 — `validate_agent` (static checks only) `task/034_validate_agent`
-- [ ] Checks 3-6: structure, reference resolution (reusing
-      `_BARE_TEMPLATE_REFERENCE`), Jinja binding **as warnings** with the
-      renderer-derived allowlist, AST-based tool contract
-- [ ] Compact `{ok, errors, warnings, observed_imports, summary}` payload
-- [ ] `check_imports` present but **defaulting False** (spec §1.5)
-- [ ] `tests/test_validate_agent.py` — one broken fixture per check + clean one
-- [ ] **Acceptance gate:** passes clean on every dir in `examples/` and `apps/`
+- [x] Checks: path keys, reserved names, structure, reference resolution
+      (using task 019's shared identifier-only heuristic), Jinja binding **as
+      warnings**, AST-based tool contract
+- [x] Compact `{ok, errors, warnings, observed_imports, summary}` payload
+- [x] `check_imports` accepted but **defaulting False** and not implemented —
+      it executes generated code, so it lands with its hardening (spec §1.5)
+- [x] `tests/test_validate_agent.py` — 88 tests, one broken fixture per check
+- [x] **Acceptance gate:** 26/26 shipped agents clean, parametrized in pytest
+      *and* run as a `hugin validate -r` step in `.github/workflows/ci.yml`
+- [x] `hugin validate` CLI pulled forward from PR 1.4, so the validator ships
+      with a caller instead of sitting unreachable until the next PR
+
+Three assumptions the acceptance gate falsified, each fixed here:
+
+- **Tool files are not 1:1 with definitions.** `implementation_path` is
+  `dotted.module:function` and several definitions routinely share one module
+  (`examples/parallel_agents` puts `increment` and `get_count` in
+  `counter_tools.py`). A `.py` with no `.yaml` is a normal helper module.
+- **`parameters` has two shapes.** `apps/rap_machine` uses a JSON-Schema
+  object with the real parameters under `properties`.
+- **The verdict must not read `Tool.registry`.** It is a mutable
+  process-global that accumulates every loaded agent's tools and is reset by
+  test fixtures, which made the same agent validate differently depending on
+  what else had run — 32 suite failures that passed in isolation. Builtin
+  names are now parsed from the builtins source. Pinned by
+  `TestVerdictIsOrderIndependent`.
+
+Also: `observed_imports` filters modules that ship with the agent
+(`apps/the_hugins/world`), which would otherwise have become a nonexistent
+entry in PR 1.7's `requirements.txt`.
 
 ### PR 1.4 — The gate, in code `task/034_validation_gate`
 - [ ] `write_agent_files` calls the validator itself and refuses unless `ok`; no
@@ -111,7 +134,8 @@ Two lines of YAML plus three of prompt. Highest value-per-line in the document.
 - [ ] Failure path: `<output>.rejected/` + `VALIDATION_REPORT.md` + verbatim
       errors in the CLI (spec §1.2c)
 - [ ] Strip the now-mechanical checks from `templates/reviewer_system.yaml`
-- [ ] `hugin validate <path>` subcommand, wired over `examples/`+`apps/` in CI
+- [ ] Add `validate_agent` to `configs/agent_builder.yaml`
+- [x] ~~`hugin validate` subcommand + CI~~ — shipped in PR 1.3
 
 ### PR 1.5 — Stale-module and registry isolation `task/034_module_isolation`
 Without this every repair loop in every later phase re-tests cached code.

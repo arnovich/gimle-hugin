@@ -8,3 +8,4 @@ parameters:
       description: The ID of the battle to generate a report for
   required:
     - battle_id
+implementation_path: apps.rap_machine.tools.generate_battle_report:generate_battle_report

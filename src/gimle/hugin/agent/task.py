@@ -3,7 +3,7 @@
 import json
 from copy import deepcopy
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 
 from typing_extensions import NotRequired, TypedDict
 
@@ -131,32 +131,43 @@ class Task:
             )
 
         for name, spec in self.parameters.items():
-            if not isinstance(spec, dict):
-                raise ValueError(
-                    f"Task parameter '{name}' must be a schema dict "
-                    "(e.g. {type, description, required, default}), "
-                    f"got {type(spec).__name__}. Old scalar-style parameters "
-                    "are no longer supported."
-                )
-            if "type" not in spec or "description" not in spec:
-                raise ValueError(
-                    f"Task parameter '{name}' schema must include 'type' and "
-                    "'description'."
-                )
-            if not isinstance(spec.get("type"), str):
-                raise ValueError(
-                    f"Task parameter '{name}'.type must be a string."
-                )
-            if not isinstance(spec.get("description"), str):
-                raise ValueError(
-                    f"Task parameter '{name}'.description must be a string."
-                )
-            if "required" in spec and not isinstance(spec["required"], bool):
-                raise ValueError(
-                    f"Task parameter '{name}'.required must be a boolean."
-                )
-            if spec.get("type") == "categorical":
-                Task._get_categorical_choices(name, spec)
+            Task.validate_parameter_schema(name, spec)
+
+    @staticmethod
+    def validate_parameter_schema(name: str, spec: Any) -> None:
+        """Validate one task parameter schema.
+
+        This is shared with the static agent validator so its verdict cannot
+        drift from the checks performed when a ``Task`` is constructed.
+
+        Args:
+            name: The parameter name.
+            spec: The parameter schema to validate.
+        """
+        if not isinstance(spec, dict):
+            raise ValueError(
+                f"Task parameter '{name}' must be a schema dict "
+                "(e.g. {type, description, required, default}), "
+                f"got {type(spec).__name__}. Old scalar-style parameters "
+                "are no longer supported."
+            )
+        if "type" not in spec or "description" not in spec:
+            raise ValueError(
+                f"Task parameter '{name}' schema must include 'type' and "
+                "'description'."
+            )
+        if not isinstance(spec.get("type"), str):
+            raise ValueError(f"Task parameter '{name}'.type must be a string.")
+        if not isinstance(spec.get("description"), str):
+            raise ValueError(
+                f"Task parameter '{name}'.description must be a string."
+            )
+        if "required" in spec and not isinstance(spec["required"], bool):
+            raise ValueError(
+                f"Task parameter '{name}'.required must be a boolean."
+            )
+        if spec.get("type") == "categorical":
+            Task._get_categorical_choices(name, cast(TaskParameter, spec))
 
     def clone(self) -> "Task":
         """Clone the task.
