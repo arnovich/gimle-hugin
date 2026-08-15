@@ -19,6 +19,7 @@ import os
 import re
 import stat
 import sys
+from dataclasses import MISSING, fields
 from functools import lru_cache
 from pathlib import Path
 from typing import (
@@ -30,10 +31,13 @@ from typing import (
     Optional,
     Set,
     Tuple,
+    Type,
 )
 
 import yaml
 
+from gimle.hugin.agent.config import Config
+from gimle.hugin.agent.task import Task
 from gimle.hugin.agent.template_reference import BARE_TEMPLATE_REFERENCE
 from gimle.hugin.apps.agent_builder.tools.agent_paths import (
     validate_generated_key,
@@ -46,6 +50,7 @@ from gimle.hugin.apps.agent_builder.tools.example_files import (
     open_directory,
     read_text_file,
 )
+from gimle.hugin.llm.prompt.template import Template
 from gimle.hugin.tools.tool import ToolResponse
 
 # The identifier-only heuristic a bare template reference must match, so prose
@@ -217,6 +222,73 @@ def _parse_errors(files: Dict[str, str]) -> List[Finding]:
             error = document.get("__parse_error__")
             if error:
                 findings.append(_finding(key, "yaml", f"invalid YAML: {error}"))
+    return findings
+
+
+def _dataclass_definition_fields(
+    definition_type: Type[Any],
+) -> Tuple[Set[str], Set[str]]:
+    """Return the known and required fields for a YAML-backed dataclass."""
+    definition_fields = fields(definition_type)
+    known = {definition.name for definition in definition_fields}
+    required = {
+        definition.name
+        for definition in definition_fields
+        if definition.default is MISSING
+        and definition.default_factory is MISSING
+    }
+    return known, required
+
+
+def _check_definition_schemas(files: Dict[str, str]) -> List[Finding]:
+    """Reject top-level descriptor fields that their loaders reject.
+
+    Config, Task and Template load with ``cls(**data)``. Deriving their fields
+    from the dataclasses keeps this check aligned when those schemas evolve.
+    Tool's loader supplies defaults for most dataclass fields itself, so only
+    the two mapping keys it indexes directly are required here.
+    """
+    findings = []
+    definitions: Tuple[Tuple[str, Type[Any]], ...] = (
+        ("configs", Config),
+        ("tasks", Task),
+        ("templates", Template),
+    )
+    for folder, definition_type in definitions:
+        known, required = _dataclass_definition_fields(definition_type)
+        for key, document in _load_yaml(files, folder).items():
+            if "__parse_error__" in document:
+                continue
+            for name in sorted(required - document.keys()):
+                findings.append(
+                    _finding(
+                        key,
+                        "definition-schema",
+                        f"required field '{name}' is missing",
+                    )
+                )
+            unknown = document.keys() - known
+            for name in sorted(unknown, key=repr):
+                findings.append(
+                    _finding(
+                        key,
+                        "definition-schema",
+                        f"unknown field {name!r} is rejected by "
+                        f"{definition_type.__name__}.from_dict",
+                    )
+                )
+
+    for key, document in _load_yaml(files, "tools").items():
+        if "__parse_error__" in document:
+            continue
+        for name in sorted({"name", "description"} - document.keys()):
+            findings.append(
+                _finding(
+                    key,
+                    "definition-schema",
+                    f"required field '{name}' is missing",
+                )
+            )
     return findings
 
 
@@ -578,19 +650,19 @@ def _jinja_names(source: str) -> Tuple[Set[str], Set[str]]:
 def _check_task_parameter_schemas(files: Dict[str, str]) -> List[Finding]:
     """Reject task parameters that ``Task`` itself will refuse.
 
-    ``Task._validate_parameter_schemas`` requires each parameter to be a schema
-    mapping with ``type`` and ``description``; the old scalar form
-    (``topic: "AI"``) raises ``ValueError`` at construction. CLAUDE.md still
-    documents the scalar form as supported, so the builder emits it -- and
-    without this the agent validated clean, was written to disk, and failed at
-    ``hugin run``. An agent that passes the gate and cannot load is exactly what
-    the gate exists to prevent.
+    The per-parameter check is shared with ``Task`` so both paths enforce the
+    same field presence, value types and categorical choices. The old scalar
+    form (``topic: "AI"``) raises ``ValueError`` at construction. CLAUDE.md
+    still documents the scalar form as supported, so the builder emits it --
+    and without this the agent validated clean, was written to disk, and failed
+    at ``hugin run``. An agent that passes the gate and cannot load is exactly
+    what the gate exists to prevent.
     """
     findings = []
     for key, document in _load_yaml(files, "tasks").items():
-        parameters = document.get("parameters")
-        if parameters is None:
+        if "parameters" not in document:
             continue
+        parameters = document["parameters"]
         if not isinstance(parameters, dict):
             findings.append(
                 _finding(
@@ -602,22 +674,14 @@ def _check_task_parameter_schemas(files: Dict[str, str]) -> List[Finding]:
             )
             continue
         for name, spec in parameters.items():
-            if not isinstance(spec, dict):
+            try:
+                Task.validate_parameter_schema(name, spec)
+            except ValueError as error:
                 findings.append(
                     _finding(
                         key,
                         "task-parameters",
-                        f"parameter '{name}' uses the old scalar form; it "
-                        "must be a schema with 'type' and 'description'",
-                    )
-                )
-            elif "type" not in spec or "description" not in spec:
-                findings.append(
-                    _finding(
-                        key,
-                        "task-parameters",
-                        f"parameter '{name}' schema must include both "
-                        "'type' and 'description'",
+                        str(error),
                     )
                 )
     return findings
@@ -870,6 +934,7 @@ def validate_files(
         errors.append(_finding(message["file"], "path", message["message"]))
 
     errors += _parse_errors(files)
+    errors += _check_definition_schemas(files)
     errors += _check_structure(files)
     errors += _check_reserved_names(files)
     errors += _check_task_parameter_schemas(files)

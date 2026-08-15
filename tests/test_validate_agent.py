@@ -172,6 +172,94 @@ class TestStructure:
         assert report["ok"], report["errors"]
 
 
+class TestDefinitionSchemas:
+    """Top-level YAML fields must match their framework loaders."""
+
+    @pytest.mark.parametrize(
+        ("file_key", "content", "missing"),
+        [
+            (
+                "configs/demo.yaml",
+                "description: A demo\nsystem_template: demo_system\n",
+                "name",
+            ),
+            (
+                "tasks/main.yaml",
+                "name: main\ndescription: Main task\n",
+                "prompt",
+            ),
+            (
+                "templates/demo_system.yaml",
+                "name: demo_system\n",
+                "template",
+            ),
+            (
+                "tools/fetch_prices.yaml",
+                "description: Fetch prices\n"
+                "implementation_path: fetch_prices:fetch_prices\n",
+                "name",
+            ),
+        ],
+    )
+    def test_missing_loader_field_is_an_error(self, file_key, content, missing):
+        """Required loader keys must be more than a folder-presence check."""
+        report = validate_files(agent(**{file_key: content}))
+        messages = errors_of(report, "definition-schema")
+
+        assert any(
+            f"required field '{missing}'" in item["message"]
+            for item in messages
+        )
+
+    @pytest.mark.parametrize(
+        ("file_key", "content"),
+        [
+            (
+                "configs/demo.yaml",
+                "name: demo\n"
+                "description: A demo\n"
+                "system_template: demo_system\n"
+                "invented: true\n",
+            ),
+            (
+                "tasks/main.yaml",
+                "name: main\n"
+                "description: Main task\n"
+                "prompt: Do the work.\n"
+                "invented: true\n",
+            ),
+            (
+                "templates/demo_system.yaml",
+                "name: demo_system\n"
+                "template: You are a demo agent.\n"
+                "invented: true\n",
+            ),
+        ],
+    )
+    def test_unknown_dataclass_field_is_an_error(self, file_key, content):
+        """Config, Task and Template constructors reject unknown keywords."""
+        report = validate_files(agent(**{file_key: content}))
+
+        assert errors_of(report, "definition-schema")
+
+    def test_non_string_field_name_is_reported_without_crashing(self):
+        """YAML mappings may contain keys Python cannot pass as keywords."""
+        report = validate_files(
+            agent(
+                **{
+                    "configs/demo.yaml": (
+                        "name: demo\n"
+                        "description: A demo\n"
+                        "system_template: demo_system\n"
+                        "1: invalid\n"
+                    )
+                }
+            )
+        )
+
+        assert errors_of(report, "definition-schema")
+
+
 class TestReferenceResolution:
     """A name that resolves to nothing breaks only at runtime today."""
 
@@ -618,6 +706,23 @@ class TestTaskParameterSchemas:
         )
         assert errors_of(report, "task-parameters")
 
+    def test_explicit_null_parameters_is_an_error(self):
+        """A missing field gets Task's default, but an explicit null does not."""
+        report = validate_files(
+            agent(
+                **{
+                    "tasks/main.yaml": (
+                        "name: main\n"
+                        "description: Main\n"
+                        "parameters: null\n"
+                        "prompt: Do the work.\n"
+                    )
+                }
+            )
+        )
+
+        assert errors_of(report, "task-parameters")
+
     def test_schema_missing_description_is_an_error(self):
         """Task requires both type and description."""
         report = validate_files(
@@ -634,6 +739,36 @@ class TestTaskParameterSchemas:
                 }
             )
         )
+        assert errors_of(report, "task-parameters")
+
+    @pytest.mark.parametrize(
+        "schema",
+        [
+            "type: 123\n    description: Ticker",
+            "type: string\n    description: 123",
+            'type: string\n    description: Ticker\n    required: "sometimes"',
+            "type: categorical\n"
+            "    description: Ticker\n"
+            "    choices: [AAPL, 123]",
+        ],
+    )
+    def test_schema_value_rejected_by_task_is_an_error(self, schema):
+        """Static validation uses the same value checks as Task construction."""
+        report = validate_files(
+            agent(
+                **{
+                    "tasks/main.yaml": (
+                        "name: main\n"
+                        "description: Main\n"
+                        "parameters:\n"
+                        "  ticker:\n"
+                        f"    {schema}\n"
+                        "prompt: 'Write {{ ticker.value }}.'\n"
+                    )
+                }
+            )
+        )
+
         assert errors_of(report, "task-parameters")
 
     def test_a_validated_task_can_actually_be_constructed(self):
