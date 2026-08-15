@@ -1,7 +1,7 @@
 """Message rendering module."""
 
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from gimle.hugin.interaction.ask_oracle import AskOracle
 from gimle.hugin.interaction.oracle_response import OracleResponse
@@ -124,7 +124,9 @@ def render_user_message(
 
 
 def render_assistant_message(
-    interaction: OracleResponse, reduced: bool = False
+    interaction: OracleResponse,
+    reduced: bool = False,
+    reduced_ignore_list: Optional[List[str]] = None,
 ) -> List[Dict[str, Any]]:
     """Render an assistant message from an OracleResponse interaction."""
     logger.debug(
@@ -134,11 +136,15 @@ def render_assistant_message(
         raise ValueError("OracleResponse response is None")
     content = interaction.response["content"]
     if reduced and isinstance(content, dict):
-        tool = Tool.get_tool(interaction.response["tool_call"])
-        if tool:
-            ignore_list = tool.options.reduced_context_window_ignore_list
-        else:
-            ignore_list = None
+        ignore_list = reduced_ignore_list
+        if ignore_list is None:
+            # Compatibility for callers rendering interactions saved before
+            # context-policy snapshots were introduced.
+            tool = Tool.get_tool(
+                interaction.response["tool_call"], throw_error=False
+            )
+            if tool:
+                ignore_list = tool.options.reduced_context_window_ignore_list
         if not ignore_list:
             ignore_list = ["id", "code_str", "insights", "reason", "summary"]
 

@@ -12,4 +12,8 @@ parameters:
     default: false
 is_interactive: false
 implementation_path: agent_builder.tools.read_example:read_example
-options: {}
+options:
+  # A single example's files run to tens of KB (apps/financial_newspaper is
+  # ~95KB with include_tools). Keep only the two most recent reads in context.
+  include_only_in_context_window: true
+  context_window: 2

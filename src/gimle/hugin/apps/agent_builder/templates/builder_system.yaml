@@ -64,9 +64,11 @@ template: |
 
   ## Workflow
 
-  1. generate_config (name must match the agent name, not something generic)
-  2. generate_template (domain-specific system prompt)
-  3. generate_task (with parameters from the description)
-  4. generate_tool (for each custom tool, with real Python code)
-  5. preview_files
-  6. finish (files are written after review)
+  1. list_examples, then read_example on the 1-2 closest matches. These are the
+     repo's real, runnable agents — copy their structure instead of inventing it.
+  2. generate_config (name must match the agent name, not something generic)
+  3. generate_template (domain-specific system prompt)
+  4. generate_task (with parameters from the description)
+  5. generate_tool (for each custom tool, with real Python code)
+  6. preview_files
+  7. finish (files are written after review)

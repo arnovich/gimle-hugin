@@ -1,5 +1,6 @@
 """Tool result interaction."""
 
+import copy
 import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Dict, Optional, Union
@@ -12,7 +13,25 @@ logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from gimle.hugin.interaction.tool_call import ToolCall
-    from gimle.hugin.tools.tool import ToolResponse
+    from gimle.hugin.tools.tool import Tool, ToolResponse
+
+
+def snapshot_tool_context_policy(tool: "Tool") -> Dict[str, Any]:
+    """Copy the context options that govern one tool result's history."""
+    options = tool.options
+    return {
+        "include_only_in_context_window": (
+            options.include_only_in_context_window
+        ),
+        "context_window": options.context_window,
+        "reduced_context_window_enabled": (
+            options.reduced_context_window_enabled
+        ),
+        "reduced_context_window": options.reduced_context_window,
+        "reduced_context_window_ignore_list": list(
+            options.reduced_context_window_ignore_list
+        ),
+    }
 
 
 @Interaction.register()
@@ -30,6 +49,7 @@ class ToolResult(Interaction):
         next_tool: Name of tool to call next (deterministic chaining).
         next_tool_args: Arguments for the next tool call.
         include_in_context: Whether this result appears in LLM context.
+        tool_context_policy: Context options captured when this call ran.
     """
 
     result: Optional[Dict[str, Any]] = None
@@ -41,10 +61,13 @@ class ToolResult(Interaction):
     next_tool: Optional[str] = None
     next_tool_args: Optional[Dict[str, Any]] = None
     include_in_context: bool = True
+    tool_context_policy: Optional[Dict[str, Any]] = None
 
     @staticmethod
     def create_from_tool_response(
-        caller: "ToolCall", tool_response: "ToolResponse"
+        caller: "ToolCall",
+        tool_response: "ToolResponse",
+        tool: Optional["Tool"] = None,
     ) -> "ToolResult":
         """Create a tool result interaction from a tool response.
 
@@ -67,6 +90,15 @@ class ToolResult(Interaction):
             next_tool=tool_response.next_tool,
             next_tool_args=tool_response.next_tool_args,
             include_in_context=tool_response.include_in_context,
+            tool_context_policy=copy.deepcopy(
+                caller.tool_context_policy
+                if caller.tool_context_policy is not None
+                else (
+                    snapshot_tool_context_policy(tool)
+                    if tool is not None
+                    else None
+                )
+            ),
         )
 
     def step(self) -> bool:

@@ -340,6 +340,13 @@ class TestAgentResult:
             tool="call_agent",
             args={"agent_name": "child-agent", "task_prompt": "Do something"},
             tool_call_id="call_123",
+            tool_context_policy={
+                "include_only_in_context_window": False,
+                "context_window": 5,
+                "reduced_context_window_enabled": True,
+                "reduced_context_window": 5,
+                "reduced_context_window_ignore_list": ["task_prompt"],
+            },
         )
         parent_agent.stack.add_interaction(tool_call)
 
@@ -398,6 +405,10 @@ class TestAgentResult:
 
         # Verify the template_inputs contain the TaskResult's result
         assert ask_oracle.template_inputs == {"output": "Done"}
+        assert ask_oracle.tool_context_policy == tool_call.tool_context_policy
+        assert ask_oracle.tool_context_policy is not (
+            tool_call.tool_context_policy
+        )
 
 
 class TestAgentCallResultIntegration:
