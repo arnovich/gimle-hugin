@@ -3,7 +3,10 @@
 import datetime
 import json
 import logging
+import os
+import stat
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, cast
 
 from gimle.hugin.agent.agent import Agent
@@ -131,6 +134,53 @@ class LocalStorage(Storage):
             (self.base_path / "artifacts" / artifact.uuid).unlink(
                 missing_ok=True
             )
+
+    def _detach_artifact_reference(
+        self, interaction_id: str, artifact_id: str
+    ) -> None:
+        """Atomically remove an artifact id from persisted interaction JSON."""
+        if not self.base_path:
+            return
+        interaction_path = self.base_path / "interactions" / interaction_id
+        if not interaction_path.exists():
+            return
+
+        with open(interaction_path, "r") as f:
+            record = json.load(f)
+        data = record.get("data", record)
+        if not isinstance(data, dict):
+            raise ValueError(
+                f"Interaction {interaction_id} has malformed persisted data"
+            )
+        if "artifacts" not in data:
+            return
+        artifact_ids = data["artifacts"]
+        if not isinstance(artifact_ids, list):
+            raise ValueError(
+                f"Interaction {interaction_id} has malformed artifact references"
+            )
+        remaining = [item for item in artifact_ids if item != artifact_id]
+        if remaining == artifact_ids:
+            return
+        if remaining:
+            data["artifacts"] = remaining
+        else:
+            data.pop("artifacts")
+
+        temporary_path: Optional[Path] = None
+        try:
+            with NamedTemporaryFile(
+                "w", dir=interaction_path.parent, delete=False
+            ) as temporary:
+                temporary_path = Path(temporary.name)
+                json.dump(record, temporary, cls=SafeJSONEncoder)
+                temporary.flush()
+                os.fsync(temporary.fileno())
+            temporary_path.chmod(stat.S_IMODE(interaction_path.stat().st_mode))
+            temporary_path.replace(interaction_path)
+        finally:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
 
     def _load_session(self, uuid: str, environment: "Environment") -> Session:
         """Load a session from the local filesystem."""
