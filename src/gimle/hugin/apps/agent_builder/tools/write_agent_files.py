@@ -4,6 +4,7 @@ import errno
 import hashlib
 import logging
 import os
+import shlex
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
@@ -15,6 +16,10 @@ from gimle.hugin.apps.agent_builder.tools.agent_paths import (
     confine,
     materialise,
     validate_generated_keys,
+)
+from gimle.hugin.apps.agent_builder.tools.validate_agent import (
+    validate_files,
+    validate_with_state,
 )
 from gimle.hugin.tools.tool import ToolResponse
 
@@ -307,6 +312,26 @@ def write_agent_files(
             },
         )
 
+    # The enforcement point. Validation lives here rather than in a prompt
+    # instructing the model to check first, because a prompt is a request: the
+    # model can skip it, and two instructions in this same directory already
+    # show that happening. There is deliberately no parameter that turns this
+    # off -- an escape hatch the model can reach is not a gate.
+    report = validate_with_state(generated_files, env_vars)
+    if not report["ok"]:
+        return ToolResponse(
+            is_error=True,
+            content={
+                "error": (
+                    "Refusing to write: the generated agent does not "
+                    f"validate ({report['summary']}). Fix these and call "
+                    "write_agent_files again."
+                ),
+                "errors": report["errors"],
+                "warnings": report["warnings"],
+            },
+        )
+
     files = materialise(
         generated_files,
         agent_name=agent_name,
@@ -428,6 +453,10 @@ def write_agent_files(
             },
         )
 
+    # ``create_agent`` uses this marker to distinguish an actual write from a
+    # model merely claiming that it finished. Set it only after every required
+    # write and removal has completed successfully.
+    env_vars["written_keys"] = sorted(files)
     registered = _register(stack, output_dir)
 
     return ToolResponse(
@@ -482,6 +511,102 @@ def _ownership_after_write(
         if previous.get(key) == desired_hash:
             result[key] = desired_hash
     return result
+
+
+def dump_rejected(
+    generated_files: Dict[str, str], output_path: str
+) -> Optional[str]:
+    """Write an unwritable payload to a fresh ``<output_path>.rejected*``.
+
+    A build that fails validation, errors, or runs out of steps has still cost
+    the user a full multi-stage run. Leaving them with nothing on disk is worse
+    than the destructive behaviour this all replaced: they cannot see what was
+    produced, cannot hand-fix it, and cannot tell what went wrong. So the last
+    payload is always landed somewhere they can look, next to -- never inside --
+    the directory they asked for.
+
+    Returns the directory written, or None if there was nothing to write.
+    """
+    if not generated_files or not output_path:
+        return None
+
+    report = validate_files(generated_files)
+    try:
+        rejected = _reserve_rejected_directory(output_path)
+        for key, content in generated_files.items():
+            try:
+                _write_confined(rejected, key, content)
+            except (PathConfinementError, OSError):
+                # A key that cannot be confined is exactly what the rescue
+                # path must not write; skip it rather than fall back to a
+                # plain join, which is how the main write path used to escape.
+                continue
+        _write_confined(
+            rejected,
+            "VALIDATION_REPORT.md",
+            _rejection_report(report, output_path, str(rejected)),
+        )
+    except (OSError, PathConfinementError) as error:
+        logger.warning("Could not write rejected payload: %s", error)
+        return None
+    return str(rejected)
+
+
+def _reserve_rejected_directory(output_path: str) -> Path:
+    """Create a fresh rejected-payload directory without deleting anything."""
+    expanded = Path(output_path).expanduser()
+    base = Path(f"{str(expanded).rstrip('/')}.rejected")
+    candidate = base
+    while True:
+        try:
+            candidate.mkdir(parents=True, exist_ok=False)
+            return candidate
+        except FileExistsError:
+            candidate = Path(f"{base}-{uuid.uuid4().hex[:8]}")
+
+
+def _rejection_report(
+    report: Dict[str, Any], output_path: str, rejected_path: str
+) -> str:
+    """Explain why the build did not land, and what to do next."""
+    lines = [
+        "# Build did not complete",
+        "",
+        "These are the files the builder had produced when it stopped. They "
+        "were not written to the target directory because they did not pass "
+        "validation, or the build failed before it got that far.",
+        "",
+        f"Intended location: `{output_path}`",
+        "",
+        f"Validation: {report.get('summary', 'not run')}",
+        "",
+    ]
+    errors = report.get("errors") or []
+    if errors:
+        lines += ["## Errors", ""]
+        lines += [
+            f"- `{e['file']}` ({e['check']}): {e['message']}" for e in errors
+        ]
+        lines.append("")
+    warnings = report.get("warnings") or []
+    if warnings:
+        lines += ["## Warnings", ""]
+        lines += [
+            f"- `{w['file']}` ({w['check']}): {w['message']}" for w in warnings
+        ]
+        lines.append("")
+    lines += [
+        "## What to do",
+        "",
+        "Fix the errors above, then re-check with:",
+        "",
+        "```bash",
+        f"uv run hugin validate {shlex.quote(rejected_path)}",
+        "```",
+        "",
+        "Once it reports no errors, move the directory into place.",
+    ]
+    return "\n".join(lines) + "\n"
 
 
 def _existing_unmanaged(output_dir: Path, files: Dict[str, str]) -> List[str]:

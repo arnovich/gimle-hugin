@@ -12,6 +12,7 @@ tools:
   - generate_template
   - generate_tool
   - preview_files
+  - validate_agent
   - write_agent_files
   - test_agent
   - builtins.save_file:save_file

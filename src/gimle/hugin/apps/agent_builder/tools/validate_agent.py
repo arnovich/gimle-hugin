@@ -687,6 +687,47 @@ def _check_task_parameter_schemas(files: Dict[str, str]) -> List[Finding]:
     return findings
 
 
+def _tool_entry_names(document: Dict[str, Any]) -> List[str]:
+    """Return the registry keys a config or task's ``tools`` list names."""
+    entries = document.get("tools") or []
+    if not isinstance(entries, list):
+        return []
+    return [str(entry).split(":")[0] for entry in entries]
+
+
+def _check_terminating_tool(files: Dict[str, str]) -> List[Finding]:
+    """Warn when nothing in the agent can end its run.
+
+    A **warning**, not an error, and it looks at tasks as well as configs.
+    Written first as a config-only error, it failed four shipped agents and was
+    wrong about both of them: a task may carry its own ``tools`` list
+    (``examples/task_chaining`` puts ``finish`` there and not in the config),
+    and a perpetual world agent that never terminates is a deliberate design
+    (``apps/the_hugins`` creatures).
+
+    Kept because the reviewer prompt claimed required builtins were already
+    guaranteed and told the model to stop checking them, while nothing checked
+    them at all. The prompt no longer claims a guarantee; this surfaces the
+    common mistake without blocking a legitimate one.
+    """
+    available = set()
+    for folder in ("configs", "tasks"):
+        for document in _load_yaml(files, folder).values():
+            available.update(_tool_entry_names(document))
+
+    if any(name.endswith("finish") for name in available):
+        return []
+    return [
+        _finding(
+            "configs/",
+            "terminating-tool",
+            "no config or task provides a finish tool, so the agent has no "
+            "way to end its run; add 'builtins.finish:finish' unless it is "
+            "meant to run perpetually",
+        )
+    ]
+
+
 def _pass_result_names(files: Dict[str, str]) -> Set[str]:
     """Parameters that upstream tasks create at runtime via pass_result_as.
 
@@ -943,6 +984,7 @@ def validate_files(
     errors += reference_errors
     warnings += reference_warnings
 
+    warnings += _check_terminating_tool(files)
     warnings += _check_jinja(files)
 
     local = local_module_names(agent_path, files)
@@ -961,6 +1003,144 @@ def validate_files(
         ),
         "summary": (f"{len(errors)} error(s), {len(warnings)} warning(s)"),
     }
+
+
+def capability_snapshot(files: Dict[str, str]) -> Dict[str, List[str]]:
+    """Summarise what an agent can do, for comparison across a repair.
+
+    Deliberately coarse: the tools it defines, the tools each config grants,
+    and the parameters each task accepts. These are the things a repair can
+    quietly drop to make errors go away.
+    """
+    snapshot: Dict[str, List[str]] = {}
+    snapshot["tools"] = sorted(_own_tool_names(files))
+    for key, document in _load_yaml(files, "configs").items():
+        raw_entries = document.get("tools")
+        entries = raw_entries if isinstance(raw_entries, list) else []
+        snapshot[f"config-tools:{key}"] = sorted(
+            str(e) for e in entries if isinstance(e, str)
+        )
+    for key, document in _load_yaml(files, "tasks").items():
+        raw_parameters = document.get("parameters")
+        parameters = raw_parameters if isinstance(raw_parameters, dict) else {}
+        snapshot[f"task-parameters:{key}"] = sorted(
+            name for name in parameters if isinstance(name, str)
+        )
+    return snapshot
+
+
+def _is_named_in(item: str, text: str) -> bool:
+    """Return True when ``item`` appears in ``text`` as a whole identifier.
+
+    A plain substring test excused far too much: with tools ``search`` and
+    ``search_docs``, an error mentioning ``search_docs`` silently excused
+    deleting ``search``, which is precisely the regression the shrink check
+    exists to catch.
+    """
+    return re.search(rf"(?<![\w-]){re.escape(item)}(?![\w-])", text) is not None
+
+
+def check_capability_shrink(
+    current: Dict[str, List[str]],
+    previous: Dict[str, List[str]],
+    previous_errors: List[Finding],
+) -> List[Finding]:
+    """Flag capability removed across a repair that no error asked for.
+
+    Every check has a cheap destructive fix: drop the tool, delete the
+    interpolation, remove the parameter. Each of those turns the report green
+    and is less work than a real fix, so without this a bounded repair loop
+    converges on an agent that validates because it no longer does anything.
+
+    A removal is allowed when a previous error named the thing removed --
+    deleting a tool the validator complained about is a legitimate repair.
+    """
+    excused = " ".join(finding["message"] for finding in previous_errors)
+    findings = []
+    for category, before in previous.items():
+        if category in current:
+            after = set(current[category])
+        elif ":" in category:
+            # A config or task may be renamed while it is repaired. Compare a
+            # missing file category against every current category of the same
+            # kind: a pure rename keeps the same capabilities, while renaming
+            # and deleting capabilities no longer bypasses this guard.
+            prefix = f"{category.split(':', 1)[0]}:"
+            after = {
+                item
+                for current_category, items in current.items()
+                if current_category.startswith(prefix)
+                for item in items
+            }
+        else:
+            after = set()
+        for item in sorted(set(before) - after):
+            if _is_named_in(item, excused):
+                continue
+            findings.append(
+                _finding(
+                    category.split(":", 1)[-1] if ":" in category else "-",
+                    "capability-shrink",
+                    f"'{item}' was removed but no error asked for it; fix the "
+                    "reported problem rather than deleting the capability",
+                )
+            )
+    return findings
+
+
+def validate_with_state(
+    files: Dict[str, str],
+    env_vars: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Validate, and compare against the previous attempt in ``env_vars``.
+
+    Repair state lives here rather than in a prompt saying "maximum 3
+    attempts": ``task_sequence`` cannot loop, so a prose bound is not a bound.
+
+    Only ever called for the in-memory payload. An earlier version guarded
+    against a caller passing a foreign ``agent_path`` here, which would have
+    stored an unrelated agent's capabilities as the repair baseline; that guard
+    is gone because the tool no longer exposes ``agent_path`` at all, which
+    removes the hazard rather than compensating for it.
+    """
+    report = validate_files(files)
+
+    state = env_vars.setdefault("validation_state", {})
+    previous = state.get("snapshot")
+    if previous:
+        report["errors"] += check_capability_shrink(
+            capability_snapshot(files), previous, state.get("errors", [])
+        )
+        report["ok"] = not report["errors"]
+        report["summary"] = (
+            f"{len(report['errors'])} error(s), "
+            f"{len(report['warnings'])} warning(s)"
+        )
+
+    state["attempts"] = state.get("attempts", 0) + 1
+    report["attempt"] = state["attempts"]
+
+    # Advance the baseline only on a payload that passed. Storing it on the
+    # rejecting call made the next comparison the payload against itself, so
+    # simply calling write_agent_files again -- which the refusal message
+    # literally instructs the model to do -- wrote the gutted agent. The
+    # accumulated errors are kept as the excuse list so a repair authorised
+    # two attempts ago is still recognised.
+    if report["ok"]:
+        state["snapshot"] = capability_snapshot(files)
+        state["errors"] = []
+    else:
+        state.setdefault("snapshot", capability_snapshot(files))
+        # Accumulate everything *except* shrink findings. Those name the item
+        # that was removed, so carrying them forward made the complaint itself
+        # excuse the removal on the very next attempt -- the gate rejected once
+        # and then waved the identical payload through.
+        state["errors"] = state.get("errors", []) + [
+            finding
+            for finding in report["errors"]
+            if finding["check"] != "capability-shrink"
+        ]
+    return report
 
 
 def _key_errors(files: Dict[str, str]) -> List[Finding]:
@@ -999,7 +1179,8 @@ def validate_agent(
             content={"error": "No files have been generated yet"},
         )
 
-    report = validate_files(files)
+    env_vars = stack.agent.environment.env_vars if stack is not None else {}
+    report = validate_with_state(files, env_vars)
     if check_imports:
         report["warnings"].append(
             _finding(
@@ -1008,4 +1189,11 @@ def validate_agent(
                 "check_imports is not implemented yet; imports were not run",
             )
         )
+    # No next_tool chain here. Chaining validate -> write looked like extra
+    # determinism, but validate_agent is available during the *build* stage,
+    # whose prompt ends "Do NOT call write_agent_files - that happens after
+    # review". A clean report would therefore have written the agent to the
+    # user's directory before the reviewer ever saw it. The gate that matters
+    # is inside write_agent_files, which validates its own payload and cannot
+    # be talked out of it; the chain added risk without adding safety.
     return ToolResponse(is_error=not report["ok"], content=report)
