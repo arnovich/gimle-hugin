@@ -2,6 +2,8 @@
 
 import json
 
+import pytest
+
 from gimle.hugin.agent.agent import Agent
 from gimle.hugin.agent.config import Config
 from gimle.hugin.agent.environment import Environment
@@ -860,6 +862,126 @@ class TestStorageDelete:
         storage.delete_artifact(artifact)
         assert artifact.uuid not in storage.list_artifacts()
 
+    def test_delete_artifact_detaches_persisted_interaction_and_is_idempotent(
+        self, monkeypatch
+    ):
+        """A surviving interaction reloads without the deleted artifact id."""
+        storage = MemoryStorage()
+        environment = Environment(storage=storage)
+        session = Session(environment=environment)
+        config = Config(
+            name="test-agent",
+            description="Test",
+            system_template="test",
+            tools=[],
+        )
+        agent = Agent(session=session, config=config)
+        task = Task(
+            name="test_task",
+            description="Test",
+            parameters={},
+            prompt="Do something",
+            tools=[],
+        )
+        interaction = TaskDefinition(stack=agent.stack, task=task)
+        deleted = Artifact(interaction=interaction)
+        survivor = Artifact(interaction=interaction)
+        interaction.artifacts.extend([deleted, survivor])
+        storage.save_interaction(interaction)
+
+        delete_calls = []
+        original_delete = storage._delete_artifact
+
+        def count_delete(artifact):
+            delete_calls.append(artifact.id)
+            original_delete(artifact)
+
+        monkeypatch.setattr(storage, "_delete_artifact", count_delete)
+
+        storage.delete_artifact(deleted)
+        storage.delete_artifact(deleted)
+
+        assert delete_calls == [deleted.id]
+        assert [item.id for item in interaction.artifacts] == [survivor.id]
+        assert storage._interactions[interaction.id]["data"]["artifacts"] == [
+            survivor.id
+        ]
+        storage.store.pop(f"interaction:{interaction.id}", None)
+        reloaded = storage.load_interaction(interaction.id, agent.stack)
+        assert [item.id for item in reloaded.artifacts] == [survivor.id]
+
+    def test_delete_artifact_stops_if_reference_detach_fails(self, monkeypatch):
+        """A failed detach leaves the artifact and its reference intact."""
+        storage = MemoryStorage()
+        environment = Environment(storage=storage)
+        session = Session(environment=environment)
+        config = Config(
+            name="test-agent",
+            description="Test",
+            system_template="test",
+            tools=[],
+        )
+        agent = Agent(session=session, config=config)
+        task = Task(
+            name="test_task",
+            description="Test",
+            parameters={},
+            prompt="Do something",
+            tools=[],
+        )
+        interaction = TaskDefinition(stack=agent.stack, task=task)
+        artifact = Artifact(interaction=interaction)
+        interaction.artifacts.append(artifact)
+        storage.save_interaction(interaction)
+
+        def fail_detach(interaction_id, artifact_id):
+            raise OSError("cannot persist interaction")
+
+        monkeypatch.setattr(storage, "_detach_artifact_reference", fail_detach)
+
+        with pytest.raises(OSError, match="cannot persist interaction"):
+            storage.delete_artifact(artifact)
+
+        assert artifact.id in storage.list_artifacts()
+        assert storage._interactions[interaction.id]["data"]["artifacts"] == [
+            artifact.id
+        ]
+        assert [item.id for item in interaction.artifacts] == [artifact.id]
+
+    def test_delete_artifact_rejects_missing_owner_metadata(self):
+        """Malformed records are retained when safe detachment is impossible."""
+        storage = MemoryStorage()
+        environment = Environment(storage=storage)
+        session = Session(environment=environment)
+        config = Config(
+            name="test-agent",
+            description="Test",
+            system_template="test",
+            tools=[],
+        )
+        agent = Agent(session=session, config=config)
+        task = Task(
+            name="test_task",
+            description="Test",
+            parameters={},
+            prompt="Do something",
+            tools=[],
+        )
+        interaction = TaskDefinition(stack=agent.stack, task=task)
+        artifact = Artifact(interaction=interaction)
+        interaction.artifacts.append(artifact)
+        storage.save_interaction(interaction)
+        storage._artifacts[artifact.id]["data"].pop("interaction")
+        artifact.interaction = None
+
+        with pytest.raises(ValueError, match="owning interaction id"):
+            storage.delete_artifact(artifact)
+
+        assert artifact.id in storage.list_artifacts()
+        assert storage._interactions[interaction.id]["data"]["artifacts"] == [
+            artifact.id
+        ]
+
     def test_delete_interaction(self):
         """Test deleting an interaction."""
         storage = MemoryStorage()
@@ -1170,6 +1292,94 @@ class TestLocalStorageDelete:
         storage.delete_artifact(artifact)
         assert not artifact_path.exists()
         assert artifact.uuid not in storage.list_artifacts()
+
+    def test_delete_artifact_atomically_detaches_before_fresh_reload(
+        self, tmp_path
+    ):
+        """Filesystem deletion leaves reloadable interaction JSON behind."""
+        storage = LocalStorage(base_path=tmp_path)
+        environment = Environment(storage=storage)
+        session = Session(environment=environment)
+        config = Config(
+            name="test-agent",
+            description="Test",
+            system_template="test",
+            tools=[],
+        )
+        agent = Agent(session=session, config=config)
+        task = Task(
+            name="test_task",
+            description="Test",
+            parameters={},
+            prompt="Do something",
+            tools=[],
+        )
+        interaction = TaskDefinition(stack=agent.stack, task=task)
+        deleted = Artifact(interaction=interaction)
+        survivor = Artifact(interaction=interaction)
+        interaction.artifacts.extend([deleted, survivor])
+        storage.save_interaction(interaction)
+
+        storage.delete_artifact(deleted)
+
+        interaction_path = tmp_path / "interactions" / interaction.id
+        with open(interaction_path, "r") as f:
+            raw = json.load(f)
+        assert raw["data"]["artifacts"] == [survivor.id]
+        assert not (tmp_path / "artifacts" / deleted.id).exists()
+
+        fresh_storage = LocalStorage(base_path=tmp_path)
+        fresh_environment = Environment(storage=fresh_storage)
+        fresh_session = Session(environment=fresh_environment)
+        fresh_agent = Agent(session=fresh_session, config=config)
+        reloaded = fresh_storage.load_interaction(
+            interaction.id, fresh_agent.stack
+        )
+        assert [item.id for item in reloaded.artifacts] == [survivor.id]
+
+    def test_delete_artifact_preserves_files_when_atomic_detach_fails(
+        self, tmp_path, monkeypatch
+    ):
+        """A failed atomic rewrite leaves both sides of the reference intact."""
+        storage = LocalStorage(base_path=tmp_path)
+        environment = Environment(storage=storage)
+        session = Session(environment=environment)
+        config = Config(
+            name="test-agent",
+            description="Test",
+            system_template="test",
+            tools=[],
+        )
+        agent = Agent(session=session, config=config)
+        task = Task(
+            name="test_task",
+            description="Test",
+            parameters={},
+            prompt="Do something",
+            tools=[],
+        )
+        interaction = TaskDefinition(stack=agent.stack, task=task)
+        artifact = Artifact(interaction=interaction)
+        interaction.artifacts.append(artifact)
+        storage.save_interaction(interaction)
+
+        def fail_dump(*args, **kwargs):
+            raise OSError("cannot write interaction")
+
+        with monkeypatch.context() as patch_context:
+            patch_context.setattr(
+                "gimle.hugin.storage.local.json.dump", fail_dump
+            )
+            with pytest.raises(OSError, match="cannot write interaction"):
+                storage.delete_artifact(artifact)
+
+        interaction_path = tmp_path / "interactions" / interaction.id
+        with open(interaction_path, "r") as f:
+            raw = json.load(f)
+        assert raw["data"]["artifacts"] == [artifact.id]
+        assert (tmp_path / "artifacts" / artifact.id).exists()
+        assert storage.list_interactions() == [interaction.id]
+        assert [item.id for item in interaction.artifacts] == [artifact.id]
 
     def test_delete_interaction_from_filesystem(self, tmp_path):
         """Test deleting an interaction removes the file."""
