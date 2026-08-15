@@ -146,15 +146,18 @@ The autonomy is bounded by three mechanical guardrails, not by approval steps:
   from its input. Consolidation runs on real experience, not on its own past
   conclusions — otherwise small errors would amplify across cycles.
 - **Injection budget.** The selector caps how many learnings can land in a
-  prompt (top-N by rating and recency), so prompts can't grow unboundedly
-  across dream cycles.
+  prompt. Human ratings become authoritative once present; otherwise the
+  dream's self-rating is used, with stable non-recency tie-breaking. This keeps
+  prompts bounded without continually evicting older lessons merely because
+  newer ones received the same confidence.
 - **Scope.** Per-config / per-task scoping keeps a bad learning from
   contaminating unrelated agents.
 
 The dream also self-rates each learning it produces (via `ArtifactFeedback`,
-`source="agent"`), creating a quality signal that the selector can use. A
-correction loop that gates injection on independent ratings is a natural next
-step but isn't part of v1.
+`source="agent"`), creating a fallback quality signal. If humans later rate the
+learning, the human average replaces the agent average for selection instead of
+being diluted by it, so later human correction can promote or demote a lesson
+without competing with its self-rating.
 
 ## See also
 
