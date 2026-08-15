@@ -1,5 +1,6 @@
 """Tool result interaction."""
 
+import copy
 import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Dict, Optional, Union
@@ -89,8 +90,14 @@ class ToolResult(Interaction):
             next_tool=tool_response.next_tool,
             next_tool_args=tool_response.next_tool_args,
             include_in_context=tool_response.include_in_context,
-            tool_context_policy=(
-                snapshot_tool_context_policy(tool) if tool is not None else None
+            tool_context_policy=copy.deepcopy(
+                caller.tool_context_policy
+                if caller.tool_context_policy is not None
+                else (
+                    snapshot_tool_context_policy(tool)
+                    if tool is not None
+                    else None
+                )
             ),
         )
 

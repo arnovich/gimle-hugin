@@ -1,5 +1,6 @@
 """Agent result interaction."""
 
+import copy
 import logging
 from dataclasses import dataclass
 from typing import Optional
@@ -63,6 +64,9 @@ class AgentResult(Interaction):
                 branch=self.branch,
                 prompt=prompt,
                 template_inputs=task_result_interaction.result or {},
+                tool_context_policy=copy.deepcopy(
+                    tool_call_interaction.tool_context_policy
+                ),
             )
         )
 

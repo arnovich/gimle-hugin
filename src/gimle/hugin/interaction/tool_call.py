@@ -6,7 +6,10 @@ from typing import Any, Dict, Optional
 
 from gimle.hugin.interaction.agent_call import AgentCall
 from gimle.hugin.interaction.interaction import Interaction
-from gimle.hugin.interaction.tool_result import ToolResult
+from gimle.hugin.interaction.tool_result import (
+    ToolResult,
+    snapshot_tool_context_policy,
+)
 from gimle.hugin.tools.tool import Tool, ToolResponse
 from gimle.hugin.utils.uuid import with_uuid
 
@@ -24,12 +27,14 @@ class ToolCall(Interaction):
         args: The arguments to pass to the tool.
         tool_call_id: The ID of the tool call.
         reason: The reason for the tool call.
+        tool_context_policy: Context options captured before execution.
     """
 
     tool: Optional[str] = None
     args: Optional[Dict[str, Any]] = None
     tool_call_id: Optional[str] = None
     reason: Optional[str] = None
+    tool_context_policy: Optional[Dict[str, Any]] = None
 
     def step(self) -> bool:
         """Step the tool call interaction.
@@ -45,6 +50,10 @@ class ToolCall(Interaction):
             )
             if tool is None:
                 raise ValueError(f"Tool {self.tool} not found")
+            # Results may complete asynchronously (AgentCall, BashWaiting).
+            # Capture the policy on the originating call before execution so
+            # later registry loads cannot change how its history is rendered.
+            self.tool_context_policy = snapshot_tool_context_policy(tool)
             result = Tool.execute_tool(
                 tool, stack=self.stack, branch=self.branch, **(self.args or {})
             )

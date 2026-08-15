@@ -128,6 +128,33 @@ class TestCapIsApplied:
         assert "result number 0" in rendered
         assert "result number 2" in rendered
 
+    def test_legacy_alias_resolves_through_historical_tools(self, mock_agent):
+        """Pre-snapshot sessions store aliases, not registry-qualified names."""
+        registered_name = "builtins.spy_alias_capped_tool"
+        alias = "spy_alias_capped_tool"
+        tool = Tool(
+            name=registered_name,
+            description="A namespaced capped tool",
+            parameters={},
+            is_interactive=False,
+            implementation_path="",
+            options=ToolConfig(
+                include_only_in_context_window=True,
+                context_window=1,
+            ),
+        )
+        Tool.registry.register(tool, name=registered_name)
+        mock_agent.config.tools = [f"{registered_name}:{alias}"]
+        try:
+            stack = _stack_with_results(mock_agent, alias, 3)
+
+            rendered = str(stack.render_stack_context(branch=None))
+
+            assert "result number 2" in rendered
+            assert "result number 0" not in rendered
+        finally:
+            Tool.registry._items.pop(registered_name, None)
+
 
 class TestTheOriginalDefect:
     """Documents why the lookup is by name and not by membership."""

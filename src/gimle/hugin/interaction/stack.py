@@ -259,6 +259,29 @@ class Stack:
                         policy = interaction.tool_context_policy
                         if policy is None:
                             tool = Tool.get_tool(tool_call, throw_error=False)
+                            if tool is None:
+                                # Persisted prompts contain the public alias
+                                # (for example ``bash``), while the registry is
+                                # keyed by its configured source name
+                                # (``builtins.bash``).  Resolve through the
+                                # tools visible at this historical interaction
+                                # for pre-snapshot sessions and custom result
+                                # producers.
+                                try:
+                                    historical_tools = self.get_tools(
+                                        current_interaction_uuid=interaction.id,
+                                        branch=interaction.branch,
+                                    )
+                                except ValueError:
+                                    historical_tools = []
+                                tool = next(
+                                    (
+                                        candidate
+                                        for candidate in historical_tools
+                                        if candidate.name == tool_call
+                                    ),
+                                    None,
+                                )
                             if tool is not None:
                                 policy = snapshot_tool_context_policy(tool)
                         if policy is not None:

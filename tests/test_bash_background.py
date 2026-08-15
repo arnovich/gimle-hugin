@@ -400,6 +400,42 @@ class TestBranchBinding:
             waiting = BashWaiting(stack=stack, branch="Z", job_id="j")
             assert waiting._result_prompt().type == "text"
 
+    def test_resume_preserves_originating_context_policy(self, tmp_path):
+        """Deferred results retain the exact cap captured before execution."""
+        from gimle.hugin.interaction.tool_call import ToolCall
+
+        storage = LocalStorage(base_path=str(tmp_path / "storage"))
+        env = Environment.load("examples/bash_agent", storage=storage)
+        with Session(environment=env) as session:
+            config = env.config_registry.get("bash_agent")
+            task = env.task_registry.get("explore")
+            session.create_agent_from_task(config, task)
+            stack = session.agents[0].stack
+            policy = {
+                "include_only_in_context_window": True,
+                "context_window": 5,
+                "reduced_context_window_enabled": True,
+                "reduced_context_window": 5,
+                "reduced_context_window_ignore_list": [],
+            }
+            stack.add_interaction(
+                ToolCall(
+                    stack=stack,
+                    tool="bash",
+                    args={},
+                    tool_call_id="A1",
+                    tool_context_policy=policy,
+                )
+            )
+            waiting = BashWaiting(stack=stack, job_id=None)
+
+            assert waiting.step()
+
+            result = stack.interactions[-1]
+            assert isinstance(result, AskOracle)
+            assert result.tool_context_policy == policy
+            assert result.tool_context_policy is not policy
+
 
 def _has_bash_waiting(agent) -> bool:
     """Whether the agent's stack currently has a parked BashWaiting."""

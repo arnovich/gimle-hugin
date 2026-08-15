@@ -402,6 +402,19 @@ class TestToolCall:
         assert isinstance(tool_result, ToolResult)
         assert tool_result.tool_call_id == "call_123"
         assert tool_result.result["param"] == "test_value"
+        assert tool_call.tool_context_policy == {
+            "include_only_in_context_window": False,
+            "context_window": 5,
+            "reduced_context_window_enabled": True,
+            "reduced_context_window": 5,
+            "reduced_context_window_ignore_list": [],
+        }
+        assert tool_result.tool_context_policy == (
+            tool_call.tool_context_policy
+        )
+        assert tool_result.tool_context_policy is not (
+            tool_call.tool_context_policy
+        )
 
         # Remove only the tool we added, not the entire registry
         if added_tool:

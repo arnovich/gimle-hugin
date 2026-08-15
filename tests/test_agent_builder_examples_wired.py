@@ -6,6 +6,7 @@ unreachable and the builder invented agent structure from the prompt alone.
 These tests pin the wiring and the context caps that keep it affordable.
 """
 
+import os
 from pathlib import Path
 
 import pytest
@@ -312,6 +313,35 @@ class TestToolsActuallyWork:
 
         assert result.is_error
         assert "exceeds the read limit" in result.content["error"]
+
+    @pytest.mark.skipif(
+        not hasattr(os, "mkfifo") or not hasattr(os, "O_NONBLOCK"),
+        reason="FIFO and nonblocking-open support are POSIX-specific",
+    )
+    def test_named_pipe_is_rejected_without_blocking(self, tmp_path):
+        """A special file must not park the builder before type validation."""
+        from gimle.hugin.apps.agent_builder.tools.example_files import (
+            ReadBudget,
+            UnsafeExamplePath,
+            _file_flags,
+            open_directory,
+            read_text_file,
+        )
+
+        example = tmp_path / "demo"
+        example.mkdir()
+        os.mkfifo(example / "README.md")
+
+        # Keep the functional check safe even if the flag regresses: fail
+        # before opening a FIFO in blocking mode.
+        assert _file_flags() & os.O_NONBLOCK
+        with open_directory(example) as example_fd:
+            with pytest.raises(UnsafeExamplePath, match="not a regular file"):
+                read_text_file(
+                    example_fd,
+                    "README.md",
+                    ReadBudget(max_files=1, max_bytes=1024),
+                )
 
     def test_neither_tool_declares_stack(self):
         """Both are injected-arg-free; declaring stack would change the call."""

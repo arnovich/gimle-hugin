@@ -67,11 +67,14 @@ def _directory_flags() -> int:
 
 def _file_flags() -> int:
     """Return flags required for a no-follow file open."""
-    if not hasattr(os, "O_NOFOLLOW"):
+    if not hasattr(os, "O_NOFOLLOW") or not hasattr(os, "O_NONBLOCK"):
         raise UnsafeExamplePath(
             "Secure example reads are unsupported on this platform"
         )
-    return os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC
+    # Opening a FIFO read-only blocks before fstat() can reject it.  Nonblocking
+    # mode has no effect on regular-file reads, but lets us validate special
+    # files without allowing an untrusted catalogue to park the builder.
+    return os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC
 
 
 def _is_component(name: str) -> bool:
