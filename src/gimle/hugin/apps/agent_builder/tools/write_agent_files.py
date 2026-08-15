@@ -1,10 +1,21 @@
 """Write generated files to disk."""
 
+import errno
+import hashlib
 import logging
-import shutil
+import os
+import uuid
+from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Tuple
 
+from gimle.hugin.apps.agent_builder.tools.agent_paths import (
+    PathConfinementError,
+    check_output_path,
+    confine,
+    materialise,
+    validate_generated_keys,
+)
 from gimle.hugin.tools.tool import ToolResponse
 
 if TYPE_CHECKING:
@@ -12,27 +23,267 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_OWNERSHIP_STATE = "agent_builder_written_files"
+_DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+
+
+def _first_task_name(generated_files: Dict[str, str]) -> Optional[str]:
+    """Return the stem of the first generated task, for the run command."""
+    for key in sorted(generated_files):
+        if key.startswith("tasks/") and key.endswith(".yaml"):
+            return Path(key).stem
+    return None
+
+
+def _classify(
+    files: Dict[str, str], output_dir: Path, owned: Dict[str, str]
+) -> Tuple[Dict[str, str], List[str], List[str], List[str]]:
+    """Split files into writable, unchanged, conflicting, and escaping sets.
+
+    A differing file is writable only when its current content still matches
+    the hash recorded when this builder session wrote it. Unknown or edited
+    files are conflicts, preventing a re-run from destroying user changes.
+    """
+    to_write: Dict[str, str] = {}
+    unchanged: List[str] = []
+    conflicts: List[str] = []
+    escaping: List[str] = []
+
+    for key, content in files.items():
+        try:
+            current = _read_confined(output_dir, key)
+        except FileNotFoundError:
+            to_write[key] = content
+            continue
+        except PathConfinementError as error:
+            escaping.append(str(error))
+            continue
+        except OSError as error:
+            conflicts.append(f"{key}: cannot inspect existing file: {error}")
+            continue
+
+        desired = content.encode("utf-8")
+        if current == desired:
+            unchanged.append(key)
+        elif owned.get(key) == _digest(current):
+            to_write[key] = content
+        else:
+            conflicts.append(key)
+
+    return to_write, unchanged, conflicts, escaping
+
+
+def _as_bool(value: object) -> bool:
+    """Coerce an LLM-supplied argument to a bool.
+
+    Tool arguments arrive unconverted, so a plain truthiness test made the
+    string "false" enable dry-run and silently skip the write while reporting
+    success.
+    """
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
+def _digest(content: bytes) -> str:
+    """Return the ownership hash for file content."""
+    return hashlib.sha256(content).hexdigest()
+
+
+def _root_key(output_dir: Path) -> str:
+    """Return a stable key that scopes ownership to one output directory."""
+    return os.path.realpath(output_dir)
+
+
+def _owned_files(env_vars: Dict[str, Any], output_dir: Path) -> Dict[str, str]:
+    """Return validated ownership hashes for ``output_dir``."""
+    state = env_vars.get(_OWNERSHIP_STATE)
+    if not isinstance(state, dict):
+        return {}
+    owned = state.get(_root_key(output_dir))
+    if not isinstance(owned, dict):
+        return {}
+    return {
+        key: value
+        for key, value in owned.items()
+        if isinstance(key, str) and isinstance(value, str)
+    }
+
+
+def _set_owned_files(
+    env_vars: Dict[str, Any], output_dir: Path, owned: Dict[str, str]
+) -> None:
+    """Persist ownership hashes without mixing different output directories."""
+    existing = env_vars.get(_OWNERSHIP_STATE)
+    state = dict(existing) if isinstance(existing, dict) else {}
+    root = _root_key(output_dir)
+    if owned:
+        state[root] = dict(sorted(owned.items()))
+    else:
+        state.pop(root, None)
+    env_vars[_OWNERSHIP_STATE] = state
+
+
+@contextmanager
+def _open_directory_tree(path: Path, create: bool) -> Iterator[int]:
+    """Open every directory component with ``O_NOFOLLOW``.
+
+    Holding a descriptor for each next hop while it is opened closes the parent
+    symlink race left by resolving a full path and protecting only its final
+    component.
+    """
+    absolute = Path(os.path.abspath(path))
+    descriptor = os.open(absolute.anchor, _DIRECTORY_FLAGS)
+    try:
+        for component in absolute.parts[1:]:
+            if create:
+                try:
+                    os.mkdir(component, 0o777, dir_fd=descriptor)
+                except FileExistsError:
+                    pass
+            next_descriptor = os.open(
+                component, _DIRECTORY_FLAGS, dir_fd=descriptor
+            )
+            os.close(descriptor)
+            descriptor = next_descriptor
+        yield descriptor
+    except OSError as error:
+        if error.errno in {errno.ELOOP, errno.ENOTDIR}:
+            raise PathConfinementError(
+                f"refusing a symlinked output path component: {path}"
+            ) from error
+        raise
+    finally:
+        os.close(descriptor)
+
+
+@contextmanager
+def _open_confined_parent(
+    root: Path, key: str, create: bool
+) -> Iterator[Tuple[int, str]]:
+    """Yield a no-follow descriptor and basename for a generated key."""
+    confine(root, key)  # Validate the key and reject already-present escapes.
+    parts = Path(key).parts
+    with _open_directory_tree(root, create=create) as root_descriptor:
+        descriptor = os.dup(root_descriptor)
+        try:
+            for component in parts[:-1]:
+                if create:
+                    try:
+                        os.mkdir(component, 0o777, dir_fd=descriptor)
+                    except FileExistsError:
+                        pass
+                next_descriptor = os.open(
+                    component, _DIRECTORY_FLAGS, dir_fd=descriptor
+                )
+                os.close(descriptor)
+                descriptor = next_descriptor
+            yield descriptor, parts[-1]
+        except OSError as error:
+            if error.errno in {
+                errno.ELOOP,
+                errno.ENOTDIR,
+            }:
+                raise PathConfinementError(
+                    f"generated file {key!r} crosses a symlinked directory"
+                ) from error
+            raise
+        finally:
+            os.close(descriptor)
+
+
+def _read_confined(root: Path, key: str) -> bytes:
+    """Read a generated path without following any symlink component."""
+    with _open_confined_parent(root, key, create=False) as (parent, name):
+        try:
+            descriptor = os.open(
+                name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent
+            )
+        except OSError as error:
+            if error.errno == errno.ELOOP:
+                raise PathConfinementError(
+                    f"generated file {key!r} is a symlink"
+                ) from error
+            raise
+        with os.fdopen(descriptor, "rb") as stream:
+            return stream.read()
+
+
+def _write_confined(root: Path, key: str, content: str) -> None:
+    """Atomically write content without following any symlink component.
+
+    The temporary file and destination are addressed relative to a securely
+    opened parent directory. ``os.replace`` replaces a final-component symlink
+    rather than following it and avoids truncating a good file on a short write.
+    """
+    with _open_confined_parent(root, key, create=True) as (parent, name):
+        temporary = f".{name}.hugin-{uuid.uuid4().hex}.tmp"
+        descriptor = os.open(
+            temporary,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+            0o666,
+            dir_fd=parent,
+        )
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                stream.write(content)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(
+                temporary,
+                name,
+                src_dir_fd=parent,
+                dst_dir_fd=parent,
+            )
+        finally:
+            try:
+                os.unlink(temporary, dir_fd=parent)
+            except FileNotFoundError:
+                pass
+
+
+def _unlink_owned(root: Path, key: str, expected_hash: str) -> bool:
+    """Remove an unmodified builder-owned file, returning whether it existed."""
+    try:
+        current = _read_confined(root, key)
+    except FileNotFoundError:
+        return False
+    if _digest(current) != expected_hash:
+        raise FileExistsError(f"superseded file was modified: {key}")
+    with _open_confined_parent(root, key, create=False) as (parent, name):
+        os.unlink(name, dir_fd=parent)
+    return True
+
 
 def write_agent_files(
     stack: "Stack",
     output_path: str,
     agent_name: str = "",
+    dry_run: bool = False,
 ) -> ToolResponse:
-    """Write all generated files to the output directory.
+    """Write the generated agent files to ``output_path``.
+
+    Writes are incremental and ownership-aware. Unknown or user-modified files
+    are never overwritten. Files written by this builder session may be updated
+    while their content still matches its recorded hash, and may be removed when
+    an unmodified file is superseded by a later generation.
+
+    This replaces an unconditional ``shutil.rmtree(output_path)`` that destroyed
+    whatever the target directory previously held.
 
     Args:
         stack: Agent stack (auto-injected)
         output_path: Directory where agent files should be written
-        agent_name: Optional name of the agent (for README)
+        agent_name: Optional name of the agent (for the README)
+        dry_run: Report what would be written without touching the filesystem
 
     Returns:
-        ToolResponse with list of written files
+        ToolResponse with the written / unchanged / preserved breakdown
     """
     env_vars = stack.agent.environment.env_vars
     generated_files = env_vars.get("generated_files", {})
     user_input = env_vars.get("user_input", {})
 
-    # Use provided agent_name or fall back to env_vars
     if not agent_name:
         agent_name = user_input.get("agent_name", "agent")
 
@@ -42,93 +293,228 @@ def write_agent_files(
             content={"error": "No files have been generated yet"},
         )
 
-    if not output_path:
+    path_error = check_output_path(output_path)
+    if path_error:
+        return ToolResponse(is_error=True, content={"error": path_error})
+
+    key_errors = validate_generated_keys(list(generated_files))
+    if key_errors:
         return ToolResponse(
             is_error=True,
-            content={"error": "No output path specified"},
+            content={
+                "error": "Generated file names are not writable",
+                "invalid_keys": key_errors,
+            },
         )
 
-    output_dir = Path(output_path)
-    written_files: List[str] = []
+    files = materialise(
+        generated_files,
+        agent_name=agent_name,
+        description=user_input.get("description", "A Hugin agent"),
+        output_path=output_path,
+        task_name=_first_task_name(generated_files),
+    )
 
-    try:
-        # Clean up previous agent files in the output directory
-        if output_dir.exists():
-            shutil.rmtree(output_dir)
+    output_dir = Path(output_path).expanduser()
+    owned = _owned_files(env_vars, output_dir)
+    to_write, unchanged, conflicts, escaping = _classify(
+        files, output_dir, owned
+    )
+    if escaping:
+        return ToolResponse(
+            is_error=True,
+            content={
+                "error": "Generated files escape the output directory",
+                "escaping": escaping,
+            },
+        )
+    if conflicts:
+        return ToolResponse(
+            is_error=True,
+            content={
+                "error": (
+                    "Refusing to overwrite files not owned by this builder "
+                    "session, or files modified since it wrote them"
+                ),
+                "conflicts": sorted(conflicts),
+            },
+        )
 
-        # Create output directory
-        output_dir.mkdir(parents=True, exist_ok=True)
+    superseded, superseded_conflicts = _classify_superseded(
+        owned, files, output_dir
+    )
+    if superseded_conflicts:
+        return ToolResponse(
+            is_error=True,
+            content={
+                "error": (
+                    "Refusing to remove superseded files that were modified "
+                    "after the builder wrote them"
+                ),
+                "conflicts": sorted(superseded_conflicts),
+            },
+        )
 
-        # Create __init__.py for the agent package
-        init_file = output_dir / "__init__.py"
-        init_content = f'"""Generated Hugin agent: {agent_name}."""\n'
-        init_file.write_text(init_content)
-        written_files.append(str(init_file))
+    preserved = [
+        key
+        for key in _existing_unmanaged(output_dir, files)
+        if key not in superseded
+    ]
 
-        # Create tools __init__.py
-        tools_dir = output_dir / "tools"
-        tools_dir.mkdir(exist_ok=True)
-        tools_init = tools_dir / "__init__.py"
-        tools_init.write_text('"""Agent tools."""\n')
-        written_files.append(str(tools_init))
-
-        # Write all generated files
-        for file_path, content in generated_files.items():
-            full_path = output_dir / file_path
-            full_path.parent.mkdir(parents=True, exist_ok=True)
-            full_path.write_text(content)
-            written_files.append(str(full_path))
-
-        # Create README.md
-        description = user_input.get("description", "A Hugin agent")
-        readme_content = f"""# {agent_name}
-
-{description}
-
-## Running the Agent
-
-```bash
-uv run run-agent --task main --task-path {output_path}
-```
-
-## Structure
-
-- `configs/` - Agent configuration
-- `tasks/` - Task definitions
-- `templates/` - System prompts
-- `tools/` - Custom tools
-
-Generated by Hugin Agent Builder.
-"""
-        readme_path = output_dir / "README.md"
-        readme_path.write_text(readme_content)
-        written_files.append(str(readme_path))
-
-        # Register the new agent with the environment so it becomes
-        # immediately available to list_agents and launch_agent
-        environment = stack.agent.environment
-        loaded_config_name = environment.load_agent_from_path(str(output_dir))
-        if loaded_config_name:
-            logger.info(
-                f"Registered new agent '{loaded_config_name}' in environment"
-            )
-
+    if _as_bool(dry_run):
         return ToolResponse(
             is_error=False,
             content={
                 "output_path": str(output_dir),
-                "files_written": written_files,
-                "file_count": len(written_files),
-                "message": f"Successfully created agent at {output_dir}",
-                "registered_config": loaded_config_name,
+                "dry_run": True,
+                "would_write": sorted(to_write),
+                "would_remove": sorted(superseded),
+                "unchanged": sorted(unchanged),
+                "preserved": preserved,
+                "message": (
+                    f"Would write {len(to_write)} file(s) to {output_dir}"
+                ),
             },
         )
 
-    except Exception as e:
+    written: List[str] = []
+    try:
+        for key, content in to_write.items():
+            _write_confined(output_dir, key, content)
+            written.append(key)
+    except (OSError, PathConfinementError) as error:
+        partial_owned = dict(owned)
+        partial_owned.update(
+            _ownership_after_write(owned, files, unchanged, written)
+        )
+        _set_owned_files(
+            env_vars,
+            output_dir,
+            partial_owned,
+        )
         return ToolResponse(
             is_error=True,
             content={
-                "error": str(e),
-                "partial_files": written_files,
+                "error": f"Failed writing agent files: {error}",
+                "written_before_failure": written,
             },
         )
+
+    removed: List[str] = []
+    removal_errors: List[str] = []
+    for key, expected_hash in superseded.items():
+        try:
+            if _unlink_owned(output_dir, key, expected_hash):
+                removed.append(key)
+        except (OSError, PathConfinementError) as error:
+            removal_errors.append(f"{key}: {error}")
+
+    final_owned = _ownership_after_write(owned, files, unchanged, written)
+    for key in removal_errors:
+        failed_key = key.split(":", 1)[0]
+        if failed_key in owned:
+            final_owned[failed_key] = owned[failed_key]
+    _set_owned_files(env_vars, output_dir, final_owned)
+
+    if removal_errors:
+        return ToolResponse(
+            is_error=True,
+            content={
+                "error": "Failed removing superseded builder-owned files",
+                "written": sorted(written),
+                "removed": sorted(removed),
+                "removal_errors": sorted(removal_errors),
+                "preserved": preserved,
+            },
+        )
+
+    registered = _register(stack, output_dir)
+
+    return ToolResponse(
+        is_error=False,
+        content={
+            "output_path": str(output_dir),
+            "written": sorted(written),
+            "unchanged": sorted(unchanged),
+            "removed": removed,
+            "preserved": preserved,
+            "message": f"Wrote {len(written)} file(s) to {output_dir}",
+            "registered_config": registered,
+        },
+    )
+
+
+def _classify_superseded(
+    owned: Dict[str, str], files: Dict[str, str], output_dir: Path
+) -> Tuple[Dict[str, str], List[str]]:
+    """Return safely removable superseded files and modified conflicts."""
+    removable: Dict[str, str] = {}
+    conflicts: List[str] = []
+    for key, expected_hash in owned.items():
+        if key in files:
+            continue
+        try:
+            current = _read_confined(output_dir, key)
+        except FileNotFoundError:
+            continue
+        except (OSError, PathConfinementError) as error:
+            conflicts.append(f"{key}: cannot inspect existing file: {error}")
+            continue
+        if _digest(current) == expected_hash:
+            removable[key] = expected_hash
+        else:
+            conflicts.append(key)
+    return removable, conflicts
+
+
+def _ownership_after_write(
+    previous: Dict[str, str],
+    files: Dict[str, str],
+    unchanged: List[str],
+    written: List[str],
+) -> Dict[str, str]:
+    """Return ownership for files actually written or still builder-owned."""
+    result: Dict[str, str] = {}
+    for key in written:
+        result[key] = _digest(files[key].encode("utf-8"))
+    for key in unchanged:
+        desired_hash = _digest(files[key].encode("utf-8"))
+        if previous.get(key) == desired_hash:
+            result[key] = desired_hash
+    return result
+
+
+def _existing_unmanaged(output_dir: Path, files: Dict[str, str]) -> List[str]:
+    """List files already on disk that the builder does not manage.
+
+    Surfaced so the caller can see what was deliberately left alone -- the
+    previous implementation deleted exactly these without saying so.
+    """
+    if not output_dir.exists():
+        return []
+    managed = set(files)
+    found = []
+    for path in sorted(output_dir.rglob("*")):
+        if not path.is_file():
+            continue
+        relative = str(path.relative_to(output_dir))
+        if relative not in managed and "__pycache__" not in relative:
+            found.append(relative)
+    return found
+
+
+def _register(stack: "Stack", output_dir: Path) -> Optional[str]:
+    """Register the freshly written agent with the live environment.
+
+    Best effort: a generated agent that cannot be loaded is a validation
+    concern (PR 1.3), not a reason to report the write itself as failed.
+    """
+    try:
+        environment = stack.agent.environment
+        name = environment.load_agent_from_path(str(output_dir))
+        if name:
+            logger.info("Registered new agent '%s' in environment", name)
+        return name
+    except Exception as error:  # noqa: BLE001 - registration is advisory
+        logger.warning("Could not register generated agent: %s", error)
+        return None
