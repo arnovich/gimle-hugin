@@ -25,6 +25,42 @@ hugin create
 
 The wizard will guide you through several prompts.
 
+### Running it without prompts
+
+Every prompt has a flag, so a build can be scripted or run in CI:
+
+```bash
+hugin create --yes \
+  --name weather_assistant \
+  --description "Look up forecasts and advise on what to wear" \
+  --output ./agents/weather_assistant
+```
+
+`--yes` requires `--name` and `--description`; everything else falls back to a
+default. Other flags: `--model` (the generated agent's model),
+`--builder-model` (the model that does the building), and `--stub-tools`,
+which emits tool signatures raising `NotImplementedError` instead of generated
+bodies — better than plausible-looking code for anything that needs an API key
+you have to wire in yourself. Add `--dry-run` to build and validate without
+writing the target directory.
+
+### What you get
+
+Alongside `configs/`, `tasks/`, `templates/` and `tools/`, the generated
+directory contains:
+
+- `BUILD_REPORT.md` — what was asked for, the tools and tasks that were built,
+  the exact command to run it, and any validator warnings.
+- `requirements.txt` — third-party imports read out of the generated code, if
+  there were any. They are *observed*, not verified: the names come from
+  generated code, so check them before installing.
+
+If a build fails validation, nothing is written to the target directory.
+The payload is instead written to `<output>.rejected/` with a
+`VALIDATION_REPORT.md` explaining what was wrong; fix it and re-check with
+`hugin validate <path>`.
+
+
 ## Step 2: Enter Agent Name
 
 ```
@@ -66,13 +102,17 @@ The model your *created agent* will use (not the creator itself).
 
 Hugin supports models from three providers:
 
-| Provider | Examples | Requires |
-|----------|----------|----------|
-| **Anthropic** | `haiku-latest`, `sonnet-latest`, `opus-latest` | `ANTHROPIC_API_KEY` |
-| **OpenAI** | `gpt-4o`, `gpt-4o-mini` | `OPENAI_API_KEY` |
-| **Ollama** | `qwen3:8b`, `llama3.2-latest`, `llama3.3-70b` | Local Ollama installation |
+| Provider | Requires |
+|----------|----------|
+| **Anthropic** | `ANTHROPIC_API_KEY` |
+| **OpenAI** | `OPENAI_API_KEY` |
+| **Ollama** | Local Ollama installation |
 
-The default is `haiku-latest` which is fast and works well for most tasks.
+The wizard lists the models it actually has, read from
+`model_registry.py` at the time you run it. This page used to restate that
+list, which meant it was wrong from the first model anyone added — so it no
+longer does. The default is `haiku-latest`: fast, and good enough for most
+agents.
 
 **See all available models:** Check [`src/gimle/hugin/llm/models/model_registry.py`](https://github.com/gimlelabs/gimle-hugin/blob/main/src/gimle/hugin/llm/models/model_registry.py) for the complete list of pre-configured models.
 

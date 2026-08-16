@@ -6,9 +6,14 @@ import logging
 import re
 import sys
 import textwrap
+import time
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
+# Establish builtin tool registration before Environment imports the
+# interaction package. Starting from Environment in a fresh CLI process enters
+# the inverse import order and leaves AgentCall partially initialised.
+import gimle.hugin.tools  # noqa: F401
 from gimle.hugin.agent.environment import Environment
 from gimle.hugin.agent.session import Session
 from gimle.hugin.cli.ui import (
@@ -79,6 +84,17 @@ def to_snake_case(name: str) -> str:
     name = re.sub(r"_+", "_", name)
     name = name.strip("_")
     return name
+
+
+def _registry_models(provider: str) -> list:
+    """Return the registered model names for a provider, newest names first."""
+    try:
+        from gimle.hugin.llm.models.model_registry import get_model_registry
+
+        names = get_model_registry().get_models_by_provider(provider)
+    except Exception:  # noqa: BLE001 - fall back rather than block the wizard
+        return []
+    return sorted(names, key=lambda n: (not n.endswith("latest"), n))
 
 
 def select_provider() -> Tuple[str, ProviderStatus]:
@@ -164,10 +180,11 @@ def select_model(provider: str, status: ProviderStatus) -> str:
             print()
             custom = prompt_user("    Enter model name to use", "qwen3:8b")
             return custom
-    elif provider == "anthropic":
-        models = ["sonnet-latest", "haiku-latest", "opus-latest"]
-    elif provider == "openai":
-        models = ["gpt-4o", "gpt-4o-mini"]
+    elif provider in ("anthropic", "openai"):
+        # Read from the registry rather than restating it here. The hardcoded
+        # lists went stale the moment a model was added, and the docs restated
+        # them a third time.
+        models = _registry_models(provider)
     else:
         models = []
 
@@ -238,10 +255,49 @@ def verify_credentials(provider: str, status: ProviderStatus) -> bool:
         return prompt_yes_no("\n    Continue anyway?", default=False)
 
 
-def run_wizard(builder_model: Optional[str] = None) -> Dict[str, Any]:
-    """Run the interactive wizard and collect user input."""
+def _supplied(args: argparse.Namespace) -> Dict[str, str]:
+    """Return the non-empty command-line values, keyed by field."""
+    fields = (
+        "name",
+        "description",
+        "model",
+        "builder_model",
+        "output",
+    )
+    return {
+        field: getattr(args, field)
+        for field in fields
+        if getattr(args, field, None)
+    }
+
+
+def run_wizard(
+    builder_model: Optional[str] = None,
+    args: Optional[argparse.Namespace] = None,
+) -> Dict[str, Any]:
+    """Collect the build inputs, prompting only for what was not supplied.
+
+    Every field can now arrive as a flag, so ``hugin create --yes`` runs
+    unattended -- which is what makes the wizard scriptable and testable at
+    all. It previously demanded four screens of provider and credential
+    selection before it would even ask what to build.
+    """
+    args = args or argparse.Namespace()
+    supplied = _supplied(args)
+    non_interactive = bool(getattr(args, "yes", False))
+    dry_run = bool(getattr(args, "dry_run", False))
+
+    if non_interactive and not (
+        supplied.get("name") and supplied.get("description")
+    ):
+        print("    --yes requires --name and --description.")
+        sys.exit(2)
+
+    if supplied.get("builder_model"):
+        builder_model = supplied["builder_model"]
+
     # Step 1-3: Provider and model selection (for the builder itself)
-    if not builder_model:
+    if not builder_model and not non_interactive:
         provider, status = select_provider()
         model = select_model(provider, status)
         if not verify_credentials(provider, status):
@@ -249,56 +305,97 @@ def run_wizard(builder_model: Optional[str] = None) -> Dict[str, Any]:
             sys.exit(0)
         builder_model = model
 
-    show_header(
-        "Step 4 of 4: Define Your Agent",
-        "Tell us about the agent you want to create",
-    )
+    builder_model = builder_model or "sonnet-latest"
+
+    if not non_interactive:
+        show_header(
+            "Step 4 of 4: Define Your Agent",
+            "Tell us about the agent you want to create",
+        )
 
     # Agent name
-    raw_name = prompt_user("    Agent name")
-    while not raw_name:
-        print("    Please enter a name for the agent")
+    if supplied.get("name"):
+        raw_name = supplied["name"]
+    else:
         raw_name = prompt_user("    Agent name")
+        while not raw_name:
+            print("    Please enter a name for the agent")
+            raw_name = prompt_user("    Agent name")
 
     agent_name = to_snake_case(raw_name)
-    if agent_name != raw_name:
+    if agent_name != raw_name and not non_interactive:
         print(f"        -> Converted to: {agent_name}")
 
     # Description
-    print()
-    print("    Describe what this agent should do:")
-    print("    (Be as detailed as you like - what tasks, goals, behaviors?)")
-    print()
-    description = prompt_user("    Description")
+    if supplied.get("description"):
+        description = supplied["description"]
+    else:
+        print()
+        print("    Describe what this agent should do:")
+        print("    (Be as detailed as you like - what tasks, goals?)")
+        print()
+        description = prompt_user("    Description")
 
     # LLM Model for the generated agent (not the builder)
-    print()
-    print("    What LLM should the generated agent use?")
-    llm_model = prompt_user("    LLM model for the agent", "haiku-latest")
+    if supplied.get("model"):
+        llm_model = supplied["model"]
+    elif non_interactive:
+        llm_model = "haiku-latest"
+    else:
+        print()
+        print("    What LLM should the generated agent use?")
+        llm_model = prompt_user("    LLM model for the agent", "haiku-latest")
 
-    # Tool implementation style
-    print()
-    full_implementation = prompt_yes_no(
-        "    Generate full tool implementations? (No = stubs only)",
-        default=True,
-    )
+    # Tool implementation style. `--stub-tools` finally gives the long-dead
+    # `full_implementation` flag a meaning: a signature that raises
+    # NotImplementedError beats hallucinated code for anything needing
+    # credentials the user must wire in themselves.
+    if getattr(args, "stub_tools", False):
+        full_implementation = False
+    elif non_interactive:
+        full_implementation = True
+    else:
+        print()
+        full_implementation = prompt_yes_no(
+            "    Generate full tool implementations? (No = stubs only)",
+            default=True,
+        )
 
-    # Output path
-    print()
-    # Checked here, not only at write time: these refusals used to surface
-    # after the entire multi-stage LLM build had already run and been paid for.
+    # Output path. Checked here, not only at write time: these refusals used
+    # to surface after the entire multi-stage LLM build had already run.
     from gimle.hugin.apps.agent_builder.tools.agent_paths import (
         check_output_path,
     )
 
     default_output = f"./agents/{agent_name}"
-    output_path = prompt_user("    Output directory path", default_output)
-    while True:
+    if supplied.get("output") or non_interactive:
+        output_path = supplied.get("output") or default_output
         problem = check_output_path(output_path)
-        if not problem:
-            break
-        print(f"        {problem}")
+        if problem:
+            print(f"    {problem}")
+            sys.exit(2)
+    else:
+        print()
         output_path = prompt_user("    Output directory path", default_output)
+        while True:
+            problem = check_output_path(output_path)
+            if not problem:
+                break
+            print(f"        {problem}")
+            output_path = prompt_user(
+                "    Output directory path", default_output
+            )
+
+    if non_interactive:
+        return {
+            "agent_name": agent_name,
+            "description": description,
+            "llm_model": llm_model,
+            "full_implementation": full_implementation,
+            "dry_run": dry_run,
+            "output_path": str(Path(output_path).expanduser().resolve()),
+            "builder_model": builder_model,
+        }
 
     # Confirmation screen
     show_header("Ready to Build", "Review your configuration")
@@ -311,6 +408,7 @@ def run_wizard(builder_model: Optional[str] = None) -> Dict[str, Any]:
     print(f"        Name:        {agent_name}")
     print(f"        Agent LLM:   {llm_model}")
     print(f"        Tool style:  {impl_style}")
+    print(f"        Dry run:     {'yes' if dry_run else 'no'}")
     print(f"        Output:      {output_path}")
     print(f"        Builder LLM: {builder_model}")
     print()
@@ -330,6 +428,7 @@ def run_wizard(builder_model: Optional[str] = None) -> Dict[str, Any]:
         "description": description,
         "llm_model": llm_model,
         "full_implementation": full_implementation,
+        "dry_run": dry_run,
         "output_path": str(Path(output_path).expanduser().resolve()),
         "builder_model": builder_model,
     }
@@ -389,6 +488,13 @@ def _generated_run_command(output_path: str) -> str:
     return run_command(output_path, task_name)
 
 
+def _should_run_after_build(non_interactive: bool) -> bool:
+    """Ask to launch the agent unless this is an unattended build."""
+    if non_interactive:
+        return False
+    return prompt_yes_no("    Run your new agent now?", default=True)
+
+
 def setup_file_logging(log_dir: Path, log_level: str) -> Path:
     """Configure logging to write to a file instead of stdout.
 
@@ -417,7 +523,7 @@ def setup_file_logging(log_dir: Path, log_level: str) -> Path:
     return log_file
 
 
-def main() -> int:
+def main(argv: Optional[List[str]] = None) -> int:
     """Run the agent builder wizard."""
     parser = argparse.ArgumentParser(
         description="Interactive wizard for creating new Hugin agents",
@@ -434,6 +540,32 @@ Examples:
   uv run create-agent --log-level DEBUG
         """,
     )
+    parser.add_argument("--name", help="Agent name (skips the prompt)")
+    parser.add_argument(
+        "--description", help="What the agent should do (skips the prompt)"
+    )
+    parser.add_argument("--model", help="LLM model for the generated agent")
+    parser.add_argument(
+        "--builder-model", help="LLM model that builds the agent"
+    )
+    parser.add_argument("--output", help="Directory to write the agent to")
+    parser.add_argument(
+        "--stub-tools",
+        action="store_true",
+        help="Emit tool signatures that raise NotImplementedError, rather "
+        "than generated bodies",
+    )
+    parser.add_argument(
+        "-y",
+        "--yes",
+        action="store_true",
+        help="Do not prompt; requires --name and --description",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Build and validate without writing the agent directory",
+    )
     parser.add_argument(
         "--max-steps",
         type=int,
@@ -446,10 +578,10 @@ Examples:
         default="WARNING",
         help="Logging level for log file (default: WARNING)",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     # Run wizard
-    user_input = run_wizard()
+    user_input = run_wizard(args=args)
 
     # Set up storage path
     storage_path = Path("./storage/agent_builder")
@@ -513,6 +645,13 @@ Examples:
 
         # Inject user input as task parameters
         task = task.set_input_parameters(user_input)
+        if user_input.get("dry_run") and task.task_sequence:
+            # There is no on-disk agent to execute in preview mode. Review and
+            # final validation still run; the writer is forced into dry-run by
+            # the environment value and records its preview for this CLI.
+            task.task_sequence = [
+                name for name in task.task_sequence if name != "test_agent"
+            ]
 
         # Create and run session
         session = Session(environment=env)
@@ -524,6 +663,7 @@ Examples:
         print(f"    Log file:      {log_file}")
         print()
 
+        started = time.monotonic()
         step_count, last_error = run_steps_with_spinner(
             step_fn=agent.step,
             save_fn=lambda: storage.save_session(session),
@@ -532,6 +672,7 @@ Examples:
             clear_width=40,
             session=session,
         )
+        elapsed = time.monotonic() - started
         if last_error:
             logging.error("Error during agent step", exc_info=last_error)
 
@@ -561,7 +702,10 @@ Examples:
             print(f"    Monitor session: hugin monitor -s {storage_path}")
             return 1
 
-        if not env.env_vars.get("written_keys"):
+        dry_run_result = env.env_vars.get("dry_run_result")
+        if not env.env_vars.get("written_keys") and not (
+            user_input.get("dry_run") and dry_run_result
+        ):
             # Ask whether the writer actually succeeded, not whether the
             # directory exists. Re-running the builder over an existing agent,
             # or any earlier partial write, leaves the directory in place, so
@@ -597,6 +741,19 @@ Examples:
         if session is not None:
             session.close()
 
+    if user_input.get("dry_run"):
+        show_header(
+            "Dry Run Complete", "The agent passed without being written"
+        )
+        preview = env.env_vars["dry_run_result"]
+        print(f"    Target: {user_input['output_path']}")
+        print(f"    Would write: {len(preview.get('would_write', []))} file(s)")
+        print(
+            f"    Would remove: {len(preview.get('would_remove', []))} file(s)"
+        )
+        print(f"    Built in: {elapsed:.0f}s over {step_count} steps")
+        return 0
+
     # Success screen
     show_header("Agent Created Successfully!", "Your agent is ready to use")
 
@@ -604,15 +761,23 @@ Examples:
     print("    │            Agent Details                │")
     print("    └─────────────────────────────────────────┘")
     print()
-    print(f"        Location: {user_input['output_path']}")
+    output_path = user_input["output_path"]
+    print(f"        Location: {output_path}")
+    print(f"        Built in: {elapsed:.0f}s over {step_count} steps")
+    requirements = Path(output_path) / "requirements.txt"
+    if requirements.exists():
+        print(f"        Install:  uv pip install -r {requirements}")
+    report = Path(output_path) / "BUILD_REPORT.md"
+    if report.exists():
+        print(f"        Report:   {report}")
     print()
     print("    Run your new agent with:")
     print()
-    print(f"        {_generated_run_command(user_input['output_path'])}")
+    print(f"        {_generated_run_command(output_path)}")
     print()
 
     # Ask if user wants to run the agent now
-    if prompt_yes_no("    Run your new agent now?", default=True):
+    if _should_run_after_build(args.yes):
         print()
         print("    Starting agent runner...")
         print()

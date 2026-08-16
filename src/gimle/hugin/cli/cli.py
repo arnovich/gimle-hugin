@@ -55,9 +55,7 @@ def cmd_create(args: argparse.Namespace) -> int:
     """Run the create-agent wizard."""
     from gimle.hugin.cli.create_agent import main as create_main
 
-    # Pass through to create_agent's main
-    sys.argv = ["hugin create"] + args.extra_args
-    return create_main()
+    return create_main(args.extra_args)
 
 
 def cmd_run(args: argparse.Namespace) -> int:
@@ -506,9 +504,10 @@ Examples:
         "create",
         help="Create a new agent interactively",
         description="Interactive wizard for creating new Hugin agents",
+        add_help=False,
     )
     create_parser.add_argument(
-        "extra_args", nargs="*", help="Additional arguments"
+        "extra_args", nargs=argparse.REMAINDER, help="Additional arguments"
     )
     create_parser.set_defaults(func=cmd_create)
 
@@ -769,8 +768,28 @@ Examples:
     )
     sandbox_parser.set_defaults(func=cmd_sandbox)
 
+    # The creator owns its command-line interface. Split at the subcommand so
+    # option-style arguments such as ``--name`` are forwarded verbatim instead
+    # of being rejected by this outer parser.
+    raw_args = sys.argv[1:]
+    create_args: List[str] = []
+    create_index = next(
+        (
+            index
+            for index, value in enumerate(raw_args)
+            if value == "create"
+            and all(arg in {"-v", "--env"} for arg in raw_args[:index])
+        ),
+        None,
+    )
+    if create_index is not None:
+        create_args = raw_args[create_index + 1 :]
+        raw_args = raw_args[: create_index + 1]
+
     # Parse arguments
-    args = parser.parse_args()
+    args = parser.parse_args(raw_args)
+    if args.command == "create":
+        args.extra_args = create_args
 
     # Self-heal: reap abandoned local sandbox workspaces on every invocation,
     # resolving the root from --storage-path so it matches where the tool wrote.

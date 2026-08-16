@@ -1,5 +1,6 @@
 """Generate tool Python and YAML files."""
 
+import re
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 import yaml
@@ -8,6 +9,19 @@ from gimle.hugin.tools.tool import ToolResponse
 
 if TYPE_CHECKING:
     from gimle.hugin.interaction.stack import Stack
+
+
+# Declared schema type -> Python annotation. Everything was previously typed
+# `str` regardless, so a tool declaring an integer advertised the wrong
+# signature to anyone reading it and to the contract check.
+PYTHON_TYPES = {
+    "string": "str",
+    "integer": "int",
+    "number": "float",
+    "boolean": "bool",
+    "array": "List[Any]",
+    "object": "Dict[str, Any]",
+}
 
 
 def validate_python_syntax(code: str) -> Optional[str]:
@@ -20,6 +34,39 @@ def validate_python_syntax(code: str) -> Optional[str]:
 
 
 # Helper code that gets included in generated tools for robust input parsing
+
+_SECRET_PATTERN = re.compile(
+    r"(sk-[A-Za-z0-9_\-]{8,}|ghp_[A-Za-z0-9]{8,}|AKIA[0-9A-Z]{8,}"
+    r"|Bearer\s+[A-Za-z0-9._\-]{8,}|(?<=[?&])[A-Za-z_]*(?:key|token|secret)"
+    r"=[^&\s]+)",
+    re.IGNORECASE,
+)
+
+
+def _redact(text: str) -> str:
+    """Mask credential-shaped substrings before they reach the model.
+
+    Error text is where credentials surface -- a 401 with the key in the query
+    string, a traceback carrying the failing call's arguments -- and this text
+    goes into the model's context and into persisted interaction JSON.
+    """
+    return _SECRET_PATTERN.sub("[redacted]", text)
+
+
+REDACT_HELPER = '''
+_SECRET_PATTERN = re.compile(
+    r"(sk-[A-Za-z0-9_\\-]{8,}|ghp_[A-Za-z0-9]{8,}|AKIA[0-9A-Z]{8,}"
+    r"|Bearer\\s+[A-Za-z0-9._\\-]{8,}|(?<=[?&])[A-Za-z_]*(?:key|token|secret)"
+    r"=[^&\\s]+)",
+    re.IGNORECASE,
+)
+
+
+def _redact(text: str) -> str:
+    """Mask credential-shaped substrings before they reach the model."""
+    return _SECRET_PATTERN.sub("[redacted]", text)
+'''
+
 PARSE_INPUT_HELPER = '''
 def _parse_input(value: Any) -> Any:
     """Parse input that might be JSON string, Python repr, or already parsed.
@@ -60,6 +107,18 @@ def _parse_input(value: Any) -> Any:
 '''
 
 
+def _wants_full_implementation(stack: "Stack") -> bool:
+    """Return False when the build asked for stub tool bodies."""
+    try:
+        user_input = stack.agent.environment.env_vars.get("user_input", {})
+    except AttributeError:  # pragma: no cover - defensive for test stubs
+        return True
+    value = user_input.get("full_implementation", True)
+    if isinstance(value, str):
+        return value.strip().lower() not in {"0", "false", "no", "off"}
+    return bool(value)
+
+
 def generate_tool(
     tool_name: str,
     description: str,
@@ -88,10 +147,11 @@ def generate_tool(
     optional_params = []
     for param_name, param_info in parameters_schema.items():
         required = param_info.get("required", True)
+        hint = PYTHON_TYPES.get(str(param_info.get("type", "string")), "str")
         if required:
-            required_params.append(f"{param_name}: str")
+            required_params.append(f"{param_name}: {hint}")
         else:
-            optional_params.append(f"{param_name}: Optional[str] = None")
+            optional_params.append(f"{param_name}: Optional[{hint}] = None")
 
     # Combine: required first, then optional
     param_parts = required_params + optional_params
@@ -108,6 +168,19 @@ def generate_tool(
     docstring_params_str = (
         "\n".join(docstring_params) if docstring_params else ""
     )
+
+    # Stub mode. `full_implementation` was collected by the wizard and
+    # declared as a task parameter for months while being referenced by no
+    # prompt and no code at all. Honouring it here is what makes it real: for a
+    # tool needing an API key the user must wire in anyway, a signature that
+    # raises beats plausible-looking code that cannot work.
+    if not _wants_full_implementation(stack):
+        implementation_code = (
+            "raise NotImplementedError(\n"
+            f'    "{tool_name} is a generated stub. Implement it, then "\n'
+            '    "re-run the agent."\n'
+            ")"
+        )
 
     # Indent implementation code
     impl_lines = implementation_code.strip().split("\n")
@@ -129,6 +202,7 @@ def generate_tool(
 {description}
 """
 
+import re
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from gimle.hugin.tools.tool import ToolResponse
@@ -136,6 +210,7 @@ from gimle.hugin.tools.tool import ToolResponse
 if TYPE_CHECKING:
     from gimle.hugin.interaction.stack import Stack
 
+{REDACT_HELPER}
 {PARSE_INPUT_HELPER}
 
 def {tool_name}(
@@ -159,9 +234,17 @@ def {tool_name}(
 
 {indented_impl}
     except Exception as e:
+        import traceback as _traceback
+
         return ToolResponse(
             is_error=True,
-            content={{"error": str(e)}},
+            content={{
+                "error": _redact(str(e)),
+                # Where it failed, not just that it failed. Truncated from the
+                # end so the innermost frame survives, and redacted because
+                # this text reaches the model and the persisted trace.
+                "traceback": _redact(_traceback.format_exc())[-2000:],
+            }},
         )
 '''
 

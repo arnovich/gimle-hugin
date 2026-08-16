@@ -177,7 +177,7 @@ class Tool:
         return func
 
     @classmethod
-    def register_instance(cls, tool: "Tool") -> "Tool":
+    def register_instance(cls, tool: "Tool", *, replace: bool = True) -> "Tool":
         """Register a Tool instance, loading its implementation if needed.
 
         If the tool has an implementation_path but no func, the implementation
@@ -185,6 +185,7 @@ class Tool:
 
         Args:
             tool: Tool instance to register
+            replace: Whether an existing tool with this name may be replaced.
 
         Returns:
             The registered tool instance
@@ -201,7 +202,7 @@ class Tool:
             pass
 
         # Register the tool
-        cls.registry.register(tool)
+        cls.registry.register(tool, replace=replace)
         return tool
 
     @staticmethod
@@ -259,7 +260,13 @@ class Tool:
         return decorator
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "Tool":
+    def from_dict(
+        cls,
+        data: Dict[str, Any],
+        *,
+        replace: bool = True,
+        register: bool = True,
+    ) -> "Tool":
         """Deserialize a tool from a dictionary.
 
         The dictionary should contain tool metadata. If implementation_path is provided,
@@ -267,6 +274,8 @@ class Tool:
 
         Args:
             data: The data to deserialize the tool from.
+            replace: Whether registration may replace an existing tool.
+            register: Whether to register the deserialized tool immediately.
 
         Returns:
             The deserialized tool.
@@ -275,17 +284,18 @@ class Tool:
         func = data.pop("func", None)
         config = ToolConfig(**data.get("options", {}))
         params = Tool._include_reason(data.get("parameters", {}), config)
-        return cls.registry.register(
-            Tool(
-                name=data["name"],
-                description=data["description"],
-                parameters=params,
-                is_interactive=data.get("is_interactive", False),
-                options=config,
-                func=func,
-                implementation_path=data.get("implementation_path"),
-            )
+        tool = Tool(
+            name=data["name"],
+            description=data["description"],
+            parameters=params,
+            is_interactive=data.get("is_interactive", False),
+            options=config,
+            func=func,
+            implementation_path=data.get("implementation_path"),
         )
+        if register:
+            return cls.registry.register(tool, replace=replace)
+        return tool
 
     @classmethod
     def get_tool(cls, name: str, throw_error: bool = True) -> Optional["Tool"]:

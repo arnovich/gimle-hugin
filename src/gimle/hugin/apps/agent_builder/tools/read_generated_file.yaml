@@ -1,0 +1,16 @@
+name: read_generated_file
+description: >-
+  Read back one file you have already generated, by its path (e.g.
+  tools/fetch_prices.py). Use this before regenerating a file so you edit what
+  is actually there rather than re-inventing it from an error message.
+parameters:
+  path:
+    type: string
+    description: Key of the generated file, e.g. 'tools/fetch_prices.py'
+    required: true
+is_interactive: false
+implementation_path: agent_builder.tools.read_generated_file:read_generated_file
+options:
+  # A repair loop may read several files; keep only the recent ones in context.
+  include_only_in_context_window: true
+  context_window: 3
