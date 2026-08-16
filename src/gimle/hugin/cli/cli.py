@@ -2,6 +2,7 @@
 """Hugin CLI - Main entry point for all Hugin commands."""
 
 import argparse
+import json
 import sys
 from pathlib import Path
 from typing import List, Optional
@@ -313,6 +314,106 @@ def cmd_install_models(args: argparse.Namespace) -> int:
 
     sys.argv = ["hugin install-models"] + args.extra_args
     return install_main()
+
+
+def cmd_analyze(args: argparse.Namespace) -> int:
+    """Report on an agent's historic runs, without an LLM in the loop."""
+    from gimle.hugin.analysis.traces import (
+        TraceReadError,
+        analyze_traces,
+        default_storage_path,
+    )
+
+    storage_path = args.storage_path
+    if not storage_path and args.agent_path:
+        storage_path = default_storage_path(args.agent_path)
+    if not storage_path:
+        print("    Pass --storage-path (the directory the agent ran against).")
+        return 2
+
+    try:
+        report = analyze_traces(
+            storage_path, limit=args.limit, agent_name=args.agent
+        )
+    except TraceReadError as error:
+        print(f"    {error}")
+        return 2
+
+    if args.json:
+        print(json.dumps(report, indent=2))
+        return 0
+
+    _print_analysis(report, storage_path)
+    return 0
+
+
+def _print_analysis(report: dict, storage_path: str) -> None:
+    """Render the report for a terminal."""
+    if not report.get("runs_analyzed"):
+        print(f"    {report.get('note', 'No runs found.')}")
+        return
+
+    turns = report["model_turns"]
+    tokens = report["tokens"]
+    success = report["self_reported_success_rate"]
+    print()
+    print(f"    {storage_path}: {report['runs_analyzed']} run(s)")
+    print()
+    print(
+        f"    finished           {report['completed']}"
+        f"/{report['runs_analyzed']}"
+        f"   (unfinished {report['unfinished_rate']:.0%})"
+    )
+    if success is not None:
+        print(f"    self-reported ok   {success:.0%}")
+    print(
+        f"    model turns        p50 {turns['p50']}  p90 {turns['p90']}"
+        f"  max {turns['max']}"
+    )
+    print(
+        f"    output tokens      {tokens['output']}"
+        f"   ({tokens['output_per_run']}/run)"
+    )
+    if report["unresolved_template_turns"]:
+        print(
+            "    unrendered {{ }}   "
+            f"{report['unresolved_template_turns']} turn(s)"
+        )
+
+    if report["tools"]:
+        print()
+        print("    tool                     calls  errors  max result")
+        for row in report["tools"][:12]:
+            print(
+                f"      {row['name'][:22]:<22} {row['calls']:>6}"
+                f" {row['errors']:>7} {row['max_result_chars']:>11}"
+            )
+            for error in row["top_errors"]:
+                print(f"          {error['count']}x {error['value'][:60]}")
+
+    for label, key in (
+        ("never called", "dead_tools"),
+        ("looping", "loops_detected"),
+        ("oversized results", "oversized_results"),
+    ):
+        entries = report.get(key) or []
+        if not entries:
+            continue
+        rendered = ", ".join(
+            (
+                entry
+                if isinstance(entry, str)
+                else f"{entry['value']}" f" ({entry['count']})"
+            )
+            for entry in entries
+        )
+        print(f"\n    {label}: {rendered}")
+
+    if report.get("caveats"):
+        print()
+        for note in report["caveats"]:
+            print(f"    note: {note}")
+    print()
 
 
 def cmd_validate(args: argparse.Namespace) -> int:
@@ -704,6 +805,34 @@ Examples:
         "extra_args", nargs="*", help="Additional arguments for the app"
     )
     app_parser.set_defaults(func=cmd_app)
+
+    # analyze command
+    analyze_parser = subparsers.add_parser(
+        "analyze",
+        help="Report on an agent's historic runs",
+        description="Summarise persisted runs: success and completion rates, "
+        "model turns, tokens, per-tool error rates, tools that were never "
+        "called, loops, and oversized tool results. Reads storage only -- no "
+        "model is called.",
+    )
+    analyze_parser.add_argument(
+        "agent_path",
+        nargs="?",
+        help="Agent directory, used to guess --storage-path",
+    )
+    analyze_parser.add_argument(
+        "-s", "--storage-path", help="Storage directory the agent ran against"
+    )
+    analyze_parser.add_argument(
+        "--agent", help="Only runs whose config has this name"
+    )
+    analyze_parser.add_argument(
+        "--limit", type=int, default=50, help="Most recent runs to read"
+    )
+    analyze_parser.add_argument(
+        "--json", action="store_true", help="Emit the raw report as JSON"
+    )
+    analyze_parser.set_defaults(func=cmd_analyze)
 
     # validate command
     validate_parser = subparsers.add_parser(

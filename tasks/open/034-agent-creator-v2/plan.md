@@ -10,7 +10,7 @@ Branch per PR off `main`, snake_case, `task/` prefix. See `spec.md` for design.
 
 ## Status — start here
 
-**Last updated: 2026-08-16. Phase 1 is complete.**
+**Last updated: 2026-08-16. Phases 1 and 1.5 are complete.**
 
 | PR | What | State |
 |---|---|---|
@@ -18,22 +18,24 @@ Branch per PR off `main`, snake_case, `task/` prefix. See `spec.md` for design.
 | #83 | 1.2 Examples wired in | merged |
 | #85 | 1.3 Static validator, `hugin validate`, CI gate | merged |
 | #87 | 1.4 The gate, in code | merged |
-| #97 | 1.5 + 1.4b + 1.6 + 1.7 — the rest of Phase 1 | **open, green, awaiting merge** |
+| #97 | 1.5 + 1.4b + 1.6 + 1.7 — the rest of Phase 1 | merged |
+| — | Phase 1.5: 1.8 + 1.9 (`hugin analyze`) | **open on `task/034_trace_analysis`** |
 
 ### Pick up here
 
-**Next is Phase 1.5: PR 1.8 then PR 1.9 (`hugin analyze`).** Read-only trace
-analysis. Chosen next deliberately: it is zero LLM tokens, works on
-hand-written agents, depends on nothing from Phases 2-4, and surfaces the
-storage-API problem early rather than in Phase 5.
+**Next is Phase 2, and the first decision is which parts of it to keep.** See
+"Things to decide" below — two items are worth re-deciding rather than
+executing.
 
-Know before starting PR 1.8: `load_interaction(uuid, stack)` needs a `Stack`
-that does not exist for a foreign agent's historic runs, and
-`list_interactions()` is a flat unscoped listing. Follow what `hugin monitor`
-already does (`cli/monitor_agents.py:671,747`): read `storage/agents/<uuid>`
-JSON for `stack.interactions`, then `LocalStorage.load_interaction_metadata`.
-That helper is on `LocalStorage`, not the `Storage` ABC — lift it or scope the
-work to local storage, and record which.
+If you want a default: **PR 2.5, the golden-set eval harness, first.** Nothing
+built so far measures the *model* — every test to date pins mechanics. PR 2.2
+changes the builder's system prompt, and without the harness there is no way to
+tell whether that helped or hurt.
+
+`hugin analyze` is now available to point at any storage directory, including
+`./storage/financial_newspaper`. Running it on a real multi-agent app before
+starting Phase 2 would be a cheap way to find out what the builder should
+actually be optimising for.
 
 ### Things to decide before Phase 2, not during it
 
@@ -264,22 +266,43 @@ Its own feature, split out of the original six-item PR 1.4.
 Pulled forward from Phase 5. Zero LLM tokens, no dependency on Phases 2-4.
 
 ### PR 1.8 — Storage access for foreign runs `task/034_trace_access`
-- [ ] Read `storage/agents/<uuid>` JSON + `load_interaction_metadata`, following
+- [x] Read `storage/agents/<uuid>` JSON + `load_interaction_metadata`, following
       `cli/monitor_agents.py:671,747` — **not** `load_interaction(uuid, stack)`,
       which needs a Stack that does not exist for historic runs (spec §5.1)
-- [ ] Decide and record: lift `load_interaction_metadata` to the `Storage` ABC,
+- [x] Decide and record: lift `load_interaction_metadata` to the `Storage` ABC,
       or scope this to `LocalStorage` explicitly
-- [ ] Redactor + normalised error signatures, with a test asserting a seeded
+- [x] Redactor + normalised error signatures, with a test asserting a seeded
       fake key never reaches the report
 
 ### PR 1.9 — `hugin analyze` `task/034_analyze_cli`
-- [ ] `analyze_traces` over the metrics in spec §5.1, top-N bounded
-- [ ] `hugin analyze <path> --storage-path <s>` printing the report
-- [ ] `tests/test_analyze_traces.py` against a synthetic storage dir
-- [ ] **Then** revise spec §5.1's metric table against one real storage dir
+- [x] `analyze_traces` over the metrics in spec §5.1, top-N bounded
+- [x] `hugin analyze <path> --storage-path <s>` printing the report
+- [x] `tests/test_analyze_traces.py` against a synthetic storage dir
+- [x] **Then** revise spec §5.1's metric table against one real storage dir
       before anything consumes it
 
 ---
+
+Delivered as one PR (`task/034_trace_analysis`), in `src/gimle/hugin/analysis/`:
+`redaction.py` (credential masking + error-signature normalisation) and
+`traces.py` (reader + metrics), with `hugin analyze` on top.
+
+Decisions recorded while building, each forced by real storage rather than the
+spec:
+
+- **Scoped to `LocalStorage`, not lifted to the `Storage` ABC.** The cheap
+  reader (`load_interaction_metadata`) exists only there and no second backend
+  exists to generalise against. Widening later is smaller than unpicking a
+  guessed interface.
+- **Tool results are attributed positionally, not by `tool_call_id`.**
+  `ToolResult` carries no tool name, and on a real run both its `tool_call_id`
+  and the matching `ToolCall`'s were `null`. A result belongs to the most
+  recent preceding `ToolCall`.
+- **Token counts are available** in `OracleResponse.response`
+  (`input_tokens`/`output_tokens`), so cost is reported.
+- **`success_rate` is labelled self-reported in the output itself**, because it
+  is the measured agent's own `finish_type` and anything optimising it can win
+  by declaring success sooner. Small samples are flagged for the same reason.
 
 ## Phase 2 — One knowledge base (closes task 013)
 
