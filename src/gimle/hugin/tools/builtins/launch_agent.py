@@ -1,13 +1,15 @@
 """Launch sub-agent builtin tool."""
 
+from __future__ import annotations
+
 import logging
 from typing import TYPE_CHECKING, Any, Dict, Optional, Union
 
 from gimle.hugin.agent.task import Task, TaskParameter
-from gimle.hugin.interaction.agent_call import AgentCall
 from gimle.hugin.tools.tool import Tool, ToolResponse
 
 if TYPE_CHECKING:
+    from gimle.hugin.interaction.agent_call import AgentCall
     from gimle.hugin.interaction.stack import Stack
 
 
@@ -151,6 +153,13 @@ def launch_agent(
             f"Launching sub-agent with config '{config_name}' "
             f"for task '{task_name}'"
         )
+
+        # Imported here, not at module scope: `tools/__init__` imports this module,
+        # and `interaction/__init__` imports `agent_call`, which reaches back into
+        # `tools` via ask_oracle. A module-scope import closes that cycle, so any
+        # process entering through `gimle.hugin.interaction` dies on a partially
+        # initialized `agent_call`. The tool needs the class only when it fires.
+        from gimle.hugin.interaction.agent_call import AgentCall
 
         return AgentCall(
             stack=stack,
