@@ -99,15 +99,15 @@ See `spec.md` for the design and `plan.md` for the PR breakdown.
 
 ## Success Criteria
 
-- [ ] `write_agent_files` refuses to write a payload it has not itself validated.
+- [x] `write_agent_files` refuses to write a payload it has not itself validated.
       The gate lives in the tool, not in a prompt sentence — no reachable
       instruction to the model can skip it.
-- [ ] No generated file can be written outside its target directory, and no
+- [x] No generated file can be written outside its target directory, and no
       generated name can shadow a builtin tool or a stdlib module.
-- [ ] `hugin validate` passes clean on every directory in `examples/` and `apps/`,
+- [x] `hugin validate` passes clean on every directory in `examples/` and `apps/`,
       enforced in CI. A validator that fails on the repo's own shipped agents is
       wrong about the framework, not right about the agents.
-- [ ] A failed build always leaves the user something actionable: the rejected
+- [x] A failed build always leaves the user something actionable: the rejected
       payload on disk plus the validator's errors, never a silent zero after a
       paid multi-stage run.
 - [ ] The creator can produce a multi-stage (`task_sequence`) agent, verified by
@@ -117,6 +117,16 @@ See `spec.md` for the design and `plan.md` for the PR breakdown.
       regenerates a file it has not read.
 - [ ] `hugin analyze` reports on real trace data with no LLM in the loop, and
       `hugin improve` proposes by default and applies only on `--apply`.
-- [ ] `hugin create` runs non-interactively from flags and is covered end-to-end.
+- [x] `hugin create` runs non-interactively from flags and is covered end-to-end.
 - [ ] Schema knowledge is not duplicated further than today: measured by the
       number of places that must change to add one `Config` field.
+
+## Progress (2026-08-16)
+
+Phase 1 complete: PRs #82, #83, #85, #87 merged; #97 open and green. See
+`plan.md` -> "Status — start here" for what to pick up next and why.
+
+Criteria still open are Phase 3-5 work (edit mode, machine-checked architecture
+claims, `hugin analyze` / `hugin improve`) and the one measurement criterion:
+nothing yet counts places-to-change-per-`Config`-field, because the knowledge
+base work in Phase 2 has not started.

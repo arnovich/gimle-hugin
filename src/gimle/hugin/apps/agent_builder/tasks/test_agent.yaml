@@ -35,6 +35,8 @@ prompt: |
        test_prompt="<your realistic test prompt here>"
      )
      ```
+     If the tool reports multiple configs or tasks, retry with `config_name`
+     and `task_name` set to the matching names from its `available` lists.
 
   3. **Analyze the results**:
      - Did the agent complete successfully (finish_type="success")?

@@ -12,4 +12,12 @@ parameters:
     type: string
     description: Test input/prompt to give the agent - should be a realistic scenario based on what the agent is designed to do
     required: true
+  config_name:
+    type: string
+    description: Config to test; required when the agent has multiple configs
+    required: false
+  task_name:
+    type: string
+    description: Task to test; required when the agent has multiple tasks
+    required: false
 implementation_path: test_agent:test_agent

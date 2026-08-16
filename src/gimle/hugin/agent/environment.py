@@ -1,12 +1,21 @@
 """Agent environment module."""
 
 import importlib.util
+import inspect
 import logging
 import os
 import sys
 from difflib import get_close_matches
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Dict, Optional, Set
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    ClassVar,
+    Dict,
+    List,
+    Optional,
+    Set,
+)
 
 import yaml
 
@@ -22,6 +31,101 @@ if TYPE_CHECKING:
     from gimle.hugin.storage.storage import Storage
 
 logger = logging.getLogger(__name__)
+
+
+def _is_agent_tool_module(path: str) -> bool:
+    """Return whether ``path`` looks like a tool source in an agent tree."""
+    source = Path(path)
+    tools_root = source.parent
+    agent_root = tools_root.parent
+    return (
+        tools_root.name == "tools"
+        and (agent_root / "configs").is_dir()
+        and (agent_root / "tasks").is_dir()
+    )
+
+
+def invalidate_modules_under(path: str) -> List[str]:
+    """Drop cached modules imported from ``path``, returning their names.
+
+    ``Tool._load_implementation`` calls ``importlib.import_module`` with no
+    reload, and generated tools are imported by their bare module name off a
+    ``sys.path`` entry. So the second time an agent is loaded in one process --
+    exactly what a fix-and-retest loop does -- Python hands back the module it
+    already has, and the freshly written code on disk is never executed. The
+    loop then diagnoses the same failure it just repaired.
+
+    Called explicitly rather than on every load: reloading a module rebinds its
+    classes and functions, which is right after regenerating an agent and wrong
+    for a long-running app that merely loads one twice.
+    """
+    root = os.path.realpath(path)
+    dropped = []
+
+    # Cached bytecode is validated on (mtime, size), so a regenerated file of
+    # the same length written within the same second can otherwise stay stale.
+    # Delete only caches derived from immediate tool sources; recursively
+    # sweeping every __pycache__ below a model-supplied path deleted unrelated
+    # project data before the path had even proved to be an agent.
+    module_names = set()
+    tools_root = Path(root) / "tools"
+    if tools_root.is_dir():
+        for source in tools_root.glob("*.py"):
+            if source.stem.startswith("__") or not source.is_file():
+                continue
+            module_names.add(source.stem)
+            try:
+                compiled = Path(importlib.util.cache_from_source(str(source)))
+                compiled.unlink(missing_ok=True)
+            except (NotImplementedError, OSError):  # pragma: no cover
+                pass
+
+    for name, module in list(sys.modules.items()):
+        origin = getattr(module, "__file__", None)
+        if not origin:
+            continue
+        try:
+            resolved = os.path.realpath(origin)
+        except OSError:  # pragma: no cover - defensive
+            continue
+        belongs_to_root = resolved == root or resolved.startswith(root + os.sep)
+        # Generated tools are imported by bare module name. A module with the
+        # same name from another agent must also be evicted, or loading this
+        # agent returns the other agent's cached implementation. Restrict that
+        # name-based case to another agent tree so a generated ``json.py``
+        # cannot evict Python's standard-library json module.
+        module_name = name.rsplit(".", 1)[-1]
+        same_generated_module = (
+            module_name in module_names and _is_agent_tool_module(resolved)
+        )
+        if belongs_to_root or same_generated_module:
+            del sys.modules[name]
+            dropped.append(name)
+
+    # Let the import system notice files that appeared since it last looked.
+    importlib.invalidate_caches()
+    return dropped
+
+
+def unregister_tools_under(path: str) -> List[str]:
+    """Remove globally registered tools implemented below ``path``."""
+    root = os.path.realpath(path)
+    removed = []
+    for name, tool in Tool.registry.registered().items():
+        function = getattr(tool, "func", None)
+        if function is None:
+            continue
+        try:
+            origin = inspect.getsourcefile(function)
+        except (OSError, TypeError):  # pragma: no cover - defensive
+            continue
+        if not origin:
+            continue
+        resolved = os.path.realpath(origin)
+        if resolved == root or resolved.startswith(root + os.sep):
+            if Tool.registry.unregister(name, tool):
+                removed.append(name)
+    return removed
 
 
 def _env_truthy(name: str) -> bool:
@@ -188,6 +292,7 @@ class Environment:
         storage: Optional["Storage"] = None,
         env_vars: Optional[Dict[str, Any]] = None,
         capture_rendered_prompts: Optional[bool] = None,
+        replace_tools: bool = True,
     ) -> "Environment":
         """Load the environment from a path.
 
@@ -197,6 +302,7 @@ class Environment:
             env_vars: Optional dictionary of environment variables accessible to tools
             capture_rendered_prompts: Forwarded to the Environment constructor
                 (see Environment.__init__).
+            replace_tools: Whether tools may replace process-global entries.
 
         Returns:
             The environment.
@@ -254,9 +360,12 @@ class Environment:
                 yaml_path = os.path.join(tool_folder, tool_file)
                 with open(yaml_path, "r") as file:
                     tool_yaml = yaml.safe_load(file)
-                tool = Tool.from_dict(tool_yaml)
+                # Delay registration until the implementation has imported.
+                # Otherwise a failed import leaves a half-loaded global entry
+                # that makes every repair attempt look like a collision.
+                tool = Tool.from_dict(tool_yaml, register=False)
                 # register_instance will load the implementation if implementation_path is provided
-                Tool.register_instance(tool)
+                Tool.register_instance(tool, replace=replace_tools)
 
         template_folder = os.path.join(package_path, "templates")
         if os.path.exists(template_folder):
