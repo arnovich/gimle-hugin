@@ -19,11 +19,12 @@ read the agent JSON for its interaction list, then the raw interaction JSON.
 import hashlib
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from gimle.hugin.analysis.redaction import (
     error_signature,
     redact,
+    redact_structure,
     top_counts,
 )
 
@@ -61,11 +62,26 @@ def _load_json(path: Path) -> Optional[Dict[str, Any]]:
     return data if isinstance(data, dict) else None
 
 
+def _mapping(value: Any) -> Dict[str, Any]:
+    """Return ``value`` as a mapping, or an empty mapping when malformed."""
+    return value if isinstance(value, dict) else {}
+
+
+def _safe_int(value: Any) -> int:
+    """Return a persisted counter as an integer without aborting analysis."""
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError, OverflowError):
+        return 0
+
+
 def _interactions(
     storage_path: Path, agent: Dict[str, Any]
 ) -> List[Dict[str, Any]]:
     """Return an agent's interactions, in order, as ``{type, data}`` dicts."""
-    uuids = (agent.get("stack") or {}).get("interactions") or []
+    uuids = _mapping(agent.get("stack")).get("interactions") or []
+    if not isinstance(uuids, list):
+        return []
     found = []
     for uuid in uuids:
         raw = _load_json(storage_path / "interactions" / str(uuid))
@@ -74,10 +90,28 @@ def _interactions(
     return found
 
 
-def _config_tools(agent: Dict[str, Any]) -> List[str]:
-    """Return the tool names the agent's config granted."""
-    entries = (agent.get("config") or {}).get("tools") or []
-    return [str(entry).split(":")[0] for entry in entries if entry]
+def _config_name(agent: Dict[str, Any]) -> Optional[str]:
+    """Return an agent's persisted config name when present."""
+    name = _mapping(agent.get("config")).get("name")
+    return str(name) if name is not None else None
+
+
+def _config_tools(agent: Dict[str, Any]) -> Dict[str, str]:
+    """Map exposed tool names to the configured names shown in the report."""
+    entries = _mapping(agent.get("config")).get("tools") or []
+    if not isinstance(entries, list):
+        return {}
+    tools = {}
+    for entry in entries:
+        if not entry:
+            continue
+        configured = str(entry)
+        if ":" in configured:
+            registered, exposed = configured.split(":", 1)
+        else:
+            registered = exposed = configured
+        tools[exposed] = registered
+    return tools
 
 
 def _args_fingerprint(args: Any) -> str:
@@ -103,13 +137,52 @@ def _result_text(result: Any) -> str:
         return str(result)
 
 
+def _take_pending_call(
+    pending: List[Dict[str, Any]], result: Dict[str, Any]
+) -> Optional[Dict[str, Any]]:
+    """Match a result to an unresolved call, preferring persisted identity."""
+    call_id = result.get("tool_call_id")
+    if call_id is not None:
+        call_id = str(call_id)
+        for index in range(len(pending) - 1, -1, -1):
+            if pending[index]["tool_call_id"] == call_id:
+                return pending.pop(index)
+
+    tool_name = result.get("tool_name")
+    if tool_name is not None:
+        tool_name = str(tool_name)
+        branch = result.get("branch")
+        branch = str(branch) if branch is not None else None
+        for index in range(len(pending) - 1, -1, -1):
+            call = pending[index]
+            if call["tool"] == tool_name and call["branch"] == branch:
+                return pending.pop(index)
+        for index in range(len(pending) - 1, -1, -1):
+            if pending[index]["tool"] == tool_name:
+                return pending.pop(index)
+
+    branch = result.get("branch")
+    branch = str(branch) if branch is not None else None
+    for index in range(len(pending) - 1, -1, -1):
+        if pending[index]["branch"] == branch:
+            return pending.pop(index)
+    return pending.pop() if pending else None
+
+
+def _redact_report(report: Dict[str, Any]) -> Dict[str, Any]:
+    """Apply the final redaction boundary while preserving the report type."""
+    redacted = redact_structure(report)
+    assert isinstance(redacted, dict)  # A dict remains a dict during redaction.
+    return redacted
+
+
 def _summarise_run(
     agent: Dict[str, Any], interactions: List[Dict[str, Any]]
 ) -> Dict[str, Any]:
     """Reduce one agent's interaction list to per-run facts."""
     run: Dict[str, Any] = {
         "agent_id": agent.get("uuid"),
-        "config": (agent.get("config") or {}).get("name"),
+        "config": _config_name(agent),
         "model_turns": 0,
         "finish_type": None,
         "input_tokens": 0,
@@ -118,21 +191,19 @@ def _summarise_run(
         "unresolved_template_turns": 0,
     }
 
-    # ToolResult carries neither the tool name nor (reliably) a tool_call_id --
-    # verified against real storage, where both are null on the finish path. A
-    # result is therefore attributed to the most recent ToolCall before it,
-    # which is the order the stack is written in.
-    pending: Optional[Dict[str, Any]] = None
+    # Current ToolResult records carry tool_name and usually tool_call_id. Old
+    # traces may have neither, so retain a branch-aware positional fallback.
+    pending: List[Dict[str, Any]] = []
 
     for entry in interactions:
         kind = entry.get("type")
-        data = entry.get("data") or {}
+        data = _mapping(entry.get("data"))
 
         if kind == "OracleResponse":
             run["model_turns"] += 1
-            response = data.get("response") or {}
-            run["input_tokens"] += int(response.get("input_tokens") or 0)
-            run["output_tokens"] += int(response.get("output_tokens") or 0)
+            response = _mapping(data.get("response"))
+            run["input_tokens"] += _safe_int(response.get("input_tokens"))
+            run["output_tokens"] += _safe_int(response.get("output_tokens"))
             rendered = data.get("rendered_user_message")
             system = data.get("rendered_system_prompt")
             if _has_unrendered_placeholder(rendered) or (
@@ -141,29 +212,43 @@ def _summarise_run(
                 run["unresolved_template_turns"] += 1
 
         elif kind == "ToolCall":
-            pending = {
-                "tool": data.get("tool") or "<unnamed>",
+            tool = data.get("tool")
+            call_id = data.get("tool_call_id")
+            branch = data.get("branch")
+            pending_call = {
+                "tool": str(tool) if tool is not None else "<unnamed>",
                 "args": _args_fingerprint(data.get("args")),
+                "branch": str(branch) if branch is not None else None,
+                "tool_call_id": str(call_id) if call_id is not None else None,
                 "is_error": None,
                 "result_chars": 0,
                 "error": None,
             }
-            run["tool_calls"].append(pending)
+            pending.append(pending_call)
+            run["tool_calls"].append(pending_call)
 
         elif kind == "ToolResult":
-            if pending is None:
+            matched_call = _take_pending_call(pending, data)
+            if matched_call is None:
                 continue
             text = _result_text(data.get("result"))
-            pending["result_chars"] = len(text)
-            pending["is_error"] = bool(data.get("is_error"))
-            if pending["is_error"]:
-                pending["error"] = error_signature(
+            matched_call["result_chars"] = len(text)
+            matched_call["is_error"] = bool(data.get("is_error"))
+            if matched_call["is_error"]:
+                matched_call["error"] = error_signature(
                     _error_text(data.get("result"))
                 )
-            pending = None
 
-        elif kind == "TaskResult":
-            run["finish_type"] = data.get("finish_type")
+        elif kind == "TaskResult" and data.get("branch") is None:
+            finish_type = data.get("finish_type")
+            run["finish_type"] = (
+                finish_type if finish_type in ("success", "failure") else None
+            )
+
+        elif kind == "TaskChain" and data.get("branch") is None:
+            # A root TaskResult followed by a chain is an intermediate result;
+            # if the next task never finishes, the run is unfinished.
+            run["finish_type"] = None
 
     run["completed"] = run["finish_type"] is not None
     return run
@@ -190,18 +275,28 @@ def _has_unrendered_placeholder(value: Any) -> bool:
     return "{{" in _result_text(value)
 
 
-def read_runs(storage_path: str, limit: int = 50) -> List[Dict[str, Any]]:
-    """Return per-run summaries, newest first, capped at ``limit``."""
+def read_runs(
+    storage_path: str,
+    limit: int = 50,
+    agent_name: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Return matching run summaries, newest first, capped at ``limit``."""
     root = Path(storage_path).expanduser()
     agents = _agent_dir(root)
+    if limit < 0:
+        raise TraceReadError("limit must be non-negative")
 
     files = [path for path in agents.iterdir() if path.is_file()]
     files.sort(key=lambda path: path.stat().st_mtime, reverse=True)
 
-    runs = []
-    for path in files[:limit]:
+    runs: List[Dict[str, Any]] = []
+    for path in files:
+        if len(runs) >= limit:
+            break
         agent = _load_json(path)
         if not agent:
+            continue
+        if agent_name and _config_name(agent) != agent_name:
             continue
         summary = _summarise_run(agent, _interactions(root, agent))
         summary["config_tools"] = _config_tools(agent)
@@ -225,16 +320,16 @@ def analyze_traces(
         A compact, redacted report. Every list is truncated; no raw tool
         arguments and no raw error text are included.
     """
-    runs = read_runs(storage_path, limit=limit)
-    if agent_name:
-        runs = [run for run in runs if run["config"] == agent_name]
+    runs = read_runs(storage_path, limit=limit, agent_name=agent_name)
 
     if not runs:
-        return {
-            "runs_analyzed": 0,
-            "note": "No runs found. Point --storage-path at the directory the "
-            "agent actually ran against.",
-        }
+        return _redact_report(
+            {
+                "runs_analyzed": 0,
+                "note": "No matching runs found. Point --storage-path at the "
+                "directory the agent actually ran against.",
+            }
+        )
 
     completed = [run for run in runs if run["completed"]]
     successes = [run for run in completed if run["finish_type"] == "success"]
@@ -245,7 +340,7 @@ def analyze_traces(
     oversized: Dict[str, int] = {}
 
     for run in runs:
-        seen: Dict[str, int] = {}
+        seen: Dict[Tuple[Any, str, str], int] = {}
         for call in run["tool_calls"]:
             name = call["tool"]
             record = tools.setdefault(
@@ -266,49 +361,55 @@ def analyze_traces(
                 oversized[name] = max(
                     oversized.get(name, 0), call["result_chars"]
                 )
-            key = f"{name}:{call['args']}"
+            key = (call["branch"], name, call["args"])
             seen[key] = seen.get(key, 0) + 1
         for key, count in seen.items():
             if count >= LOOP_THRESHOLD:
-                name = key.split(":", 1)[0]
+                _, name, _ = key
                 loops[name] = max(loops.get(name, 0), count)
 
-    granted = {tool for run in runs for tool in run["config_tools"]}
-    called = set(tools)
+    granted = {
+        (exposed, configured)
+        for run in runs
+        for exposed, configured in run["config_tools"].items()
+    }
+    called = {name.split(":", 1)[1] if ":" in name else name for name in tools}
     dead = sorted(
-        name
-        for name in granted - called
-        if not name.startswith("builtins.finish")
+        configured
+        for exposed, configured in granted
+        if exposed not in called and exposed != "finish"
     )
 
-    return {
-        "runs_analyzed": len(runs),
-        "completed": len(completed),
-        "self_reported_success_rate": (
-            round(len(successes) / len(completed), 3) if completed else None
-        ),
-        "unfinished_rate": round(1 - len(completed) / len(runs), 3),
-        "model_turns": {
-            "p50": _percentile(steps, 50),
-            "p90": _percentile(steps, 90),
-            "max": steps[-1] if steps else 0,
-        },
-        "tokens": {
-            "input": sum(run["input_tokens"] for run in runs),
-            "output": sum(run["output_tokens"] for run in runs),
-            "output_per_run": round(
-                sum(run["output_tokens"] for run in runs) / len(runs), 1
+    return _redact_report(
+        {
+            "runs_analyzed": len(runs),
+            "completed": len(completed),
+            "self_reported_success_rate": (
+                round(len(successes) / len(completed), 3) if completed else None
             ),
-        },
-        "unresolved_template_turns": sum(
-            run["unresolved_template_turns"] for run in runs
-        ),
-        "tools": _tool_rows(tools),
-        "dead_tools": dead,
-        "loops_detected": top_counts(loops),
-        "oversized_results": top_counts(oversized),
-        "caveats": _caveats(runs, completed),
-    }
+            "unfinished_rate": round(1 - len(completed) / len(runs), 3),
+            "model_turns": {
+                "p50": _percentile(steps, 50),
+                "p90": _percentile(steps, 90),
+                "max": steps[-1] if steps else 0,
+            },
+            "tokens": {
+                "input": sum(run["input_tokens"] for run in runs),
+                "output": sum(run["output_tokens"] for run in runs),
+                "output_per_run": round(
+                    sum(run["output_tokens"] for run in runs) / len(runs), 1
+                ),
+            },
+            "unresolved_template_turns": sum(
+                run["unresolved_template_turns"] for run in runs
+            ),
+            "tools": _tool_rows(tools),
+            "dead_tools": dead,
+            "loops_detected": top_counts(loops),
+            "oversized_results": top_counts(oversized),
+            "caveats": _caveats(runs, completed),
+        }
+    )
 
 
 def _tool_rows(tools: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:

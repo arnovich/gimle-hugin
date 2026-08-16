@@ -827,7 +827,10 @@ Examples:
         "--agent", help="Only runs whose config has this name"
     )
     analyze_parser.add_argument(
-        "--limit", type=int, default=50, help="Most recent runs to read"
+        "--limit",
+        type=_non_negative_int,
+        default=50,
+        help="Most recent matching runs to read",
     )
     analyze_parser.add_argument(
         "--json", action="store_true", help="Emit the raw report as JSON"

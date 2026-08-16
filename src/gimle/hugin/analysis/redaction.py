@@ -23,10 +23,18 @@ _PATTERNS = (
     re.compile(r"\bgithub_pat_[A-Za-z0-9_]{8,}"),
     re.compile(r"\bAKIA[0-9A-Z]{8,}"),
     re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{8,}"),
-    re.compile(r"\bey[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]+"),
+    re.compile(
+        r"\bey[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]+"
+    ),
     re.compile(r"\bBearer\s+[A-Za-z0-9._\-]{8,}", re.I),
     re.compile(
         r"(?<=[?&])[A-Za-z_\-]*(?:key|token|secret|password|pwd)=[^&\s\"']+",
+        re.I,
+    ),
+    re.compile(
+        r"\b(?:authorization|api[ _-]?key|access[ _-]?token|refresh[ _-]?token|"
+        r"token|secret|password|passwd|pwd)\s*[:=]\s*"
+        r"(?:[\"'][^\"'\r\n]+[\"']|[^,;\r\n]+)",
         re.I,
     ),
     re.compile(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b"),
@@ -87,7 +95,7 @@ def redact_structure(value: Any, _depth: int = 0) -> Any:
         return redact(value)
     if isinstance(value, dict):
         return {
-            str(key): redact_structure(item, _depth + 1)
+            str(redact(str(key))): redact_structure(item, _depth + 1)
             for key, item in value.items()
         }
     if isinstance(value, list):
@@ -95,9 +103,7 @@ def redact_structure(value: Any, _depth: int = 0) -> Any:
     return value
 
 
-def top_counts(
-    counter: Dict[str, int], limit: int = 5
-) -> List[Dict[str, Any]]:
+def top_counts(counter: Dict[str, int], limit: int = 5) -> List[Dict[str, Any]]:
     """Return the ``limit`` most common entries, largest first."""
     ordered = sorted(counter.items(), key=lambda kv: (-kv[1], kv[0]))
     return [{"value": key, "count": count} for key, count in ordered[:limit]]

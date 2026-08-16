@@ -23,14 +23,14 @@ hugin analyze ./agents/my_agent
 
 | | |
 |---|---|
-| **finished / unfinished** | Runs that reached a `TaskResult` versus ones that just stopped. A run that never finished did not fail — it ran out of steps or died. |
+| **finished / unfinished** | Runs whose root task reached a terminal `TaskResult` versus ones that just stopped. A branch finishing or a task chaining onward is not the whole run finishing. |
 | **self-reported ok** | The share of finished runs the agent called a success. |
 | **model turns** | p50 / p90 / max. A rising p90 usually means the agent is flailing rather than working. |
 | **output tokens** | Total and per run. |
 | **unrendered `{{ }}`** | Turns whose prompt still contained Jinja — a template reference that never resolved. Only visible if the run had `HUGIN_CAPTURE_RENDERED_PROMPTS=1`. |
 | **per-tool** | Calls, errors, error rate, largest result, and the most common error signatures. |
 | **never called** | Tools the config granted that no run ever used. |
-| **looping** | A tool called with identical arguments repeatedly in one run. |
+| **looping** | A tool called with identical arguments repeatedly on one branch of a run. |
 | **oversized results** | Tool results large enough to be a design problem — every byte is re-sent to the model on every later turn. |
 
 ## Reading the numbers honestly

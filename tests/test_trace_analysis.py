@@ -8,6 +8,7 @@ trace does not come out the other end.
 """
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,7 @@ from gimle.hugin.analysis.traces import (
     LOOP_THRESHOLD,
     OVERSIZED_RESULT_CHARS,
     TraceReadError,
+    _summarise_run,
     analyze_traces,
 )
 
@@ -35,6 +37,7 @@ def write_run(
     finish_type="success",
     turns=1,
     rendered=None,
+    config_name="demo",
 ):
     """Write one agent's run into a storage directory.
 
@@ -64,13 +67,21 @@ def write_run(
         )
 
     for call in calls:
-        add("ToolCall", {"tool": call["tool"], "args": call.get("args", {})})
+        call_data = {"tool": call["tool"], "args": call.get("args", {})}
+        result_data = {
+            "is_error": call.get("is_error", False),
+            "result": call.get("result", {"ok": True}),
+        }
+        for key in ("branch", "tool_call_id"):
+            if key in call:
+                call_data[key] = call[key]
+                result_data[key] = call[key]
+        if call.get("record_tool_name"):
+            result_data["tool_name"] = call["tool"]
+        add("ToolCall", call_data)
         add(
             "ToolResult",
-            {
-                "is_error": call.get("is_error", False),
-                "result": call.get("result", {"ok": True}),
-            },
+            result_data,
         )
 
     if finish_type:
@@ -80,7 +91,7 @@ def write_run(
         json.dumps(
             {
                 "uuid": agent_id,
-                "config": {"name": "demo", "tools": list(tools_granted)},
+                "config": {"name": config_name, "tools": list(tools_granted)},
                 "stack": {"interactions": uuids},
             }
         )
@@ -108,6 +119,23 @@ class TestRedaction:
         """The classic: a 401 echoing the URL it called."""
         masked = redact("401 for https://api.x/v1?api_key=abcd1234efgh")
         assert "abcd1234efgh" not in masked
+
+    @pytest.mark.parametrize(
+        "assignment",
+        [
+            "password=correcthorsebattery",
+            'password="ordinary-looking-value"',
+            "api_key: ordinary-looking-value",
+            "Authorization: Bearer plain credential value",
+        ],
+    )
+    def test_plain_credential_assignments_are_masked(self, assignment):
+        """Credentials are not always provider-prefixed or in URLs."""
+        secret = (
+            assignment.split("=", 1)[-1].split(":", 1)[-1].strip().strip("\"'")
+        )
+
+        assert secret not in redact(f"login failed: {assignment}")
 
     def test_ordinary_text_survives(self):
         """Over-redacting would make the report useless."""
@@ -145,7 +173,7 @@ class TestReportedMetrics:
         assert report["self_reported_success_rate"] == 1.0
 
     def test_tool_error_rate_is_attributed_to_the_right_tool(self, tmp_path):
-        """ToolResult carries no tool name, so attribution is positional."""
+        """Legacy ToolResults without identity still use stack order."""
         write_run(
             tmp_path,
             agent_id="a",
@@ -155,10 +183,90 @@ class TestReportedMetrics:
             ],
         )
 
-        rows = {row["name"]: row for row in analyze_traces(str(tmp_path))["tools"]}
+        rows = {
+            row["name"]: row for row in analyze_traces(str(tmp_path))["tools"]
+        }
 
         assert rows["fetch"]["error_rate"] == 1.0
         assert rows["render"]["error_rate"] == 0.0
+
+    def test_interleaved_results_are_matched_by_call_id(self):
+        """A later branch's call must not steal an earlier call's result."""
+        interactions = [
+            {
+                "type": "ToolCall",
+                "data": {
+                    "tool": "first",
+                    "args": {},
+                    "branch": "left",
+                    "tool_call_id": "one",
+                },
+            },
+            {
+                "type": "ToolCall",
+                "data": {
+                    "tool": "second",
+                    "args": {},
+                    "branch": "right",
+                    "tool_call_id": "two",
+                },
+            },
+            {
+                "type": "ToolResult",
+                "data": {
+                    "tool_name": "first",
+                    "tool_call_id": "one",
+                    "branch": "left",
+                    "is_error": True,
+                    "result": {"error": "failed"},
+                },
+            },
+            {
+                "type": "ToolResult",
+                "data": {
+                    "tool_name": "second",
+                    "tool_call_id": "two",
+                    "branch": "right",
+                    "is_error": False,
+                    "result": {"ok": True},
+                },
+            },
+        ]
+
+        run = _summarise_run({"config": {}}, interactions)
+        calls = {call["tool"]: call for call in run["tool_calls"]}
+
+        assert calls["first"]["is_error"] is True
+        assert calls["second"]["is_error"] is False
+
+    def test_branch_result_does_not_complete_the_root_run(self):
+        """A parallel branch finishing is not the root task finishing."""
+        run = _summarise_run(
+            {"config": {}},
+            [
+                {
+                    "type": "TaskResult",
+                    "data": {"branch": "worker", "finish_type": "success"},
+                }
+            ],
+        )
+
+        assert run["completed"] is False
+
+    def test_chained_task_result_is_not_terminal(self):
+        """TaskChain turns the preceding root result into an intermediate one."""
+        run = _summarise_run(
+            {"config": {}},
+            [
+                {
+                    "type": "TaskResult",
+                    "data": {"branch": None, "finish_type": "success"},
+                },
+                {"type": "TaskChain", "data": {"branch": None}},
+            ],
+        )
+
+        assert run["completed"] is False
 
     def test_dead_tools_are_reported(self, tmp_path):
         """A granted tool nothing ever called."""
@@ -179,6 +287,17 @@ class TestReportedMetrics:
 
         assert not any("finish" in name for name in dead)
 
+    def test_called_tool_alias_is_not_reported_as_dead(self, tmp_path):
+        """Configs store registered:exposed while calls use the exposed name."""
+        write_run(
+            tmp_path,
+            agent_id="a",
+            tools_granted=("builtins.save_insight:save_insight",),
+            calls=[{"tool": "save_insight"}],
+        )
+
+        assert analyze_traces(str(tmp_path))["dead_tools"] == []
+
     def test_loops_are_detected(self, tmp_path):
         """Same tool, same arguments, over and over."""
         write_run(
@@ -198,6 +317,24 @@ class TestReportedMetrics:
             tmp_path,
             agent_id="a",
             calls=[{"tool": "fetch", "args": {"q": n}} for n in range(5)],
+        )
+
+        assert analyze_traces(str(tmp_path))["loops_detected"] == []
+
+    def test_same_call_on_different_branches_is_not_a_loop(self, tmp_path):
+        """Parallel branches doing the same work are independent."""
+        write_run(
+            tmp_path,
+            agent_id="a",
+            calls=[
+                {
+                    "tool": "fetch",
+                    "args": {"q": "same"},
+                    "branch": branch,
+                    "tool_call_id": branch,
+                }
+                for branch in ("one", "two", "three")
+            ],
         )
 
         assert analyze_traces(str(tmp_path))["loops_detected"] == []
@@ -242,6 +379,17 @@ class TestReportedMetrics:
             == 0
         )
 
+    def test_agent_filter_is_applied_before_limit(self, tmp_path):
+        """A newer unrelated run must not hide the requested agent's run."""
+        write_run(tmp_path, agent_id="wanted", config_name="target")
+        os.utime(tmp_path / "agents" / "wanted", (1, 1))
+        write_run(tmp_path, agent_id="newer", config_name="other")
+        os.utime(tmp_path / "agents" / "newer", (2, 2))
+
+        report = analyze_traces(str(tmp_path), limit=1, agent_name="target")
+
+        assert report["runs_analyzed"] == 1
+
 
 class TestNothingLeaks:
     """The property the whole module exists to preserve."""
@@ -270,9 +418,7 @@ class TestNothingLeaks:
         write_run(
             tmp_path,
             agent_id="a",
-            calls=[
-                {"tool": "fetch", "args": {"password": "hunter2-secret"}}
-            ]
+            calls=[{"tool": "fetch", "args": {"password": "hunter2-secret"}}]
             * LOOP_THRESHOLD,
         )
 
@@ -291,6 +437,25 @@ class TestNothingLeaks:
         assert "customer-record-42" not in json.dumps(
             analyze_traces(str(tmp_path))
         )
+
+    def test_a_seeded_key_in_a_tool_name_never_reaches_the_report(
+        self, tmp_path
+    ):
+        """Loops and oversized-result rows also cross the report boundary."""
+        write_run(
+            tmp_path,
+            agent_id="a",
+            calls=[
+                {
+                    "tool": FAKE_KEY,
+                    "args": {"same": True},
+                    "result": "x" * (OVERSIZED_RESULT_CHARS + 1),
+                }
+                for _ in range(LOOP_THRESHOLD)
+            ],
+        )
+
+        assert FAKE_KEY not in json.dumps(analyze_traces(str(tmp_path)))
 
 
 class TestCaveats:
@@ -341,3 +506,39 @@ class TestFailureModes:
             write_run(tmp_path, agent_id=f"a{index}")
 
         assert analyze_traces(str(tmp_path), limit=2)["runs_analyzed"] == 2
+
+    def test_malformed_token_counter_is_ignored(self, tmp_path):
+        """A parseable but partially corrupt trace should remain diagnosable."""
+        write_run(tmp_path, agent_id="a")
+        agent = json.loads((tmp_path / "agents" / "a").read_text())
+        interaction_path = (
+            tmp_path / "interactions" / agent["stack"]["interactions"][0]
+        )
+        interaction = json.loads(interaction_path.read_text())
+        interaction["data"]["response"]["input_tokens"] = {"bad": "value"}
+        interaction["data"]["response"]["output_tokens"] = "not-a-number"
+        interaction_path.write_text(json.dumps(interaction))
+
+        report = analyze_traces(str(tmp_path))
+
+        assert report["runs_analyzed"] == 1
+        assert report["tokens"]["input"] == 0
+        assert report["tokens"]["output"] == 0
+
+    def test_negative_api_limit_is_rejected(self, tmp_path):
+        """The public reader must not give surprising slice semantics."""
+        (tmp_path / "agents").mkdir()
+
+        with pytest.raises(TraceReadError, match="non-negative"):
+            analyze_traces(str(tmp_path), limit=-1)
+
+    def test_negative_cli_limit_is_rejected(self, monkeypatch):
+        """Argparse rejects negative values before reading storage."""
+        from gimle.hugin.cli import cli
+
+        monkeypatch.setattr("sys.argv", ["hugin", "analyze", "--limit", "-1"])
+
+        with pytest.raises(SystemExit) as error:
+            cli.main()
+
+        assert error.value.code == 2
