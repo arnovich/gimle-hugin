@@ -417,6 +417,12 @@ Gated on PR 3.1. `hugin analyze` already shipped in Phase 1.5.
 - [ ] Proposal printed as a diff; **no write path in this PR**
 
 ### PR 5.2 — `--apply` with a regression guard `task/034_improve_apply`
+- [ ] **Never optimise `self_reported_success_rate`** (spec §5.1c). It is the
+      agent's own `finish_type`, so the cheapest way to raise it is to declare
+      success sooner. Where gimle-router has an outcome for a run
+      (`llm/router_outcome.py` already POSTs one), that is the authority;
+      otherwise the replay comparison is. `propose_change` should reject a
+      proposal citing the self-reported metric as evidence of improvement.
 - [ ] Before/after replay on identical harvested inputs via `test_agent`
 - [ ] Agent-directory hash stamped into session metadata for attribution
 - [ ] `dead_tools` proposals are warnings with a minimum-N threshold, never
