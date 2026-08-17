@@ -316,6 +316,81 @@ def cmd_install_models(args: argparse.Namespace) -> int:
     return install_main()
 
 
+def cmd_eval(args: argparse.Namespace) -> int:
+    """Run the agent builder against the golden set and score the results."""
+    from gimle.hugin.evals.golden_set import select
+    from gimle.hugin.evals.harness import compare, run_suite, write_report
+
+    if args.list:
+        for case in select():
+            tags = ",".join(case.tags) or "-"
+            print(f"    {case.name:<22} {case.expect_architecture:<12} {tags}")
+        return 0
+
+    cases = select(names=args.case, tag=args.tag, limit=args.limit)
+    if not cases:
+        print("    No cases matched.")
+        return 2
+
+    workdir = Path(args.workdir) if args.workdir else None
+    if workdir is None:
+        workdir = Path("./eval-runs")
+    workdir.mkdir(parents=True, exist_ok=True)
+
+    print()
+    print(f"    Running {len(cases)} case(s). Each is a full build.")
+    print()
+
+    def announce(row: dict) -> None:
+        mark = "ok  " if row.get("validates") else "FAIL"
+        print(
+            f"    {mark} {row['case']:<22} "
+            f"{row.get('elapsed_s', 0):>6.0f}s  "
+            f"tools={row.get('tools', 0)}  "
+            f"out_tokens={row.get('output_tokens', 0)}"
+        )
+
+    report = run_suite(
+        cases,
+        workdir,
+        builder_model=args.builder_model,
+        agent_model=args.model,
+        timeout=args.timeout,
+        on_case=announce,
+    )
+
+    summary = report["summary"]
+    print()
+    print(
+        f"    validates {summary['validates']}/{summary['cases']}"
+        f"   built {summary['built']}/{summary['cases']}"
+    )
+    print(
+        f"    output tokens {summary['output_tokens']}"
+        f"   median {summary['median_elapsed_s']}s"
+    )
+    if summary["failing_checks"]:
+        print(f"    failing checks: {', '.join(summary['failing_checks'])}")
+
+    if args.out:
+        write_report(report, Path(args.out))
+        print(f"    report: {args.out}")
+
+    if args.baseline:
+        try:
+            baseline = json.loads(Path(args.baseline).read_text())
+        except (OSError, json.JSONDecodeError) as error:
+            print(f"    could not read baseline: {error}")
+            return 1
+        print()
+        print("    vs baseline:")
+        for line in compare(baseline, report):
+            print(f"      {line}")
+
+    print()
+    return 0 if summary["validates"] == summary["cases"] else 1
+
+
 def cmd_analyze(args: argparse.Namespace) -> int:
     """Report on an agent's historic runs, without an LLM in the loop."""
     from gimle.hugin.analysis.traces import (
@@ -805,6 +880,40 @@ Examples:
         "extra_args", nargs="*", help="Additional arguments for the app"
     )
     app_parser.set_defaults(func=cmd_app)
+
+    # eval command
+    eval_parser = subparsers.add_parser(
+        "eval",
+        help="Score the agent builder against a golden set of descriptions",
+        description="Run the builder end to end for each description and "
+        "score what it produced. Costs one full build per case, so select a "
+        "subset. Use --out and --baseline to compare two runs.",
+    )
+    eval_parser.add_argument(
+        "--case", action="append", help="Run only this case (repeatable)"
+    )
+    eval_parser.add_argument("--tag", help="Run only cases with this tag")
+    eval_parser.add_argument(
+        "--limit", type=int, default=0, help="Cap the number of cases"
+    )
+    eval_parser.add_argument(
+        "--list", action="store_true", help="List the cases and exit"
+    )
+    eval_parser.add_argument("--model", help="Model for the generated agents")
+    eval_parser.add_argument(
+        "--builder-model", help="Model that does the building"
+    )
+    eval_parser.add_argument(
+        "--workdir", help="Where to build (default ./eval-runs)"
+    )
+    eval_parser.add_argument(
+        "--timeout", type=int, default=900, help="Per-case timeout in seconds"
+    )
+    eval_parser.add_argument("--out", help="Write the JSON report here")
+    eval_parser.add_argument(
+        "--baseline", help="Compare against a previous report"
+    )
+    eval_parser.set_defaults(func=cmd_eval)
 
     # analyze command
     analyze_parser = subparsers.add_parser(

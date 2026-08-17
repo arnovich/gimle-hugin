@@ -10,7 +10,8 @@ Branch per PR off `main`, snake_case, `task/` prefix. See `spec.md` for design.
 
 ## Status — start here
 
-**Last updated: 2026-08-16. Phases 1 and 1.5 are complete.**
+**Last updated: 2026-08-17. Phases 1 and 1.5 complete; Phase 2 started
+with the eval harness.**
 
 | PR | What | State |
 |---|---|---|
@@ -19,23 +20,23 @@ Branch per PR off `main`, snake_case, `task/` prefix. See `spec.md` for design.
 | #85 | 1.3 Static validator, `hugin validate`, CI gate | merged |
 | #87 | 1.4 The gate, in code | merged |
 | #97 | 1.5 + 1.4b + 1.6 + 1.7 — the rest of Phase 1 | merged |
-| — | Phase 1.5: 1.8 + 1.9 (`hugin analyze`) | **open on `task/034_trace_analysis`** |
+| #98 | Phase 1.5: 1.8 + 1.9 (`hugin analyze`) | merged |
+| — | PR 2.5 golden-set eval harness (`hugin eval`) | **open on `task/034_eval_harness`** |
 
 ### Pick up here
 
-**Next is Phase 2, and the first decision is which parts of it to keep.** See
-"Things to decide" below — two items are worth re-deciding rather than
-executing.
+**PR 2.2 — schema into the builder's prompt — and gate it on the harness.**
+`hugin eval --out before.json` first, change
+`templates/builder_system.yaml`, then
+`hugin eval --out after.json --baseline before.json`. If validation rate does
+not improve, the change is not worth its cost.
 
-If you want a default: **PR 2.5, the golden-set eval harness, first.** Nothing
-built so far measures the *model* — every test to date pins mechanics. PR 2.2
-changes the builder's system prompt, and without the harness there is no way to
-tell whether that helped or hurt.
+That baseline run is also the first real trace data this project will have, so
+`hugin analyze` becomes usable on it immediately.
 
-`hugin analyze` is now available to point at any storage directory, including
-`./storage/financial_newspaper`. Running it on a real multi-agent app before
-starting Phase 2 would be a cheap way to find out what the builder should
-actually be optimising for.
+Still open from "Things to decide": whether **PR 2.1** (packaging the reference
+docs) earns its keep at all now that examples are wired in and read at build
+time. Decide before building it, not during.
 
 ### Things to decide before Phase 2, not during it
 
@@ -345,13 +346,31 @@ unchanged.
 ### PR 2.5 — Golden-set eval harness `task/034_eval_harness`
 Ship before 2.2 lands. Nothing else in this plan measures the model.
 
-- [ ] 10-20 descriptions spanning the architectures
-- [ ] Scored run behind `slow`/`integration`: first-pass validation rate,
+- [x] 10-20 descriptions spanning the architectures
+- [x] Scored run behind `slow`/`integration`: first-pass validation rate,
       post-repair rate, attempts used, architecture match, `test_agent` success,
       steps, tokens, dollars
-- [ ] Numbers recorded in this task file per PR
+- [x] Numbers recorded in this task file per PR
 
 ---
+
+Shipped as `hugin eval` (`src/gimle/hugin/evals/`), ahead of PR 2.2 rather than
+alongside it: 2.2 rewrites the builder's system prompt, and without a baseline
+that change is unfalsifiable.
+
+Scoped honestly:
+
+- **`expect_architecture` is recorded but not scored.** Architecture selection
+  is PR 4.1 and the builder cannot yet be asked for a shape. `has_task_sequence`
+  is a structural proxy in the meantime.
+- **Cost is reported in tokens, not currency.** Hugin records what the SDK
+  reported; real billing after routing and fallback is the router's to know
+  (spec §5.1c).
+- Scoring reuses `validate_files` and `analyze_traces` rather than counting
+  independently, so a scored run also exercises both on real data.
+
+**Use it to gate PR 2.2:** `hugin eval --out before.json`, change the prompt,
+then `hugin eval --out after.json --baseline before.json`.
 
 ## Phase 3 — Edit an existing agent
 
