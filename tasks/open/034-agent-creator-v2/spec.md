@@ -716,6 +716,48 @@ Guards, all required before `--apply` exists:
 - **Revert path.** Provenance markers and the git dirty-tree guard from §4.2 are
   what make an improve run undoable; say so in the CLI output.
 
+### 5.1c Two definitions of success, and which one wins
+
+Hugin is not the only thing that already measures whether a run worked.
+`llm/router_outcome.py` POSTs `{task_id, success, score}` to gimle-router at
+each edition boundary, where `success` means the app produced its artefact and
+`score` is an app-level quality number. `analyze_traces` derives a *different*
+success from `finish_type`.
+
+They will disagree, and the difference is not cosmetic:
+
+| | Source | Means |
+|---|---|---|
+| `self_reported_success_rate` | the agent's own `finish_type` | "the agent believes it finished" |
+| router `outcome` | the app, at the edition boundary | "the artefact was produced and scored" |
+
+**Rule for `improve_agent`: never optimise the self-reported metric.** It is the
+measured agent's own verdict, so the cheapest way to raise it is to declare
+success sooner — which is exactly the failure mode §5.1b exists to prevent. Use
+it as a *symptom* (a run that self-reports failure is worth reading) and never
+as the objective.
+
+Where a router outcome exists for a run, it is the authority; where it does not,
+the replay comparison in §5.1b is. The naming already reflects this — the report
+field is `self_reported_success_rate`, not `success_rate` — and any proposal
+citing it as evidence of improvement should be rejected by the
+`propose_change` metric check.
+
+Same distinction applies to tokens. Hugin records what the SDK reported
+(`OracleResponse.response`); the router knows what the provider actually billed
+after routing and fallback. Hugin's figure is `reported` usage, not cost.
+
+**What is *not* worth sharing.** The router sees only LLM calls, so tool calls,
+tool errors, task results and retries never traverse it — it cannot compute a
+per-tool error rate or a dead tool, and `workflow/metrics.py` says so in its own
+docstring ("task outcomes are not inputs"). The two redaction modules look like
+duplication and are not: the router's masks HTTP headers and query params, this
+one masks credential-shaped strings in free-text tool errors. Do not try to
+extract a shared analysis library; the analysis is cheap precisely because it
+knows Hugin's schema. The only genuinely duplicated knowledge is the
+credential-pattern list, which is a dozen lines and not worth a cross-repo
+dependency.
+
 ### 5.2 `improve_agent` task
 
 `tasks/improve_agent.yaml`, `chain_config: agent_builder`:
