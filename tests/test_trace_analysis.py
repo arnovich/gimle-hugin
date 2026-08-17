@@ -254,7 +254,7 @@ class TestReportedMetrics:
         assert run["completed"] is False
 
     def test_chained_task_result_is_not_terminal(self):
-        """TaskChain turns the preceding root result into an intermediate one."""
+        """A chain turns the preceding root result into an intermediate."""
         run = _summarise_run(
             {"config": {}},
             [
