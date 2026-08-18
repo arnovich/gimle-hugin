@@ -871,3 +871,68 @@ class TestPromptSerialization:
         assert result.type == prompt.type
         assert result.text == prompt.text
         assert result.tool_use_id == prompt.tool_use_id
+
+
+class TestRecursiveRenderIsSafeOverItsOwnOutput:
+    """Re-rendering rendered output must not be able to kill a run.
+
+    ``_render_to_fixpoint`` renders repeatedly until no Jinja remains, which
+    means every pass after the first is parsing text this code produced. Real
+    agent runs died on ``TemplateSyntaxError: unexpected char '\\'`` while
+    re-parsing a tool result that merely *looked* like a template -- an
+    expression whose newline had become a literal ``\\n`` on its way through
+    storage. Two builds in a fifteen-case eval were lost to it, and in both the
+    generated agent itself was valid.
+    """
+
+    def test_derived_content_that_is_not_valid_jinja_passes_through(self):
+        """The regression: content quoting a template must not raise."""
+        from gimle.hugin.llm.prompt.jinja import render_jinja_recursive
+
+        payload = "Original Servings: {{ x.value\\n  }}"
+
+        result = render_jinja_recursive(
+            "Tool result:\n{{ result }}", {"result": payload}
+        )
+
+        assert "Original Servings:" in result
+
+    def test_an_authored_broken_template_still_raises(self):
+        """A prompt someone actually wrote wrong is a bug worth hearing about.
+
+        The validator parses task prompts before they are written, so this
+        stays the loud path rather than being silently swallowed.
+        """
+        import pytest
+        from jinja2.exceptions import TemplateSyntaxError
+
+        from gimle.hugin.llm.prompt.jinja import render_jinja_recursive
+
+        with pytest.raises(TemplateSyntaxError):
+            render_jinja_recursive("Servings: {{ x.value\\n }}", {})
+
+    def test_ordinary_rendering_is_unchanged(self):
+        """The fix must not alter the normal path."""
+        from gimle.hugin.llm.prompt.jinja import render_jinja_recursive
+
+        assert (
+            render_jinja_recursive("Hi {{ name }}", {"name": "Ana"}) == "Hi Ana"
+        )
+
+    def test_nested_templates_still_resolve(self):
+        """Recursion exists to expand a value that is itself a template."""
+        from gimle.hugin.llm.prompt.jinja import render_jinja_recursive
+
+        assert (
+            render_jinja_recursive("{{ a }}", {"a": "{{ b }}", "b": "deep"})
+            == "deep"
+        )
+
+    def test_unresolvable_jinja_does_not_recurse_forever(self):
+        """Text Jinja recognises but cannot reduce used to exhaust the stack."""
+        from gimle.hugin.llm.prompt.jinja import render_jinja_recursive
+
+        # Renders to itself: the raw-literal sentinel round-trips unchanged.
+        result = render_jinja_recursive("{% raw %}{{ kept }}{% endraw %}", {})
+
+        assert result == "{{ kept }}"

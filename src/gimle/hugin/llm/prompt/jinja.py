@@ -1,9 +1,13 @@
 """Jinja template rendering module."""
 
+import logging
 import re
 from typing import Any, Dict
 
 from jinja2 import ChainableUndefined, Environment
+from jinja2.exceptions import TemplateSyntaxError
+
+logger = logging.getLogger(__name__)
 
 # Sentinel tokens used to hide literal Jinja delimiters from the recursive
 # renderer. They wrap NUL bytes so they cannot collide with real prompt text,
@@ -99,8 +103,39 @@ def render_jinja_recursive(template: str, inputs: Dict[str, Any]) -> str:
     return _restore_literals(_render_to_fixpoint(protected, inputs))
 
 
-def _render_to_fixpoint(template: str, inputs: Dict[str, Any]) -> str:
-    """Render repeatedly until no resolvable Jinja syntax is left."""
+def _render_to_fixpoint(
+    template: str, inputs: Dict[str, Any], _authored: bool = True
+) -> str:
+    r"""Render repeatedly until no resolvable Jinja syntax is left.
+
+    Two things make the recursion safe to run over its own output.
+
+    A syntax error is only fatal on the **authored** template. There it is a
+    real bug -- someone wrote a broken prompt and should hear about it. On any
+    later pass the input is text this function itself produced, which may merely
+    *look* like Jinja: a tool result quoting a template, generated code
+    containing braces, or an expression whose newline became a literal ``\n``
+    on its way through storage. That last case crashed real agent runs -- the
+    whole session died on ``unexpected char '\'`` while re-parsing content that
+    was never a template. Such text is data, so it is returned unchanged.
+
+    Rendering that changes nothing also stops the recursion. Without that, text
+    Jinja recognises but cannot reduce recurses until Python's stack runs out.
+    """
     if not contains_jinja(template):
         return template
-    return _render_to_fixpoint(render_jinja(template, inputs), inputs)
+
+    try:
+        rendered = render_jinja(template, inputs)
+    except TemplateSyntaxError:
+        if _authored:
+            raise
+        logger.debug(
+            "Stopping recursive render: output is not valid Jinja, "
+            "treating it as literal content"
+        )
+        return template
+
+    if rendered == template:
+        return template
+    return _render_to_fixpoint(rendered, inputs, _authored=False)
