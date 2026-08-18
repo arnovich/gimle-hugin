@@ -202,15 +202,9 @@ def summarise(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         ),
         "timed_out": sum(1 for row in rows if row.get("timed_out")),
         "output_tokens": sum(row.get("output_tokens", 0) for row in rows),
-        "median_elapsed_s": _median(
-            [row.get("elapsed_s", 0) for row in rows]
-        ),
+        "median_elapsed_s": _median([row.get("elapsed_s", 0) for row in rows]),
         "failing_checks": sorted(
-            {
-                check
-                for row in rows
-                for check in row.get("error_checks", [])
-            }
+            {check for row in rows for check in row.get("error_checks", [])}
         ),
     }
 
