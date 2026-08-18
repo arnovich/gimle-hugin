@@ -17,6 +17,11 @@ def generate_task(
     stack: "Stack",
     parameters: Optional[Dict[str, Any]] = None,
     tools: Optional[List[str]] = None,
+    task_sequence: Optional[List[str]] = None,
+    next_task: Optional[str] = None,
+    pass_result_as: Optional[str] = None,
+    chain_config: Optional[str] = None,
+    system_template: Optional[str] = None,
 ) -> ToolResponse:
     """Generate a task definition YAML.
 
@@ -86,6 +91,22 @@ def generate_task(
 
     if tools:
         task_data["tools"] = tools
+
+    # Multi-stage fields. Without these the generator could only ever emit a
+    # flat, single-task agent -- it had no way to express the chaining the
+    # framework supports and its own build pipeline uses. A golden-set eval
+    # confirmed the consequence: neither pipeline case produced a chained
+    # agent, because there was no field to put the chain in.
+    if task_sequence:
+        task_data["task_sequence"] = list(task_sequence)
+    if next_task:
+        task_data["next_task"] = next_task
+    if pass_result_as:
+        task_data["pass_result_as"] = pass_result_as
+    if chain_config:
+        task_data["chain_config"] = chain_config
+    if system_template:
+        task_data["system_template"] = system_template
 
     task_yaml = yaml.dump(task_data, default_flow_style=False, sort_keys=False)
 
