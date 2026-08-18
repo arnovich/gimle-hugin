@@ -26,7 +26,12 @@ from tests.evals.harness import compare, run_suite, write_report
 
 def _announce(row: Dict[str, Any]) -> None:
     """Print one case's outcome as it completes."""
-    mark = "ok  " if row.get("validates") else "FAIL"
+    if row.get("infrastructure_failure"):
+        mark = "SKIP"  # the provider, not the builder
+    elif row.get("validates"):
+        mark = "ok  "
+    else:
+        mark = "FAIL"
     print(
         f"    {mark} {row['case']:<22} "
         f"{row.get('elapsed_s', 0):>6.0f}s  "
@@ -82,9 +87,14 @@ def main() -> int:
     summary = report["summary"]
     print()
     print(
-        f"    validates {summary['validates']}/{summary['cases']}"
-        f"   built {summary['built']}/{summary['cases']}"
+        f"    validates {summary['validates']}/{summary['scored']}"
+        f"   built {summary['built']}/{summary['scored']}"
     )
+    if summary["infrastructure_failures"]:
+        print(
+            f"    {summary['infrastructure_failures']} case(s) excluded: the "
+            "provider failed, so the builder was never measured"
+        )
     print(
         f"    output tokens {summary['output_tokens']}"
         f"   median {summary['median_elapsed_s']}s"

@@ -18,6 +18,7 @@ import pytest
 from tests.evals.golden_set import GOLDEN_SET, by_name, select
 from tests.evals.harness import (
     compare,
+    is_infrastructure_failure,
     score_output,
     summarise,
     write_report,
@@ -230,6 +231,68 @@ class TestReportRoundTrip:
         write_report(report, path)
 
         assert json.loads(path.read_text()) == report
+
+
+class TestInfrastructureFailures:
+    """A provider outage is not a score the builder earned.
+
+    A real baseline run lost six of fifteen cases to a network outage, and the
+    report could not tell them apart from six badly generated agents. Left
+    alone, the next run would have looked like a large improvement for reasons
+    having nothing to do with the change under test.
+    """
+
+    @pytest.mark.parametrize(
+        "tail",
+        [
+            "Error: APIConnectionError\nConnection error.",
+            "APITimeoutError\nRequest timed out or interrupted.",
+            "RateLimitError: Too Many Requests",
+            "overloaded_error",
+        ],
+    )
+    def test_provider_failures_are_recognised(self, tail):
+        """The shapes actually seen in a failed run."""
+        assert is_infrastructure_failure(tail)
+
+    @pytest.mark.parametrize(
+        "tail",
+        [
+            "Refusing to write: the generated agent does not validate",
+            "tool-contract: parameter 'x' is declared but not accepted",
+            "",
+        ],
+    )
+    def test_real_failures_are_not_excused(self, tail):
+        """Over-classifying would hide exactly what the harness measures."""
+        assert not is_infrastructure_failure(tail)
+
+    def test_rates_are_computed_over_scored_cases_only(self):
+        """The denominator is what the builder actually attempted."""
+        rows = [
+            {"built": True, "validates": True},
+            {"built": True, "validates": False},
+            {"infrastructure_failure": True},
+        ]
+
+        summary = summarise(rows)
+
+        assert summary["validation_rate"] == 0.5
+        assert summary["scored"] == 2
+        assert summary["infrastructure_failures"] == 1
+
+    def test_total_cases_still_reported(self):
+        """Excluding them from rates must not hide that they happened."""
+        rows = [{"validates": True}, {"infrastructure_failure": True}]
+
+        assert summarise(rows)["cases"] == 2
+
+    def test_an_all_infrastructure_run_does_not_divide_by_zero(self):
+        """A total outage should report nothing, not crash."""
+        summary = summarise([{"infrastructure_failure": True}])
+
+        assert summary["scored"] == 0
+        assert summary["validation_rate"] == 0.0
 
 
 @pytest.mark.slow

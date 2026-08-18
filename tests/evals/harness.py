@@ -31,6 +31,30 @@ from tests.evals.golden_set import EvalCase
 # A build that has not finished by now is not going to teach us anything.
 DEFAULT_TIMEOUT = 900
 
+# Substrings that mean the run never got to exercise the builder at all. A
+# transient outage once produced six "failures" in one baseline, indistinguish-
+# able in the report from six badly generated agents -- which would have made
+# the next prompt change look like a huge improvement. An infrastructure
+# failure is not a score.
+INFRASTRUCTURE_MARKERS = (
+    "APIConnectionError",
+    "APITimeoutError",
+    "RateLimitError",
+    "InternalServerError",
+    "overloaded_error",
+    "Connection error",
+    "Request timed out",
+    "Too Many Requests",
+)
+
+# How many times to re-attempt a case that failed for infrastructure reasons.
+INFRASTRUCTURE_RETRIES = 2
+
+
+def is_infrastructure_failure(tail: str) -> bool:
+    """True when the output shows the build never reached the builder."""
+    return any(marker in tail for marker in INFRASTRUCTURE_MARKERS)
+
 
 def _count(files: Dict[str, str], folder: str, suffix: str = ".yaml") -> int:
     """Count generated files of one kind."""
@@ -147,22 +171,32 @@ def run_case(
     environment = dict(os.environ)
 
     started = time.monotonic()
-    timed_out = False
-    returncode = -1
-    try:
-        completed = subprocess.run(
-            command,
-            cwd=str(case_dir),
-            env=environment,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-        returncode = completed.returncode
-        tail = (completed.stderr or completed.stdout or "")[-600:]
-    except subprocess.TimeoutExpired:
-        timed_out = True
-        tail = f"timed out after {timeout}s"
+    attempts = 0
+    while True:
+        attempts += 1
+        timed_out = False
+        returncode = -1
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=str(case_dir),
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+            returncode = completed.returncode
+            tail = (completed.stderr or completed.stdout or "")[-600:]
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            tail = f"timed out after {timeout}s"
+
+        infrastructure = returncode != 0 and is_infrastructure_failure(tail)
+        if not infrastructure or attempts > INFRASTRUCTURE_RETRIES:
+            break
+        # The provider, not the builder. Wait out a transient blip rather than
+        # recording a score the builder did not earn.
+        time.sleep(5 * attempts)
 
     elapsed = time.monotonic() - started
     row: Dict[str, Any] = {
@@ -171,6 +205,8 @@ def run_case(
         "tags": list(case.tags),
         "exit_code": returncode,
         "timed_out": timed_out,
+        "attempts": attempts,
+        "infrastructure_failure": infrastructure,
         "elapsed_s": round(elapsed, 1),
     }
     row.update(score_output(case, output_path))
@@ -186,21 +222,30 @@ def summarise(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     if not total:
         return {"cases": 0}
 
-    built = [row for row in rows if row.get("built")]
-    valid = [row for row in rows if row.get("validates")]
+    # Rates are over cases the builder actually got to attempt. Including a
+    # provider outage in the denominator makes the next run look better for
+    # reasons that have nothing to do with the change being measured.
+    scored = [row for row in rows if not row.get("infrastructure_failure")]
+    infrastructure = total - len(scored)
+    denominator = len(scored) or 1
+
+    built = [row for row in scored if row.get("built")]
+    valid = [row for row in scored if row.get("validates")]
     return {
         "cases": total,
+        "scored": len(scored),
+        "infrastructure_failures": infrastructure,
         "built": len(built),
         "validates": len(valid),
-        "build_rate": round(len(built) / total, 3),
-        "validation_rate": round(len(valid) / total, 3),
+        "build_rate": round(len(built) / denominator, 3),
+        "validation_rate": round(len(valid) / denominator, 3),
         "meets_tool_expectation": sum(
-            1 for row in rows if row.get("meets_tool_expectation")
+            1 for row in scored if row.get("meets_tool_expectation")
         ),
         "produced_a_pipeline": sum(
-            1 for row in rows if row.get("has_task_sequence")
+            1 for row in scored if row.get("has_task_sequence")
         ),
-        "timed_out": sum(1 for row in rows if row.get("timed_out")),
+        "timed_out": sum(1 for row in scored if row.get("timed_out")),
         "output_tokens": sum(row.get("output_tokens", 0) for row in rows),
         "median_elapsed_s": _median([row.get("elapsed_s", 0) for row in rows]),
         "failing_checks": sorted(
