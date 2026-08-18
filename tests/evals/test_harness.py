@@ -15,8 +15,8 @@ from pathlib import Path
 
 import pytest
 
-from gimle.hugin.evals.golden_set import GOLDEN_SET, by_name, select
-from gimle.hugin.evals.harness import (
+from tests.evals.golden_set import GOLDEN_SET, by_name, select
+from tests.evals.harness import (
     compare,
     score_output,
     summarise,
@@ -243,7 +243,7 @@ def test_one_real_build(tmp_path):
     Deliberately one case: this spends real money, and the harness's value is
     in being run deliberately rather than on every commit.
     """
-    from gimle.hugin.evals.harness import run_case
+    from tests.evals.harness import run_case
 
     row = run_case(by_name("unit_converter"), tmp_path, timeout=600)
 

@@ -26,7 +26,7 @@ from gimle.hugin.apps.agent_builder.tools.validate_agent import (
     collect_files,
     validate_files,
 )
-from gimle.hugin.evals.golden_set import EvalCase
+from tests.evals.golden_set import EvalCase
 
 # A build that has not finished by now is not going to teach us anything.
 DEFAULT_TIMEOUT = 900
@@ -42,7 +42,7 @@ def _count(files: Dict[str, str], folder: str, suffix: str = ".yaml") -> int:
 
 
 def _has_task_sequence(files: Dict[str, str]) -> bool:
-    """True when any generated task chains into another.
+    """Return True when any generated task chains into another.
 
     A cheap structural proxy for "this is a pipeline", usable before
     architecture selection exists.

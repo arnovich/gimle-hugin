@@ -21,15 +21,15 @@ with the eval harness.**
 | #87 | 1.4 The gate, in code | merged |
 | #97 | 1.5 + 1.4b + 1.6 + 1.7 — the rest of Phase 1 | merged |
 | #98 | Phase 1.5: 1.8 + 1.9 (`hugin analyze`) | merged |
-| — | PR 2.5 golden-set eval harness (`hugin eval`) | **open on `task/034_eval_harness`** |
+| #100 | PR 2.5 golden-set eval harness (`tests/evals/`) | **open on `task/034_eval_harness`** |
 
 ### Pick up here
 
 **PR 2.2 — schema into the builder's prompt — and gate it on the harness.**
-`hugin eval --out before.json` first, change
-`templates/builder_system.yaml`, then
-`hugin eval --out after.json --baseline before.json`. If validation rate does
-not improve, the change is not worth its cost.
+Baseline with `uv run python -m tests.evals.run --out before.json`, change
+`templates/builder_system.yaml`, then re-run with
+`--out after.json --baseline before.json`. If validation rate does not improve,
+the change is not worth its cost.
 
 That baseline run is also the first real trace data this project will have, so
 `hugin analyze` becomes usable on it immediately.
@@ -354,9 +354,15 @@ Ship before 2.2 lands. Nothing else in this plan measures the model.
 
 ---
 
-Shipped as `hugin eval` (`src/gimle/hugin/evals/`), ahead of PR 2.2 rather than
-alongside it: 2.2 rewrites the builder's system prompt, and without a baseline
-that change is unfalsifiable.
+Shipped as `tests/evals/` (run with `uv run python -m tests.evals.run`), ahead
+of PR 2.2 rather than alongside it: 2.2 rewrites the builder's system prompt,
+and without a baseline that change is unfalsifiable.
+
+**Not in `src/` and not a `hugin` subcommand.** It measures *our* builder, which
+is a maintainer's question, not a user's -- shipping it would put fifteen
+hardcoded descriptions and a subprocess driver into every install. The
+user-facing commands (`create`, `validate`, `analyze`) are all about the user's
+own agent; this is not.
 
 Scoped honestly:
 
@@ -369,8 +375,8 @@ Scoped honestly:
 - Scoring reuses `validate_files` and `analyze_traces` rather than counting
   independently, so a scored run also exercises both on real data.
 
-**Use it to gate PR 2.2:** `hugin eval --out before.json`, change the prompt,
-then `hugin eval --out after.json --baseline before.json`.
+**Use it to gate PR 2.2:** `uv run python -m tests.evals.run --out before.json`,
+change the prompt, then re-run with `--out after.json --baseline before.json`.
 
 ## Phase 3 — Edit an existing agent
 
