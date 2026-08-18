@@ -1033,3 +1033,96 @@ class TestShippedAgentsValidate:
     def test_the_repo_actually_ships_agents_to_check(self):
         """Guards the parametrize above against silently finding nothing."""
         assert len(_shipped_agent_dirs()) > 10
+
+
+class TestTaskChains:
+    """Widening generate_task created a new way to build a broken agent."""
+
+    def _agent(self, **tasks):
+        """Return a minimal agent carrying the given task files."""
+        files = {
+            "configs/demo.yaml": (
+                "name: demo\ndescription: A demo\n"
+                "system_template: demo_system\n"
+                "tools:\n  - builtins.finish:finish\n"
+            ),
+            "templates/demo_system.yaml": (
+                "name: demo_system\ntemplate: You are a demo agent.\n"
+            ),
+        }
+        files.update(tasks)
+        return files
+
+    def test_a_valid_chain_passes(self):
+        """The whole point of widening the generator."""
+        report = validate_files(
+            self._agent(
+                **{
+                    "tasks/gather.yaml": (
+                        "name: gather\ndescription: d\nprompt: Go\n"
+                        "task_sequence: [summarise]\n"
+                        "pass_result_as: sources\n"
+                    ),
+                    "tasks/summarise.yaml": (
+                        "name: summarise\ndescription: d\nprompt: Then\n"
+                    ),
+                }
+            )
+        )
+        assert report["ok"], report["errors"]
+
+    def test_a_dangling_sequence_entry_is_an_error(self):
+        """Otherwise it fails at run time, deep into a multi-stage build."""
+        report = validate_files(
+            self._agent(
+                **{
+                    "tasks/gather.yaml": (
+                        "name: gather\ndescription: d\nprompt: Go\n"
+                        "task_sequence: [never_generated]\n"
+                    )
+                }
+            )
+        )
+        assert errors_of(report, "task-chain")
+
+    def test_a_dangling_next_task_is_an_error(self):
+        """The single-successor spelling gets the same check."""
+        report = validate_files(
+            self._agent(
+                **{
+                    "tasks/one.yaml": (
+                        "name: one\ndescription: d\nprompt: Go\n"
+                        "next_task: missing\n"
+                    )
+                }
+            )
+        )
+        assert errors_of(report, "task-chain")
+
+    def test_a_dangling_chain_config_is_an_error(self):
+        """A stage cannot run under a config that was never generated."""
+        report = validate_files(
+            self._agent(
+                **{
+                    "tasks/one.yaml": (
+                        "name: one\ndescription: d\nprompt: Go\n"
+                        "chain_config: no_such_config\n"
+                    )
+                }
+            )
+        )
+        assert errors_of(report, "task-chain")
+
+    def test_a_non_list_task_sequence_is_an_error(self):
+        """A string here silently chains to nothing."""
+        report = validate_files(
+            self._agent(
+                **{
+                    "tasks/one.yaml": (
+                        "name: one\ndescription: d\nprompt: Go\n"
+                        "task_sequence: summarise\n"
+                    )
+                }
+            )
+        )
+        assert errors_of(report, "task-chain")

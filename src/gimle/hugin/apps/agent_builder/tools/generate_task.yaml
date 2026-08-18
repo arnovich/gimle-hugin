@@ -21,6 +21,35 @@ parameters:
     type: array
     description: List of tool names available for this task (optional, uses config tools if not specified)
     required: false
+  task_sequence:
+    type: array
+    description: >-
+      Names of tasks to run after this one, in order. Use for multi-stage work
+      where each stage hands its result to the next. Every name must be a task
+      you also generate.
+    required: false
+  next_task:
+    type: string
+    description: >-
+      Name of a single task to run after this one. Use task_sequence instead
+      when there is more than one stage.
+    required: false
+  pass_result_as:
+    type: string
+    description: >-
+      Name of the parameter the next task receives this task's result as. The
+      successor does not need to declare it; the framework creates it.
+    required: false
+  chain_config:
+    type: string
+    description: >-
+      Name of a different config to run this task under, when a stage needs
+      different tools or a different system prompt.
+    required: false
+  system_template:
+    type: string
+    description: Template name overriding the config's, for this task only.
+    required: false
 is_interactive: false
 implementation_path: agent_builder.tools.generate_task:generate_task
 options: {}

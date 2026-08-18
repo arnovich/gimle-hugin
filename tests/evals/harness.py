@@ -52,7 +52,7 @@ INFRASTRUCTURE_RETRIES = 2
 
 
 def is_infrastructure_failure(tail: str) -> bool:
-    """True when the output shows the build never reached the builder."""
+    """Return True when the output shows the build never reached the builder."""
     return any(marker in tail for marker in INFRASTRUCTURE_MARKERS)
 
 
@@ -102,6 +102,7 @@ def score_output(case: EvalCase, output_path: Path) -> Dict[str, Any]:
 
     report = validate_files(files, str(output_path))
     tools = _count(files, "tools")
+    tasks = _count(files, "tasks")
     return {
         "built": True,
         "validates": report["ok"],
@@ -109,7 +110,8 @@ def score_output(case: EvalCase, output_path: Path) -> Dict[str, Any]:
         "warnings": len(report["warnings"]),
         "tools": tools,
         "meets_tool_expectation": tools >= case.expect_tools,
-        "tasks": _count(files, "tasks"),
+        "tasks": tasks,
+        "meets_task_expectation": tasks >= case.expect_tasks,
         "has_task_sequence": _has_task_sequence(files),
         "observed_imports": report.get("observed_imports", []),
         "error_checks": sorted(
@@ -242,6 +244,9 @@ def summarise(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         "meets_tool_expectation": sum(
             1 for row in scored if row.get("meets_tool_expectation")
         ),
+        "meets_task_expectation": sum(
+            1 for row in scored if row.get("meets_task_expectation")
+        ),
         "produced_a_pipeline": sum(
             1 for row in scored if row.get("has_task_sequence")
         ),
@@ -306,6 +311,7 @@ def compare(before: Dict[str, Any], after: Dict[str, Any]) -> List[str]:
         "validation_rate",
         "build_rate",
         "meets_tool_expectation",
+        "meets_task_expectation",
         "produced_a_pipeline",
         "output_tokens",
     ):

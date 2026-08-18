@@ -19,14 +19,21 @@ from typing import List, Optional, Tuple
 class EvalCase:
     """One description, and what a good agent built from it would contain.
 
-    ``expect_architecture`` is recorded but **not scored yet**: architectures
-    are PR 4.1 work and the builder has no way to be asked for one. Capturing
-    the intent now means the golden set does not need rewriting when it lands.
+    ``expect_tools`` and ``expect_tasks`` are counted separately because the
+    same work can live in either. A chained agent puts a stage in a task; a flat
+    one puts it in a tool. Judging a pipeline by its tool count alone penalises
+    exactly the shape a pipeline description asks for -- which is what happened
+    the first time the builder learned to chain: it produced correct three-stage
+    agents and the golden set scored them as regressions.
+
+    ``expect_architecture`` is recorded but **not scored**: nothing yet asks the
+    builder for a named shape. ``has_task_sequence`` is the proxy meanwhile.
     """
 
     name: str
     description: str
     expect_tools: int = 1
+    expect_tasks: int = 1
     expect_parameters: bool = True
     expect_architecture: str = "single_shot"
     tags: Tuple[str, ...] = field(default_factory=tuple)
@@ -117,7 +124,8 @@ GOLDEN_SET: List[EvalCase] = [
             "summarise each one, then write a single briefing that cites "
             "them. Each stage should hand its result to the next."
         ),
-        expect_tools=3,
+        expect_tools=1,
+        expect_tasks=3,
         expect_architecture="pipeline",
         tags=("pipeline", "multi_stage"),
     ),
@@ -128,7 +136,8 @@ GOLDEN_SET: List[EvalCase] = [
             "them against a purchase order, then produce an approval "
             "summary. Later stages need the earlier stages' output."
         ),
-        expect_tools=3,
+        expect_tools=1,
+        expect_tasks=3,
         expect_architecture="pipeline",
         tags=("pipeline", "multi_stage"),
     ),

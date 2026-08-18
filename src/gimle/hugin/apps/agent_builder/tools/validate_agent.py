@@ -728,6 +728,68 @@ def _check_terminating_tool(files: Dict[str, str]) -> List[Finding]:
     ]
 
 
+def _check_task_chains(files: Dict[str, str]) -> List[Finding]:
+    """Every task a chain names must exist, and configs it names too.
+
+    Widening ``generate_task`` to emit ``task_sequence``/``next_task`` created a
+    new way to produce a broken agent: a chain pointing at a stage that was
+    never generated. It fails at run time, deep into a multi-stage build, which
+    is the worst place to find out.
+    """
+    tasks = _load_yaml(files, "tasks")
+    known_tasks = set()
+    for document in tasks.values():
+        name = document.get("name")
+        if isinstance(name, str):
+            known_tasks.add(name)
+    known_configs = set()
+    for document in _load_yaml(files, "configs").values():
+        name = document.get("name")
+        if isinstance(name, str):
+            known_configs.add(name)
+
+    findings = []
+    for key, document in tasks.items():
+        successors = []
+        sequence = document.get("task_sequence")
+        if isinstance(sequence, list):
+            successors += [str(entry) for entry in sequence if entry]
+        elif sequence:
+            findings.append(
+                _finding(
+                    key,
+                    "task-chain",
+                    "task_sequence must be a list of task names",
+                )
+            )
+        following = document.get("next_task")
+        if isinstance(following, str):
+            successors.append(following)
+
+        for successor in successors:
+            if successor not in known_tasks:
+                findings.append(
+                    _finding(
+                        key,
+                        "task-chain",
+                        f"chains into '{successor}', which no generated task "
+                        "defines",
+                    )
+                )
+
+        config = document.get("chain_config")
+        if isinstance(config, str) and config not in known_configs:
+            findings.append(
+                _finding(
+                    key,
+                    "task-chain",
+                    f"chain_config names '{config}', which no generated "
+                    "config defines",
+                )
+            )
+    return findings
+
+
 def _pass_result_names(files: Dict[str, str]) -> Set[str]:
     """Parameters that upstream tasks create at runtime via pass_result_as.
 
@@ -979,6 +1041,7 @@ def validate_files(
     errors += _check_structure(files)
     errors += _check_reserved_names(files)
     errors += _check_task_parameter_schemas(files)
+    errors += _check_task_chains(files)
 
     reference_errors, reference_warnings = _check_references(files)
     errors += reference_errors

@@ -62,6 +62,27 @@ template: |
   return ToolResponse(is_error=False, content={"data": str(hist.to_dict())})
   ```
 
+  ## Multi-stage agents
+
+  If the description implies stages — "first X, then Y", "each stage hands its
+  result to the next", "process in phases" — do NOT flatten it into one task
+  with a long prompt. Generate one task per stage and chain them:
+
+  ```
+  generate_task(task_name="gather", ..., task_sequence=["summarise", "brief"],
+                pass_result_as="sources")
+  generate_task(task_name="summarise", ..., pass_result_as="summaries")
+  generate_task(task_name="brief", ...)
+  ```
+
+  `pass_result_as` names the parameter the next stage receives the previous
+  stage's result as; the successor does not declare it, the framework creates
+  it. Every name in a `task_sequence` must be a task you also generate, or the
+  agent fails to build.
+
+  Use `chain_config` when a stage genuinely needs different tools or a
+  different system prompt from the others.
+
   ## Workflow
 
   1. list_examples, then read_example on the 1-2 closest matches. These are the

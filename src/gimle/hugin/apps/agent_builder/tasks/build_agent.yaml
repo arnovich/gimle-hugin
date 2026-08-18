@@ -70,6 +70,11 @@ prompt: |
      based on the description. Write a prompt that tells the agent exactly
      what to do, referencing its specific tools. Instruct it to save outputs.
 
+     If the description describes stages, generate one task per stage and chain
+     them with `task_sequence` and `pass_result_as` rather than writing one
+     long prompt that does everything. Every name you chain to must be a task
+     you also generate.
+
   6. **generate_tool** for each custom tool - The `implementation_code` must be
      ACTUAL PYTHON CODE. Example:
 

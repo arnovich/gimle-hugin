@@ -874,7 +874,7 @@ class TestPromptSerialization:
 
 
 class TestRecursiveRenderIsSafeOverItsOwnOutput:
-    """Re-rendering rendered output must not be able to kill a run.
+    r"""Re-rendering rendered output must not be able to kill a run.
 
     ``_render_to_fixpoint`` renders repeatedly until no Jinja remains, which
     means every pass after the first is parsing text this code produced. Real
