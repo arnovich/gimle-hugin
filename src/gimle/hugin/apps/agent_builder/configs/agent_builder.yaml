@@ -15,7 +15,6 @@ tools:
   - read_generated_file
   - validate_agent
   - write_agent_files
-  - write_and_finish
   - test_agent
   - builtins.save_file:save_file
   - builtins.finish:finish
