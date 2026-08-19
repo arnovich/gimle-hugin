@@ -10,7 +10,7 @@ Branch per PR off `main`, snake_case, `task/` prefix. See `spec.md` for design.
 
 ## Status — start here
 
-**Last updated: 2026-08-18. Phases 1 and 1.5 complete. Phase 2 partly done and
+**Last updated: 2026-08-19. Phases 1 and 1.5 complete. Phase 2 partly done and
 partly abandoned; Phase 4's schema work pulled forward because the eval said so.**
 
 | PR | What | State |
@@ -25,7 +25,8 @@ partly abandoned; Phase 4's schema work pulled forward because the eval said so.
 | #101 | Jinja recursive-render crash | merged |
 | #102 | eval: outages are not generation failures | merged |
 | #103 | 4.1 multi-stage agents (`task_sequence` et al) | merged |
-| #104 | writing and finishing made indivisible | merged |
+| #104 | writing and finishing made indivisible | reverted (#106) |
+| #107 | chained-stage history rendering + #104 re-landed | open |
 
 ### What the eval changed about the plan
 
@@ -38,6 +39,7 @@ redirected the work four times, and **not once toward the prompt**:
 | — | The harness scored provider outages as generation failures |
 | — | `generate_task` had no field for a chain, so pipelines were impossible |
 | — | The builder discarded validated agents by finishing without writing |
+| — | A later stage retroactively corrupted an earlier stage's rendered turn |
 
 **PR 2.2 remains unbuilt, unmeasured, and the least-supported item on the list.**
 A draft (schema tables inlined into `builder_system.yaml`, no packaging) is
@@ -53,13 +55,44 @@ a real baseline and spread. ~25 minutes and a few dollars per run.
 
 Then, in order of evidence:
 
-1. **`preview_files` returns 24k chars and `read_example` 12k** — measured from
+1. **The builder loops in stage 1.** The one eval failure in #107
+   (`refund_approver`) called `generate_config` 30 times, never left
+   `build_agent`, and hit the 200-step cap. It is now the *only* observed
+   failure mode, so it is the highest-value thing left. A per-tool repeat
+   guard, or a cap on regenerating the same file, is the obvious shape.
+2. **`preview_files` returns 24k chars and `read_example` 12k** — measured from
    a real builder trace. The context-window caps added in #83 only started
    working after the `stack.py` membership fix, so capping `preview_files` is a
    small change with a measurable token effect.
-2. **The builder's four-stage workflow is fragile.** #104 removed one way to
-   lose a valid agent; an abnormal end (max steps) still loses one to
-   `.rejected/`. This is the largest remaining cost and failure source.
+3. **The builder's four-stage workflow is fragile.** #104/#107 removed one way
+   to lose a valid agent; an abnormal end (max steps) still loses one to
+   `.rejected/` — and that is exactly what `refund_approver` hit, with a
+   *valid* agent (0 errors, 0 warnings) thrown away for want of a finish.
+
+### The #104 revert, and what it actually was
+
+#104 was reverted after scoring 1/15. The diagnosis recorded at the time — "the
+narrowed finalize tool list orphaned `tool_use` blocks" — was directionally
+right but had the wrong mechanism, and rebuilding on it ("keep a superset of
+the tools") did **not** fix the failure.
+
+The real cause was a framework bug: `OracleResponse.tool_call_id` resolved the
+called tool against the tools visible *now*, not those in force when the call
+was made. Since a chain re-renders earlier stages on the same stack, dropping a
+`respond_with_text` tool (`finish`) from a later stage's list re-rendered a
+finished turn as an unanswerable `tool_use`, and the provider rejected the whole
+request. Fixed in #107 by resolving as of the interaction.
+
+Two lessons worth keeping:
+
+- **Unit tests cannot see this class of bug.** All eleven tests on #104 passed
+  while it failed 100% of builds; it needs two chained stages with differing
+  tool lists to appear. The eval is the only thing that catches it — run it
+  before merging a builder or interaction change, not after.
+- **A persisted session replays offline for free.** `render_stack_context` is
+  pure, so loading a stored session and checking every `tool_use` has a
+  `tool_result` reproduces the provider's 400 exactly, with no API spend. That
+  is how #107 was diagnosed and how it was confirmed pre-existing on `main`.
 
 ### Measurement notes
 
