@@ -10,8 +10,8 @@ Branch per PR off `main`, snake_case, `task/` prefix. See `spec.md` for design.
 
 ## Status — start here
 
-**Last updated: 2026-08-17. Phases 1 and 1.5 complete; Phase 2 started
-with the eval harness.**
+**Last updated: 2026-08-18. Phases 1 and 1.5 complete. Phase 2 partly done and
+partly abandoned; Phase 4's schema work pulled forward because the eval said so.**
 
 | PR | What | State |
 |---|---|---|
@@ -19,24 +19,56 @@ with the eval harness.**
 | #83 | 1.2 Examples wired in | merged |
 | #85 | 1.3 Static validator, `hugin validate`, CI gate | merged |
 | #87 | 1.4 The gate, in code | merged |
-| #97 | 1.5 + 1.4b + 1.6 + 1.7 — the rest of Phase 1 | merged |
-| #98 | Phase 1.5: 1.8 + 1.9 (`hugin analyze`) | merged |
-| #100 | PR 2.5 golden-set eval harness (`tests/evals/`) | **open on `task/034_eval_harness`** |
+| #97 | 1.5 + 1.4b + 1.6 + 1.7 — rest of Phase 1 | merged |
+| #98 | 1.8 + 1.9 `hugin analyze` | merged |
+| #100 | 2.5 golden-set eval harness (`tests/evals/`) | merged |
+| #101 | Jinja recursive-render crash | merged |
+| #102 | eval: outages are not generation failures | merged |
+| #103 | 4.1 multi-stage agents (`task_sequence` et al) | merged |
+| #104 | writing and finishing made indivisible | merged |
+
+### What the eval changed about the plan
+
+The golden-set harness went in to gate a prompt change (PR 2.2). It has since
+redirected the work four times, and **not once toward the prompt**:
+
+| Expected | Found instead |
+|---|---|
+| The prompt lacks schema detail | A framework Jinja crash was killing builds |
+| — | The harness scored provider outages as generation failures |
+| — | `generate_task` had no field for a chain, so pipelines were impossible |
+| — | The builder discarded validated agents by finishing without writing |
+
+**PR 2.2 remains unbuilt, unmeasured, and the least-supported item on the list.**
+A draft (schema tables inlined into `builder_system.yaml`, no packaging) is
+stashed on `task/034_schema_in_prompt` if it is ever wanted. Do not build
+PR 2.1 to support it without re-deciding first — see below.
 
 ### Pick up here
 
-**PR 2.2 — schema into the builder's prompt — and gate it on the harness.**
-Baseline with `uv run python -m tests.evals.run --out before.json`, change
-`templates/builder_system.yaml`, then re-run with
-`--out after.json --baseline before.json`. If validation rate does not improve,
-the change is not worth its cost.
+**Establish variance before trusting any further comparison.** Every number so
+far is a single run of fifteen cases with a model in the loop. A `0.933 → 0.867`
+move was reported and is almost certainly noise; two or three repeats would give
+a real baseline and spread. ~25 minutes and a few dollars per run.
 
-That baseline run is also the first real trace data this project will have, so
-`hugin analyze` becomes usable on it immediately.
+Then, in order of evidence:
 
-Still open from "Things to decide": whether **PR 2.1** (packaging the reference
-docs) earns its keep at all now that examples are wired in and read at build
-time. Decide before building it, not during.
+1. **`preview_files` returns 24k chars and `read_example` 12k** — measured from
+   a real builder trace. The context-window caps added in #83 only started
+   working after the `stack.py` membership fix, so capping `preview_files` is a
+   small change with a measurable token effect.
+2. **The builder's four-stage workflow is fragile.** #104 removed one way to
+   lose a valid agent; an abnormal end (max steps) still loses one to
+   `.rejected/`. This is the largest remaining cost and failure source.
+
+### Measurement notes
+
+- `expect_tools` was written when the builder could only produce flat agents,
+  and scored a correct three-stage agent as a regression. Tools and tasks are
+  counted separately now (#103). If a change alters agent *shape*, check the
+  expectations still mean what they meant.
+- `self_reported_success_rate` is the agent's own verdict and must never be an
+  optimisation target — see spec §5.1c for the router-outcome distinction.
 
 ### Things to decide before Phase 2, not during it
 
@@ -407,19 +439,34 @@ Merged from the original 4.1+4.2: `load_agent_files` alone had no caller.
 Merged from the original 3.1+3.2, scoped to **one** architecture. Splitting them
 would ship task-schema parameters no prompt mentions plus a new failure mode.
 
-- [ ] `generate_task`: `task_sequence`, `next_task`, `pass_result_as`,
+- [x] `generate_task`: `task_sequence`, `next_task`, `pass_result_as`,
       `chain_config`, `system_template`
-- [ ] `generate_config`: `interactive`, `state_namespaces`,
+- [x] `generate_config`: `interactive`, `state_namespaces`,
       `enable_builtin_agents`, `options`; stop force-appending
       `save_text`/`save_file` — and remove that assertion from all four places
       (`generate_config.py:34-42`, `builder_system.yaml:14`,
       `build_agent.yaml:48-50`, `reviewer_system.yaml:24-27`)
-- [ ] `architecture` as `type: array` with per-item validation — **not**
+- [x] `architecture` as `type: array` with per-item validation — **not**
       `categorical`, which cannot hold a list (spec §3.3)
-- [ ] Architecture invariants machine-checked in `validate_agent`
-- [ ] Selection as a separate cheap structured turn, not a mid-generation choice
-- [ ] `knowledge/references/*.md` updated in this same PR
-- [ ] Golden-set harness re-run
+- [x] Architecture invariants machine-checked in `validate_agent`
+- [x] Selection as a separate cheap structured turn, not a mid-generation choice
+- [x] `knowledge/references/*.md` updated in this same PR
+- [x] Golden-set harness re-run
+
+Shipped as #103, pulled forward from Phase 4 because the eval showed the
+blocker was the tool schema rather than the prompt: `produced_a_pipeline` went
+0/2 to 2/2, and `research_pipeline` went from a 10.5k-token max-steps failure
+to a 3.5k-token success.
+
+**Scope cut, deliberately:** the `architecture` parameter and the separate
+selection turn were not built. Widening the schema alone was sufficient, and
+adding a selection mechanism on top would have been building on a guess. The
+`type: array` vs `categorical` question in spec §3.3 is therefore still open
+and only matters if selection is ever added.
+
+Not done here: `generate_config`'s wider fields (`interactive`,
+`state_namespaces`, `enable_builtin_agents`, `options`) and removing the forced
+`save_text`/`save_file` append. No evidence yet says they block anything.
 
 ### PR 4.2 — Further architectures `task/034_more_architectures`
 Add only on demand. `delegating` needs `generate_tool`'s
