@@ -83,6 +83,30 @@ class TestTheStageCannotFinishWithoutWriting:
             tools
         )
 
+    def test_it_keeps_every_other_tool_the_config_grants(self):
+        """Defence in depth for the failure that scored 1/15 on a real eval.
+
+        Stages share one stack, and task tools replace the config's entirely.
+        Omitting a tool an earlier stage called used to change how that
+        finished turn rendered -- a ``respond_with_text`` tool such as
+        ``finish`` turned into a ``tool_use`` nothing answered, and the
+        provider rejected the whole request. That root cause is fixed in the
+        framework (``OracleResponse._tool_as_of_this_turn`` resolves the tool
+        as of the turn that called it), so this list is no longer load-bearing
+        for correctness. It is kept because a stage that cannot call what the
+        build stage could is still a silent capability cut.
+        """
+        config = yaml.safe_load(
+            (BUILDER / "configs" / "agent_builder.yaml").read_text()
+        )
+        expected = {
+            tool
+            for tool in config["tools"]
+            if not tool.endswith("finish:finish")
+        }
+
+        assert expected <= set(self._finalize()["tools"])
+
 
 class TestWriteAndFinish:
     """Writing and finishing are one step, and failure is not success."""
