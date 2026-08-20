@@ -462,6 +462,10 @@ def write_agent_files(
     # model merely claiming that it finished. Set it only after every required
     # write and removal has completed successfully.
     env_vars["written_keys"] = sorted(files)
+    # What actually changed on disk, as opposed to the whole payload. An edit
+    # reports this: "wrote 1 file" is the evidence that it was surgical, and
+    # `written_keys` (every file considered) cannot show that.
+    env_vars["changed_keys"] = sorted(written)
     registered = _register(stack, output_dir)
 
     return ToolResponse(

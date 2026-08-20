@@ -42,6 +42,11 @@ GRAY = "\033[90m"
 RESET = "\033[0m"
 
 
+# A directory holding any of these is an agent; the builder writes all
+# four, and a hand-written agent has at least one.
+AGENT_SUBDIRECTORIES = ("configs", "tasks", "templates", "tools")
+
+
 def _build_banner() -> str:
     """Build the banner with the current version number."""
     from gimle.hugin import __version__
@@ -434,6 +439,49 @@ def run_wizard(
     }
 
 
+def run_edit_wizard(args: argparse.Namespace) -> Dict[str, Any]:
+    """Collect the inputs for editing an existing agent.
+
+    Refuses a path that is not an agent *before* the build runs, for the same
+    reason ``check_output_path`` is called in the build wizard: these refusals
+    otherwise surface after a full multi-stage LLM run has already been paid
+    for.
+    """
+    agent_path = Path(args.edit).expanduser()
+    if not agent_path.is_dir():
+        print(f"    No such agent directory: {agent_path}")
+        sys.exit(2)
+    if not any((agent_path / name).is_dir() for name in AGENT_SUBDIRECTORIES):
+        print(f"    {agent_path} does not look like an agent directory.")
+        print(f"    Expected one of: {', '.join(AGENT_SUBDIRECTORIES)}")
+        sys.exit(2)
+
+    instruction = getattr(args, "instruction", None)
+    if not instruction:
+        if getattr(args, "yes", False):
+            print("    --edit with --yes requires --instruction.")
+            sys.exit(2)
+        print()
+        print("    What should change about this agent?")
+        print()
+        instruction = prompt_user("    Instruction")
+        while not instruction:
+            instruction = prompt_user("    Instruction")
+
+    resolved = str(agent_path.resolve())
+    return {
+        "agent_path": resolved,
+        "instruction": instruction,
+        # The writer and the failure reporter both read output_path; an edit
+        # writes back where it was loaded from.
+        "output_path": resolved,
+        "dry_run": bool(getattr(args, "dry_run", False)),
+        "builder_model": getattr(args, "builder_model", None)
+        or "sonnet-latest",
+        "edit": True,
+    }
+
+
 def _report_rejected(env: Any, output_path: str) -> None:
     """Land whatever the builder produced and say what was wrong with it.
 
@@ -550,6 +598,15 @@ Examples:
     )
     parser.add_argument("--output", help="Directory to write the agent to")
     parser.add_argument(
+        "--edit",
+        metavar="PATH",
+        help="Edit the existing agent in PATH instead of creating one",
+    )
+    parser.add_argument(
+        "--instruction",
+        help="What to change, with --edit",
+    )
+    parser.add_argument(
         "--stub-tools",
         action="store_true",
         help="Emit tool signatures that raise NotImplementedError, rather "
@@ -581,7 +638,11 @@ Examples:
     args = parser.parse_args(argv)
 
     # Run wizard
-    user_input = run_wizard(args=args)
+    editing = bool(getattr(args, "edit", None))
+    if getattr(args, "instruction", None) and not editing:
+        print("    --instruction only applies with --edit.")
+        return 2
+    user_input = run_edit_wizard(args) if editing else run_wizard(args=args)
 
     # Set up storage path
     storage_path = Path("./storage/agent_builder")
@@ -591,7 +652,12 @@ Examples:
 
     # Show building screen
     show_header(
-        "Building Your Agent", "Please wait while the AI creates your agent..."
+        "Editing Your Agent" if editing else "Building Your Agent",
+        (
+            "Please wait while the AI edits your agent..."
+            if editing
+            else "Please wait while the AI creates your agent..."
+        ),
     )
     print("  To monitor progress, run:")
     print(f"    uv run hugin monitor -s {storage_path}\n")
@@ -637,7 +703,7 @@ Examples:
 
         # Get config and task
         config = env.config_registry.get("agent_builder")
-        task = env.task_registry.get("build_agent")
+        task = env.task_registry.get("edit_agent" if editing else "build_agent")
 
         # Override the builder's model with user's selection
         builder_model = user_input.get("builder_model", "sonnet-latest")
@@ -752,6 +818,28 @@ Examples:
             f"    Would remove: {len(preview.get('would_remove', []))} file(s)"
         )
         print(f"    Built in: {elapsed:.0f}s over {step_count} steps")
+        return 0
+
+    if editing:
+        # Report the files that actually changed, not the whole payload. An
+        # edit's whole claim is that it was surgical, and "wrote 12 files"
+        # when one was asked for is exactly the failure worth seeing.
+        changed = env.env_vars.get("changed_keys", [])
+        show_header("Agent Updated", "Your agent has been edited in place")
+        print(f"        Location: {user_input['output_path']}")
+        print(f"        Edited in: {elapsed:.0f}s over {step_count} steps")
+        print()
+        if changed:
+            print(f"    Changed {len(changed)} file(s):")
+            for key in changed:
+                print(f"        {key}")
+        else:
+            print("    No file needed changing.")
+        print()
+        print("    Run it with:")
+        print()
+        print(f"        {_generated_run_command(user_input['output_path'])}")
+        print()
         return 0
 
     # Success screen

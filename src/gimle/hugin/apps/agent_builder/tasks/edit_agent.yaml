@@ -1,0 +1,78 @@
+name: edit_agent
+description: Change an existing Hugin agent according to an instruction
+parameters:
+  agent_path:
+    type: string
+    description: Directory of the agent to edit
+    required: true
+  instruction:
+    type: string
+    description: What to change about the agent
+    required: true
+tools:
+  # No `finish`. write_and_finish is the only way to end this task, so an
+  # edit that was reasoned about but never written is not expressible --
+  # the same guarantee the finalize stage relies on.
+  - load_agent_files
+  - read_generated_file
+  - list_examples
+  - read_example
+  - generate_config
+  - generate_task
+  - generate_template
+  - generate_tool
+  - preview_files
+  - validate_agent
+  - write_agent_files
+  - write_and_finish
+prompt: |
+  ## THE AGENT YOU MUST CHANGE
+
+  **Directory**: {{ agent_path.value }}
+  **Instruction**: {{ instruction.value }}
+
+  You are editing an agent that already exists and already works. Someone may
+  have hand-written parts of it. Your job is to make the change that was asked
+  for and **nothing else**.
+
+  ## Step-by-Step
+
+  1. **`load_agent_files`** with `agent_path={{ agent_path.value }}`. This
+     gives you a manifest of what the agent contains -- paths and sizes, not
+     contents.
+
+  2. **Decide which files the instruction actually requires changing.** Most
+     instructions touch one or two. Name them to yourself before you touch
+     anything.
+
+  3. **`read_generated_file` on each file you intend to change.** This is not
+     optional. The generate_* tools replace a file wholesale, so regenerating
+     one you have not read discards whatever is in it -- comments, hand-tuned
+     logic, edge cases someone added after a bug. If you have not read it, you
+     cannot preserve it.
+
+  4. **Regenerate only those files**, carrying forward everything the
+     instruction does not change:
+     - Config -> `generate_config`
+     - Task -> `generate_task`
+     - Template -> `generate_template`
+     - Tool -> `generate_tool` with ACTUAL PYTHON CODE
+
+     A file you do not regenerate is left exactly as it was read. That is the
+     point: leaving a file alone is always safer than re-emitting it.
+
+  5. **`validate_agent`** to check the edited agent still holds together --
+     a renamed tool that a config still lists, a task chaining to a task you
+     removed.
+
+  6. **`write_and_finish`** with a short summary of what you changed and why.
+     It writes only the files that actually differ. If the agent does not
+     validate the write is refused and you get the errors back -- fix them and
+     call it again.
+
+  ## What not to do
+
+  - Do not regenerate a file just because it is related. Unchanged files are
+    the evidence that the edit was surgical.
+  - Do not rename things the instruction did not ask you to rename.
+  - Do not "improve" code you were not asked to touch.

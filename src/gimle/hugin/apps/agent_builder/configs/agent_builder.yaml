@@ -7,6 +7,9 @@ tools:
   # rather than making it invent structure from the prompt alone.
   - list_examples
   - read_example
+  # Edit mode: read an existing agent in, so every generator above
+  # becomes an edit tool for the file it regenerates.
+  - load_agent_files
   - generate_config
   - generate_task
   - generate_template
