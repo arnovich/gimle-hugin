@@ -19,6 +19,7 @@ from tests.evals.golden_set import GOLDEN_SET, by_name, select
 from tests.evals.harness import (
     compare,
     is_infrastructure_failure,
+    is_retryable_failure,
     score_output,
     summarise,
     write_report,
@@ -266,6 +267,54 @@ class TestInfrastructureFailures:
     def test_real_failures_are_not_excused(self, tail):
         """Over-classifying would hide exactly what the harness measures."""
         assert not is_infrastructure_failure(tail)
+
+    @pytest.mark.parametrize(
+        "tail",
+        [
+            "Your credit balance is too low to access the Anthropic API.",
+            "{'type': 'authentication_error', 'message': 'invalid x-api-key'}",
+        ],
+    )
+    def test_account_level_failures_are_recognised(self, tail):
+        """A billing lapse is not a quality regression.
+
+        Unclassified, an exhausted balance scored eleven cases as build
+        failures and still reported "infrastructure_failures 0" -- a run that
+        looks like the builder collapsed when nothing was ever asked of it.
+        """
+        assert is_infrastructure_failure(tail)
+
+    @pytest.mark.parametrize(
+        "tail",
+        [
+            "Your credit balance is too low to access the Anthropic API.",
+            "{'type': 'authentication_error'}",
+        ],
+    )
+    def test_account_level_failures_are_not_retried(self, tail):
+        """Retrying cannot buy credit; it only burns the timeout budget."""
+        assert not is_retryable_failure(tail)
+
+    @pytest.mark.parametrize(
+        "tail",
+        ["RateLimitError: Too Many Requests", "overloaded_error"],
+    )
+    def test_transient_failures_are_still_retried(self, tail):
+        """The retry path must survive the terminal/transient split."""
+        assert is_retryable_failure(tail)
+
+    def test_the_truncated_error_the_builder_prints_is_not_enough(self):
+        """Why classification reads the builder's log, not just its stdout.
+
+        The builder cuts the provider error mid-word, so the sentence that
+        identifies the failure never reaches stdout at all.
+        """
+        printed = (
+            "Error: BadRequestError\n"
+            "Error code: 400 - {'type': 'error', 'error': {'type': 'inval"
+        )
+
+        assert not is_infrastructure_failure(printed)
 
     def test_rates_are_computed_over_scored_cases_only(self):
         """The denominator is what the builder actually attempted."""
