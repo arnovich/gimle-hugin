@@ -482,6 +482,49 @@ def run_edit_wizard(args: argparse.Namespace) -> Dict[str, Any]:
     }
 
 
+def _confirm_and_write(
+    env: Any, session: Any, output_path: str
+) -> Optional[int]:
+    """Show the pending edit, ask, and write it if the user agrees.
+
+    Returns an exit code when the run is over -- nothing changed, or the user
+    declined -- and None when the write happened and the caller should carry on
+    to the success screen.
+    """
+    from gimle.hugin.apps.agent_builder.diff import (
+        diff_against_disk,
+        render_agent_diff,
+    )
+    from gimle.hugin.apps.agent_builder.tools.write_agent_files import (
+        write_agent_files,
+    )
+
+    generated = env.env_vars.get("generated_files") or {}
+    target = Path(output_path)
+    changed, added, _ = diff_against_disk(generated, target)
+    if not changed and not added:
+        show_header("No Changes", "The edit did not alter any file")
+        print(f"    {target} is already what the instruction asked for.")
+        print()
+        return 0
+
+    show_header("Review the Edit", "Nothing has been written yet")
+    print(render_agent_diff(generated, target))
+    print()
+    if not prompt_yes_no(
+        f"    Apply this edit to {len(changed) + len(added)} file(s)?"
+    ):
+        print("    Cancelled. Nothing was written.")
+        return 0
+
+    written = write_agent_files(session.agents[0].stack, output_path)
+    if written.is_error:
+        print()
+        print(f"    Could not write: {written.content.get('error')}")
+        return 1
+    return None
+
+
 def _report_rejected(env: Any, output_path: str) -> None:
     """Land whatever the builder produced and say what was wrong with it.
 
@@ -720,6 +763,11 @@ Examples:
             ]
 
         # Create and run session
+        if editing and not args.yes:
+            # Hold the writer at preview until the user has seen the diff.
+            # Unattended edits (--yes) have nobody to ask, so they write.
+            env.env_vars["await_confirmation"] = True
+
         session = Session(environment=env)
         session.create_agent_from_task(config, task)
 
@@ -769,8 +817,16 @@ Examples:
             return 1
 
         dry_run_result = env.env_vars.get("dry_run_result")
-        if not env.env_vars.get("written_keys") and not (
-            user_input.get("dry_run") and dry_run_result
+        # An edit awaiting confirmation has deliberately not written yet, and
+        # its preview is the thing about to be shown -- treat a recorded
+        # preview as evidence the builder finished, not as an incomplete build.
+        awaiting = bool(env.env_vars.get("await_confirmation")) and bool(
+            dry_run_result
+        )
+        if (
+            not env.env_vars.get("written_keys")
+            and not awaiting
+            and not (user_input.get("dry_run") and dry_run_result)
         ):
             # Ask whether the writer actually succeeded, not whether the
             # directory exists. Re-running the builder over an existing agent,
@@ -806,6 +862,11 @@ Examples:
         # every exit path; a no-op until the agent builder uses the bash tool.
         if session is not None:
             session.close()
+
+    if env.env_vars.pop("await_confirmation", False):
+        outcome = _confirm_and_write(env, session, user_input["output_path"])
+        if outcome is not None:
+            return outcome
 
     if user_input.get("dry_run"):
         show_header(

@@ -391,8 +391,14 @@ def write_agent_files(
         if key not in superseded
     ]
 
-    requested_dry_run = _as_bool(dry_run) or _as_bool(
-        user_input.get("dry_run", False)
+    # ``await_confirmation`` is edit mode's hold: the writer previews, the CLI
+    # shows the diff and asks, and only then clears the flag and calls again.
+    # Kept separate from ``dry_run`` so the two cannot be confused -- a dry run
+    # never writes, this one is waiting to.
+    requested_dry_run = (
+        _as_bool(dry_run)
+        or _as_bool(user_input.get("dry_run", False))
+        or _as_bool(env_vars.get("await_confirmation", False))
     )
     if requested_dry_run:
         preview = {
