@@ -439,6 +439,46 @@ def run_wizard(
     }
 
 
+def _check_recoverable(agent_path: Path, args: argparse.Namespace) -> None:
+    """Refuse to edit into a dirty tree unattended; warn when someone is there.
+
+    An edit rewrites files in place, so the user's own version control is the
+    only undo. Uncommitted changes mean the edit can destroy work that exists
+    nowhere else -- survivable when a human sees the diff and can say no, and
+    unrecoverable under ``--yes``, which is precisely when nobody is watching.
+
+    A directory git cannot answer for (not a repository, no git installed) is
+    left alone rather than refused: unversioned agents are ordinary, and
+    refusing them would make edit mode unusable for the common case while
+    protecting nothing.
+    """
+    from gimle.hugin.apps.agent_builder.git_guard import uncommitted_changes
+
+    if getattr(args, "allow_dirty", False):
+        return
+    dirty = uncommitted_changes(agent_path)
+    if not dirty:
+        return
+
+    print()
+    print(f"    {agent_path} has {len(dirty)} uncommitted change(s):")
+    for line in dirty[:10]:
+        print(f"        {line}")
+    if len(dirty) > 10:
+        print(f"        ... and {len(dirty) - 10} more")
+    print()
+    print("    An edit rewrites files in place; committing first gives you")
+    print("    a way back. Pass --allow-dirty to skip this check.")
+    print()
+
+    if getattr(args, "yes", False):
+        print("    Refusing to edit unattended into a dirty tree.")
+        sys.exit(2)
+    if not prompt_yes_no("    Edit anyway?", default=False):
+        print("    Cancelled.")
+        sys.exit(0)
+
+
 def run_edit_wizard(args: argparse.Namespace) -> Dict[str, Any]:
     """Collect the inputs for editing an existing agent.
 
@@ -455,6 +495,8 @@ def run_edit_wizard(args: argparse.Namespace) -> Dict[str, Any]:
         print(f"    {agent_path} does not look like an agent directory.")
         print(f"    Expected one of: {', '.join(AGENT_SUBDIRECTORIES)}")
         sys.exit(2)
+
+    _check_recoverable(agent_path, args)
 
     instruction = getattr(args, "instruction", None)
     if not instruction:
@@ -479,6 +521,7 @@ def run_edit_wizard(args: argparse.Namespace) -> Dict[str, Any]:
         "builder_model": getattr(args, "builder_model", None)
         or "sonnet-latest",
         "edit": True,
+        "authorised_keys": list(getattr(args, "only", None) or []),
     }
 
 
@@ -650,6 +693,18 @@ Examples:
         help="What to change, with --edit",
     )
     parser.add_argument(
+        "--allow-dirty",
+        action="store_true",
+        help="Edit even when the target has uncommitted changes",
+    )
+    parser.add_argument(
+        "--only",
+        action="append",
+        metavar="FILE",
+        help="Restrict an edit to these files, e.g. --only tools/x.py "
+        "(repeatable)",
+    )
+    parser.add_argument(
         "--stub-tools",
         action="store_true",
         help="Emit tool signatures that raise NotImplementedError, rather "
@@ -763,6 +818,9 @@ Examples:
             ]
 
         # Create and run session
+        if user_input.get("authorised_keys"):
+            env.env_vars["authorised_keys"] = user_input["authorised_keys"]
+
         if editing and not args.yes:
             # Hold the writer at preview until the user has seen the diff.
             # Unattended edits (--yes) have nobody to ask, so they write.

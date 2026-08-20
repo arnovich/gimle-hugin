@@ -358,6 +358,21 @@ def write_agent_files(
                 "escaping": escaping,
             },
         )
+    unauthorised = _unauthorised(to_write, env_vars)
+    if unauthorised:
+        return ToolResponse(
+            is_error=True,
+            content={
+                "error": (
+                    "Refusing to write files outside the authorised set. "
+                    "Regenerate only what the instruction asked for, or "
+                    "re-run without --only."
+                ),
+                "unauthorised": sorted(unauthorised),
+                "authorised": sorted(env_vars.get("authorised_keys") or []),
+            },
+        )
+
     if conflicts:
         return ToolResponse(
             is_error=True,
@@ -486,6 +501,28 @@ def write_agent_files(
             "registered_config": registered,
         },
     )
+
+
+def _unauthorised(
+    to_write: Dict[str, str], env_vars: Dict[str, Any]
+) -> List[str]:
+    """Return the pending writes the caller did not authorise.
+
+    ``--only`` bounds an edit's blast radius deterministically. The spec asked
+    for this set to be *derived from the instruction*, which would mean asking
+    a model which files a sentence implies -- a guess, enforcing itself. A list
+    the caller states is the same protection without the guesswork, and an
+    unattended edit is the case that needs it: an interactive one already shows
+    a diff and asks.
+
+    An empty or absent list authorises everything, so this is inert unless
+    asked for.
+    """
+    authorised = env_vars.get("authorised_keys")
+    if not authorised:
+        return []
+    allowed = set(authorised)
+    return [key for key in to_write if key not in allowed]
 
 
 def _classify_superseded(
