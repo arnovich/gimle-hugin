@@ -342,6 +342,7 @@ def write_agent_files(
         warnings=[
             f"{w['file']}: {w['message']}" for w in report.get("warnings", [])
         ],
+        include_framework=not env_vars.get("loaded_agent_path"),
     )
 
     output_dir = Path(output_path).expanduser()
@@ -647,3 +648,34 @@ def _register(stack: "Stack", output_dir: Path) -> Optional[str]:
     """
     del stack, output_dir
     return None
+
+
+def adopt_existing_files(
+    env_vars: Dict[str, Any], output_dir: Path, files: Dict[str, str]
+) -> None:
+    """Record ``files`` as owned, at the content they were just read with.
+
+    Edit mode reads an agent this builder session did not write, so nothing is
+    owned and :func:`_classify` would call every existing file a conflict --
+    the writer would refuse the whole edit. Adopting what was read is what
+    makes an edit writable at all.
+
+    It gives up less than it appears to. Ownership is keyed on the *hash* read
+    at load time, so the guard still fires for the case it exists to catch: a
+    file that changes between load and write (someone editing the directory
+    while the builder runs) no longer matches and is refused. What is waived is
+    only the claim "this session created it", which for an edit is never true.
+
+    Args:
+        env_vars: The environment's mutable env_vars mapping.
+        output_dir: The directory the files were read from.
+        files: The ``{key: content}`` mapping as read from disk.
+    """
+    owned = _owned_files(env_vars, output_dir)
+    owned.update(
+        {
+            key: _digest(content.encode("utf-8"))
+            for key, content in files.items()
+        }
+    )
+    _set_owned_files(env_vars, output_dir, owned)

@@ -177,14 +177,25 @@ def materialise(
     task_name: Optional[str] = None,
     observed_imports: Optional[List[str]] = None,
     warnings: Optional[List[str]] = None,
+    include_framework: bool = True,
 ) -> Dict[str, str]:
     """Return the complete file set for an agent, framework files included.
 
     Shared by the writer and (from PR 1.3) the validator so the tree that gets
     checked is byte-for-byte the tree that gets written -- they cannot drift
     into disagreeing about what an agent directory contains.
+
+    ``include_framework=False`` is edit mode: emit only what was regenerated.
+    These files describe a *build* -- a README, a build report, an observed
+    dependency list -- and an edit driven by a one-line instruction has no
+    business rewriting them. Left out, they are simply files on disk the
+    writer does not manage, and are preserved untouched. That is what makes
+    the round-trip guarantee true: an edit changes the files it regenerated
+    and nothing else.
     """
     files = dict(generated_files)
+    if not include_framework:
+        return files
     files["__init__.py"] = f'"""Generated Hugin agent: {agent_name}."""\n'
     files["tools/__init__.py"] = '"""Agent tools."""\n'
     files["README.md"] = _readme(
