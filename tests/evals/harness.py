@@ -36,7 +36,8 @@ DEFAULT_TIMEOUT = 900
 # able in the report from six badly generated agents -- which would have made
 # the next prompt change look like a huge improvement. An infrastructure
 # failure is not a score.
-INFRASTRUCTURE_MARKERS = (
+# Blips worth waiting out: the same request may well succeed on a retry.
+TRANSIENT_MARKERS = (
     "APIConnectionError",
     "APITimeoutError",
     "RateLimitError",
@@ -47,6 +48,20 @@ INFRASTRUCTURE_MARKERS = (
     "Too Many Requests",
 )
 
+# Also not the builder's fault, but retrying cannot help: the account cannot
+# make the call at all. Left unclassified, an outage like this reads as a
+# catastrophic quality regression -- a billing lapse once scored 11 cases as
+# build failures and reported "infrastructure_failures 0".
+TERMINAL_MARKERS = (
+    "credit balance is too low",
+    "authentication_error",
+    "invalid x-api-key",
+    "permission_error",
+    "billing",
+)
+
+INFRASTRUCTURE_MARKERS = TRANSIENT_MARKERS + TERMINAL_MARKERS
+
 # How many times to re-attempt a case that failed for infrastructure reasons.
 INFRASTRUCTURE_RETRIES = 2
 
@@ -54,6 +69,27 @@ INFRASTRUCTURE_RETRIES = 2
 def is_infrastructure_failure(tail: str) -> bool:
     """Return True when the output shows the build never reached the builder."""
     return any(marker in tail for marker in INFRASTRUCTURE_MARKERS)
+
+
+def is_retryable_failure(tail: str) -> bool:
+    """Return True when re-running the case could plausibly succeed."""
+    return any(marker in tail for marker in TRANSIENT_MARKERS)
+
+
+def _builder_log_tail(case_dir: Path, limit: int = 4000) -> str:
+    """Return the end of the builder's own log for this case, if written.
+
+    The builder truncates the provider's error to about sixty characters
+    before printing it -- "Error code: 400 - {'type': 'error', 'error':
+    {'type': 'inval" -- so stdout cannot say *which* 400 occurred and
+    classification from it is guesswork. The builder points at this log for
+    exactly that reason; read it rather than the sentence telling us to.
+    """
+    log = case_dir / "storage" / "agent_builder" / "builder.log"
+    try:
+        return log.read_text(errors="replace")[-limit:]
+    except OSError:
+        return ""
 
 
 def _count(files: Dict[str, str], folder: str, suffix: str = ".yaml") -> int:
@@ -193,8 +229,16 @@ def run_case(
             timed_out = True
             tail = f"timed out after {timeout}s"
 
-        infrastructure = returncode != 0 and is_infrastructure_failure(tail)
-        if not infrastructure or attempts > INFRASTRUCTURE_RETRIES:
+        # Classify against the builder's log as well: its stdout truncates the
+        # provider error before the part that identifies it.
+        evidence = (
+            tail
+            + "\n"
+            + (_builder_log_tail(case_dir) if returncode != 0 else "")
+        )
+        infrastructure = returncode != 0 and is_infrastructure_failure(evidence)
+        retryable = infrastructure and is_retryable_failure(evidence)
+        if not retryable or attempts > INFRASTRUCTURE_RETRIES:
             break
         # The provider, not the builder. Wait out a transient blip rather than
         # recording a score the builder did not earn.

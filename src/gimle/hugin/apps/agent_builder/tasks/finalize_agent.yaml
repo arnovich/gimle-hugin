@@ -19,6 +19,29 @@ parameters:
     type: string
     description: Where to write the agent files
     required: true
+tools:
+  # The config's entire toolset, minus `finish`. Task tools replace the
+  # config's, so this list must stay a superset of everything earlier
+  # stages call: they share one stack, and a tool missing here orphans
+  # its tool_use block from the build stage, which makes the whole
+  # conversation invalid (400: tool_use without tool_result).
+  #
+  # Omitting `finish` is the entire point -- write_and_finish is then
+  # the only way to end this stage, so finishing without writing is not
+  # something the model can express.
+  - list_examples
+  - read_example
+  - generate_config
+  - generate_task
+  - generate_template
+  - generate_tool
+  - preview_files
+  - read_generated_file
+  - validate_agent
+  - write_agent_files
+  - write_and_finish
+  - test_agent
+  - builtins.save_file:save_file
 prompt: |
   The agent files for **{{ agent_name.value }}** have been reviewed.
 
@@ -33,21 +56,22 @@ prompt: |
   ## Your Task
 
   ### If Status is APPROVED:
-  1. Call `write_agent_files` to write all files to {{ output_path.value }}
-  2. Call `finish` with success
+  1. Call `write_and_finish` with a short summary. It writes the agent and ends
+     this stage in one step.
 
   ### If Status is NEEDS_FIXES:
   1. Fix each issue using the appropriate tool:
-     - Config issues → `generate_config` (name MUST be `{{ agent_name.value }}`)
-     - Task issues → `generate_task`
-     - Template issues → `generate_template`
-     - Tool issues → `generate_tool` with ACTUAL PYTHON CODE as implementation_code
+     - Config issues -> `generate_config` (name MUST be `{{ agent_name.value }}`)
+     - Task issues -> `generate_task`
+     - Template issues -> `generate_template`
+     - Tool issues -> `generate_tool` with ACTUAL PYTHON CODE
+
+     Use `read_generated_file` to see what is currently there before you
+     regenerate a file, so you edit it rather than reinventing it.
 
   2. Focus especially on matching the original description above.
-     Every tool, parameter, and prompt should serve that description.
 
-  3. Call `preview_files` to verify fixes
+  3. Call `validate_agent` to check your fixes.
 
-  4. Call `write_agent_files` to write to {{ output_path.value }}
-
-  5. Call `finish` with success
+  4. Call `write_and_finish`. If the payload does not validate the write is
+     refused and you get the errors back -- fix them and call it again.
