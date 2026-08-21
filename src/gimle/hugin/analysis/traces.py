@@ -394,6 +394,8 @@ def analyze_traces(
         if exposed not in called and exposed != "finish"
     )
 
+    tool_rows = _tool_rows(tools)
+
     return _redact_report(
         {
             "runs_analyzed": len(runs),
@@ -417,11 +419,11 @@ def analyze_traces(
             "unresolved_template_turns": sum(
                 run["unresolved_template_turns"] for run in runs
             ),
-            "tools": _tool_rows(tools),
+            "tools": tool_rows,
             "dead_tools": dead,
             "loops_detected": top_counts(loops),
             "oversized_results": top_counts(oversized),
-            "caveats": _caveats(runs, completed),
+            "caveats": _caveats(runs, completed, tool_rows),
         }
     )
 
@@ -445,18 +447,36 @@ def _tool_rows(tools: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 
 def _caveats(
-    runs: List[Dict[str, Any]], completed: List[Dict[str, Any]]
+    runs: List[Dict[str, Any]],
+    completed: List[Dict[str, Any]],
+    tool_rows: List[Dict[str, Any]],
 ) -> List[str]:
     """State what the numbers do not mean.
 
     The success rate is the measured agent's own verdict, so anything that
     optimises it can win by declaring success more readily or finishing sooner.
     Saying so next to the number is cheaper than discovering it later.
+
+    The redaction note is here for a failure seen in a real improve run. The
+    report masks paths in error signatures, so a tool that correctly emitted
+    ``File not found: /tmp/x.csv`` appears as ``File not found: <path>``. The
+    model read the placeholder as literal output and proposed "fix the
+    f-string in this tool" -- confidently, and citing a real error rate, about
+    code that was already correct. The privacy measure created a false
+    diagnosis, and nothing in the report said the text had been altered.
     """
     notes = [
         "success_rate is self-reported: it comes from the agent's own "
         "finish_type, not from any independent check of its output.",
     ]
+    if any(row["top_errors"] for row in tool_rows):
+        notes.append(
+            "Error messages here are normalised signatures, not literal "
+            "text: <path>, <n>, <hex>, <url> and '?' are placeholders this "
+            "report substituted for the real values. They are NOT what the "
+            "code emitted -- do not read them as a formatting bug in the "
+            "tool. Read the tool's source to see the real message."
+        )
     if len(runs) < 10:
         notes.append(
             f"Only {len(runs)} run(s) analysed -- too few to conclude much, "
