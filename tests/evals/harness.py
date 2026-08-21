@@ -21,6 +21,11 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from gimle.hugin.analysis.provider_errors import (
+    PROVIDER_MARKERS,
+    is_provider_failure,
+    is_retryable,
+)
 from gimle.hugin.analysis.traces import analyze_traces
 from gimle.hugin.apps.agent_builder.tools.validate_agent import (
     collect_files,
@@ -36,31 +41,10 @@ DEFAULT_TIMEOUT = 900
 # able in the report from six badly generated agents -- which would have made
 # the next prompt change look like a huge improvement. An infrastructure
 # failure is not a score.
-# Blips worth waiting out: the same request may well succeed on a retry.
-TRANSIENT_MARKERS = (
-    "APIConnectionError",
-    "APITimeoutError",
-    "RateLimitError",
-    "InternalServerError",
-    "overloaded_error",
-    "Connection error",
-    "Request timed out",
-    "Too Many Requests",
-)
-
-# Also not the builder's fault, but retrying cannot help: the account cannot
-# make the call at all. Left unclassified, an outage like this reads as a
-# catastrophic quality regression -- a billing lapse once scored 11 cases as
-# build failures and reported "infrastructure_failures 0".
-TERMINAL_MARKERS = (
-    "credit balance is too low",
-    "authentication_error",
-    "invalid x-api-key",
-    "permission_error",
-    "billing",
-)
-
-INFRASTRUCTURE_MARKERS = TRANSIENT_MARKERS + TERMINAL_MARKERS
+# Which failures are the provider's rather than the builder's now lives in
+# `analysis.provider_errors`, because the replay path needs the same judgement
+# and two copies would drift into disagreeing about what an outage is.
+INFRASTRUCTURE_MARKERS = PROVIDER_MARKERS
 
 # How many times to re-attempt a case that failed for infrastructure reasons.
 INFRASTRUCTURE_RETRIES = 2
@@ -68,12 +52,12 @@ INFRASTRUCTURE_RETRIES = 2
 
 def is_infrastructure_failure(tail: str) -> bool:
     """Return True when the output shows the build never reached the builder."""
-    return any(marker in tail for marker in INFRASTRUCTURE_MARKERS)
+    return is_provider_failure(tail)
 
 
 def is_retryable_failure(tail: str) -> bool:
     """Return True when re-running the case could plausibly succeed."""
-    return any(marker in tail for marker in TRANSIENT_MARKERS)
+    return is_retryable(tail)
 
 
 def _builder_log_tail(case_dir: Path, limit: int = 4000) -> str:
