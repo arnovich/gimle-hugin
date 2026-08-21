@@ -102,10 +102,11 @@ Then, in order of evidence:
    a real builder trace. The context-window caps added in #83 only started
    working after the `stack.py` membership fix, so capping `preview_files` is a
    small change with a measurable token effect.
-3. **The builder's four-stage workflow is fragile.** #104/#107 removed one way
-   to lose a valid agent; an abnormal end (max steps) still loses one to
-   `.rejected/` — and that is exactly what `refund_approver` hit, with a
-   *valid* agent (0 errors, 0 warnings) thrown away for want of a finish.
+3. **~~The builder's four-stage workflow is fragile.~~ Largely addressed.**
+   #104/#107 removed one way to lose a valid agent; #114 removed the other —
+   an abnormal end after a successful write no longer discards the agent. What
+   remains is the case where the cap is hit *before* anything is written, which
+   is a genuine failure and correctly reported as one.
 
 ### The #104 revert, and what it actually was
 
@@ -536,8 +537,24 @@ parser, so block scalars can come back as quoted strings. Nothing breaks and
 the diff shows it, but it makes a small edit look larger than it is.
 
 ### PR 3.2 — Interactive builder `task/034_interactive_builder`
-- [ ] `agent_builder_interactive` config with `builtins.ask_user`
-- [ ] `hugin create --interactive`; default unchanged
+- [x] `agent_builder_interactive` config with `builtins.ask_user`
+- [x] `hugin create --interactive`; default unchanged
+
+Shipped as #114, and smaller than expected: `run_steps_with_spinner` already
+services an `AskHuman`, and the builder's call site already defaulted
+`interactive=True`. Only the config and the flag were missing.
+
+The subtlety worth keeping: `ask_user` is `is_interactive`, and
+`Stack.get_tools` filters those out unless the config says `interactive: true`.
+Listing the tool without the flag does nothing, silently.
+
+**It also fixed a build being discarded for the wrong reason.** `test_agent`
+runs after the write, out of the same step budget, because its sub-agent's
+steps count against the builder's allowance. A build that produced a complete,
+validated agent could exhaust the budget in the optional test that follows and
+be thrown to `.rejected` for it. Hit twice while testing this. The cap is now
+only a failure when nothing was written. That is most of the "abnormal end
+still loses a valid agent" item below.
 
 ---
 
