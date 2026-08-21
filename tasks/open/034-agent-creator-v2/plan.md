@@ -10,7 +10,7 @@ Branch per PR off `main`, snake_case, `task/` prefix. See `spec.md` for design.
 
 ## Status — start here
 
-**Last updated: 2026-08-19. Phases 1 and 1.5 complete. Phase 2 partly done and
+**Last updated: 2026-08-20. Phases 1 and 1.5 complete. Phase 2 partly done and
 partly abandoned; Phase 4's schema work pulled forward because the eval said so.**
 
 | PR | What | State |
@@ -26,7 +26,8 @@ partly abandoned; Phase 4's schema work pulled forward because the eval said so.
 | #102 | eval: outages are not generation failures | merged |
 | #103 | 4.1 multi-stage agents (`task_sequence` et al) | merged |
 | #104 | writing and finishing made indivisible | reverted (#106) |
-| #107 | chained-stage history rendering + #104 re-landed | open |
+| #107 | chained-stage history rendering + #104 re-landed | merged |
+| #108 | 3.1 edit an existing agent | open |
 
 ### What the eval changed about the plan
 
@@ -450,13 +451,48 @@ change the prompt, then re-run with `--out after.json --baseline before.json`.
 ### PR 3.1 — Load, read, diff, edit `task/034_edit_agent`
 Merged from the original 4.1+4.2: `load_agent_files` alone had no caller.
 
-- [ ] `load_agent_files` (manifest) + `read_generated_file` from PR 1.4, so the
+- [x] `load_agent_files` (manifest) + `read_generated_file` from PR 1.4, so the
       builder never regenerates a file it has not read (spec §4.1)
-- [ ] `tasks/edit_agent.yaml`; `hugin create --edit <path> --instruction "..."`
-- [ ] Unified diff + y/n confirmation before writing; `--dry-run` on `create` too
-- [ ] Authorised-write allowlist; git dirty-tree guard; provenance markers
-- [ ] Round-trip test: one regenerated file touches exactly one file and leaves a
+- [x] `tasks/edit_agent.yaml`; `hugin create --edit <path> --instruction "..."`
+- [x] Unified diff + y/n confirmation before writing; `--dry-run` already existed
+- [x] Authorised-write allowlist (`--only`); git dirty-tree guard
+- [ ] Provenance markers — **deferred, see below**
+- [x] Round-trip test: one regenerated file touches exactly one file and leaves a
       hand-added unrelated file intact
+
+Shipped as #108.
+
+**Two things had to be solved before an edit could write at all**, neither of
+which the plan anticipated:
+
+- The writer only overwrites a file whose content still matches the hash it
+  recorded when *it* wrote it. An edit reads an agent this session never wrote,
+  so nothing was owned and every file was a conflict. `load_agent_files` now
+  adopts what it read: the guard that matters (a file changing between load and
+  write) still fires, and only the unmeetable claim "this session created it"
+  is waived.
+- A previously generated agent holds `README.md` and `BUILD_REPORT.md`.
+  Carrying them into the payload fails validation — they are not generated
+  keys — and regenerating them rewrites a build's documentation from a one-line
+  edit instruction. Edit mode emits no framework files at all, which is what
+  makes the round-trip guarantee literally true.
+
+**Deviation on the authorised-write list.** Spec §4.2 asked for the set to be
+*derived from the instruction*. That means asking a model which files a
+sentence implies — a guess, enforcing itself as if it were a rule. `--only`
+takes the set from the caller instead: same protection, deterministic. It
+matters most for `--yes`, since an interactive edit already shows a diff.
+
+**Provenance deferred, with a reason.** The in-session hash manifest already
+gives edit mode the "refuse to overwrite something modified since we read it"
+guarantee. What is missing is *cross-session* provenance — an on-disk manifest
+saying which lines a machine wrote. That is a new file format in the agent
+directory and belongs with Phase 5 attribution, which is the first thing that
+actually needs it. Building it now would ship a format with no reader.
+
+**Known cosmetic issue:** regenerating a YAML file round-trips it through the
+parser, so block scalars can come back as quoted strings. Nothing breaks and
+the diff shows it, but it makes a small edit look larger than it is.
 
 ### PR 3.2 — Interactive builder `task/034_interactive_builder`
 - [ ] `agent_builder_interactive` config with `builtins.ask_user`
