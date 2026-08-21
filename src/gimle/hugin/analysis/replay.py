@@ -38,6 +38,10 @@ DEFAULT_MAX_INPUTS = 10
 DEFAULT_MAX_STEPS = 40
 DEFAULT_TIMEOUT_SECONDS = 300
 
+# Not part of what makes an agent that agent: its own run history and
+# build artefacts change without the agent changing.
+_DIGEST_SKIP = frozenset({"storage", "artifacts", "__pycache__", ".git"})
+
 
 def _parameter_values(task: Dict[str, Any]) -> Dict[str, Any]:
     """Extract the values a run was actually given.
@@ -58,6 +62,27 @@ def _parameter_values(task: Dict[str, Any]) -> Dict[str, Any]:
             # The simple format: parameters are plain values.
             values[str(name)] = spec
     return values
+
+
+def agent_digest(agent_path: str) -> str:
+    """Return a hash of every file in an agent directory.
+
+    A before/after comparison is only meaningful if the two sides measured
+    different agents. Recording which version produced each report makes
+    "nothing was applied" detectable instead of arriving as the reassuring
+    "no input changed outcome".
+    """
+    root = Path(agent_path).expanduser()
+    digest = hashlib.sha256()
+    for path in sorted(root.rglob("*")):
+        if not path.is_file() or path.is_symlink():
+            continue
+        relative = path.relative_to(root)
+        if any(part in _DIGEST_SKIP for part in relative.parts):
+            continue
+        digest.update(str(relative).encode("utf-8"))
+        digest.update(path.read_bytes())
+    return digest.hexdigest()[:12]
 
 
 def fingerprint(values: Dict[str, Any]) -> str:
@@ -198,6 +223,7 @@ def replay_inputs(
     scorable = [r for r in results if not r["provider_failure"]]
     return {
         "agent_path": str(agent),
+        "agent_digest": agent_digest(str(agent)),
         "inputs": len(inputs),
         # Rates are over what was actually asked of the agent: an outage is
         # excluded from the denominator, never counted as a failure.
@@ -269,8 +295,16 @@ def compare_replays(
             }
         )
 
+    before_digest = before.get("agent_digest")
+    after_digest = after.get("agent_digest")
     return {
         "compared": len(rows),
+        "before_digest": before_digest,
+        "after_digest": after_digest,
+        # Two replays of the *same* files cannot show a change. Without this
+        # a failed apply reports "no input changed outcome", which reads as
+        # "the change was safe" rather than "there was no change".
+        "same_agent": bool(before_digest) and before_digest == after_digest,
         "unmatched_before": sorted(set(before_by_id) - set(after_by_id)),
         "unmatched_after": sorted(set(after_by_id) - set(before_by_id)),
         "regressions": [r for r in rows if r["verdict"] == "regressed"],

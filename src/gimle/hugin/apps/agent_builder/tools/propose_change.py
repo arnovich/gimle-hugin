@@ -29,6 +29,12 @@ SELF_REPORTED_METRICS = frozenset(
     {"self_reported_success_rate", "unfinished_rate"}
 )
 
+# Removing a tool needs more evidence than changing one. Zero calls across a
+# handful of runs is not proof a tool is dead -- it may serve a branch those
+# runs never reached, and deleting it breaks the branch silently, in a way no
+# metric here would ever show.
+MIN_RUNS_FOR_REMOVAL = 20
+
 CHANGE_TYPES = frozenset(
     {"edit_tool", "edit_template", "edit_task", "edit_config", "remove_tool"}
 )
@@ -200,6 +206,24 @@ def propose_change(
                 "self_reported": sorted(SELF_REPORTED_METRICS),
             },
         )
+
+    if change_type == "remove_tool":
+        runs = report.get("runs_analyzed")
+        if not isinstance(runs, int) or runs < MIN_RUNS_FOR_REMOVAL:
+            return ToolResponse(
+                is_error=True,
+                content={
+                    "error": (
+                        f"{runs} run(s) is not enough to remove a tool. A "
+                        "tool with no calls may serve a branch these runs "
+                        f"never reached; {MIN_RUNS_FOR_REMOVAL} or more are "
+                        "needed before absence is evidence. Propose an edit, "
+                        "or say so in your summary instead."
+                    ),
+                    "runs_analyzed": runs,
+                    "required": MIN_RUNS_FOR_REMOVAL,
+                },
+            )
 
     found, actual = _resolve(report, metric)
     if not found:
