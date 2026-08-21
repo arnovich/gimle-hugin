@@ -103,9 +103,16 @@ class TestTheStageCannotFinishWithoutWriting:
             tool
             for tool in config["tools"]
             if not tool.endswith("finish:finish")
+            and tool not in EDIT_ONLY_TOOLS
         }
 
         assert expected <= set(self._finalize()["tools"])
+
+
+# Tools that belong to edit mode and must NOT reach a build stage.
+# `load_agent_files` replaces the whole payload with an agent read off disk,
+# so a build stage calling it would discard the agent it just built.
+EDIT_ONLY_TOOLS = {"load_agent_files"}
 
 
 class TestWriteAndFinish:

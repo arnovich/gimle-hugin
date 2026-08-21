@@ -39,8 +39,16 @@ def write_and_finish(
     Returns:
         ToolResponse that terminates the task.
     """
-    user_input = stack.agent.environment.env_vars.get("user_input", {})
-    destination = output_path or user_input.get("output_path")
+    env_vars = stack.agent.environment.env_vars
+    user_input = env_vars.get("user_input", {})
+    # An edit knows where it came from even when no output path was supplied,
+    # and writing an edit anywhere but the directory it was loaded from would
+    # silently fork the agent instead of changing it.
+    destination = (
+        output_path
+        or user_input.get("output_path")
+        or env_vars.get("loaded_agent_path")
+    )
     if not destination:
         return ToolResponse(
             is_error=True,

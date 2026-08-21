@@ -252,6 +252,43 @@ prompt: |
   Check the weather for {{ location }} and give me a summary.
 ```
 
+## Letting the Creator Make the Change
+
+Anything above can also be described rather than hand-edited:
+
+```bash
+uv run hugin create --edit ./agents/weather_agent \
+  --instruction "always report temperature in both Celsius and Fahrenheit"
+```
+
+The creator reads the agent, changes only the files the instruction requires,
+shows you a unified diff, and writes nothing until you say yes.
+
+**It will not quietly rewrite the rest of your agent.** A file it does not
+regenerate is left exactly as it was, and the summary tells you which files
+actually changed — "Changed 1 file(s)" is the evidence the edit was surgical.
+Your `README.md`, notes, and anything else the builder does not manage are
+never touched by an edit.
+
+### Bounding it further
+
+| Flag | Effect |
+|---|---|
+| `--only tools/get_weather.py` | Refuse to write anything else. Repeatable. |
+| `--yes` | Skip the confirmation. Refused if the target has uncommitted git changes. |
+| `--allow-dirty` | Edit anyway, uncommitted changes and all. |
+| `--dry-run` | Show what would change and stop. |
+
+Committing before an edit is worth the ten seconds: an edit rewrites files in
+place, so your version control is the undo.
+
+### When to hand-edit instead
+
+Editing by hand is still the better tool for a change you can make faster than
+you can describe, and for anything you want to be exact about — the creator
+regenerates a whole file, so it may reformat parts of it that it did not mean
+to change. The diff shows you when that happens.
+
 ## Next Steps
 
 - [Create an Agent](/how-to/create-agent/) - Learn manual agent creation for full control

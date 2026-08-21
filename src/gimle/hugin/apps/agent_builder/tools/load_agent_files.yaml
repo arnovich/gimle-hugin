@@ -1,0 +1,18 @@
+name: load_agent_files
+description: >-
+  Load an existing agent directory so you can edit it. Returns a manifest of
+  the files it holds -- paths, line counts, sizes -- not their contents. Read a
+  file with read_generated_file before you regenerate it: regenerating a file
+  you have not read replaces everything already in it, including hand-written
+  code and comments.
+parameters:
+  agent_path:
+    type: string
+    description: Directory of the agent to edit, e.g. './my_agent'
+    required: true
+is_interactive: false
+implementation_path: agent_builder.tools.load_agent_files:load_agent_files
+options:
+  # The manifest is the map the whole edit is planned against; dropping it
+  # mid-edit would leave the builder regenerating files it can no longer see.
+  include_only_in_context_window: false

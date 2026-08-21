@@ -42,6 +42,11 @@ GRAY = "\033[90m"
 RESET = "\033[0m"
 
 
+# A directory holding any of these is an agent; the builder writes all
+# four, and a hand-written agent has at least one.
+AGENT_SUBDIRECTORIES = ("configs", "tasks", "templates", "tools")
+
+
 def _build_banner() -> str:
     """Build the banner with the current version number."""
     from gimle.hugin import __version__
@@ -434,6 +439,135 @@ def run_wizard(
     }
 
 
+def _check_recoverable(agent_path: Path, args: argparse.Namespace) -> None:
+    """Refuse to edit into a dirty tree unattended; warn when someone is there.
+
+    An edit rewrites files in place, so the user's own version control is the
+    only undo. Uncommitted changes mean the edit can destroy work that exists
+    nowhere else -- survivable when a human sees the diff and can say no, and
+    unrecoverable under ``--yes``, which is precisely when nobody is watching.
+
+    A directory git cannot answer for (not a repository, no git installed) is
+    left alone rather than refused: unversioned agents are ordinary, and
+    refusing them would make edit mode unusable for the common case while
+    protecting nothing.
+    """
+    from gimle.hugin.apps.agent_builder.git_guard import uncommitted_changes
+
+    if getattr(args, "allow_dirty", False):
+        return
+    dirty = uncommitted_changes(agent_path)
+    if not dirty:
+        return
+
+    print()
+    print(f"    {agent_path} has {len(dirty)} uncommitted change(s):")
+    for line in dirty[:10]:
+        print(f"        {line}")
+    if len(dirty) > 10:
+        print(f"        ... and {len(dirty) - 10} more")
+    print()
+    print("    An edit rewrites files in place; committing first gives you")
+    print("    a way back. Pass --allow-dirty to skip this check.")
+    print()
+
+    if getattr(args, "yes", False):
+        print("    Refusing to edit unattended into a dirty tree.")
+        sys.exit(2)
+    if not prompt_yes_no("    Edit anyway?", default=False):
+        print("    Cancelled.")
+        sys.exit(0)
+
+
+def run_edit_wizard(args: argparse.Namespace) -> Dict[str, Any]:
+    """Collect the inputs for editing an existing agent.
+
+    Refuses a path that is not an agent *before* the build runs, for the same
+    reason ``check_output_path`` is called in the build wizard: these refusals
+    otherwise surface after a full multi-stage LLM run has already been paid
+    for.
+    """
+    agent_path = Path(args.edit).expanduser()
+    if not agent_path.is_dir():
+        print(f"    No such agent directory: {agent_path}")
+        sys.exit(2)
+    if not any((agent_path / name).is_dir() for name in AGENT_SUBDIRECTORIES):
+        print(f"    {agent_path} does not look like an agent directory.")
+        print(f"    Expected one of: {', '.join(AGENT_SUBDIRECTORIES)}")
+        sys.exit(2)
+
+    _check_recoverable(agent_path, args)
+
+    instruction = getattr(args, "instruction", None)
+    if not instruction:
+        if getattr(args, "yes", False):
+            print("    --edit with --yes requires --instruction.")
+            sys.exit(2)
+        print()
+        print("    What should change about this agent?")
+        print()
+        instruction = prompt_user("    Instruction")
+        while not instruction:
+            instruction = prompt_user("    Instruction")
+
+    resolved = str(agent_path.resolve())
+    return {
+        "agent_path": resolved,
+        "instruction": instruction,
+        # The writer and the failure reporter both read output_path; an edit
+        # writes back where it was loaded from.
+        "output_path": resolved,
+        "dry_run": bool(getattr(args, "dry_run", False)),
+        "builder_model": getattr(args, "builder_model", None)
+        or "sonnet-latest",
+        "edit": True,
+        "authorised_keys": list(getattr(args, "only", None) or []),
+    }
+
+
+def _confirm_and_write(
+    env: Any, session: Any, output_path: str
+) -> Optional[int]:
+    """Show the pending edit, ask, and write it if the user agrees.
+
+    Returns an exit code when the run is over -- nothing changed, or the user
+    declined -- and None when the write happened and the caller should carry on
+    to the success screen.
+    """
+    from gimle.hugin.apps.agent_builder.diff import (
+        diff_against_disk,
+        render_agent_diff,
+    )
+    from gimle.hugin.apps.agent_builder.tools.write_agent_files import (
+        write_agent_files,
+    )
+
+    generated = env.env_vars.get("generated_files") or {}
+    target = Path(output_path)
+    changed, added, _ = diff_against_disk(generated, target)
+    if not changed and not added:
+        show_header("No Changes", "The edit did not alter any file")
+        print(f"    {target} is already what the instruction asked for.")
+        print()
+        return 0
+
+    show_header("Review the Edit", "Nothing has been written yet")
+    print(render_agent_diff(generated, target))
+    print()
+    if not prompt_yes_no(
+        f"    Apply this edit to {len(changed) + len(added)} file(s)?"
+    ):
+        print("    Cancelled. Nothing was written.")
+        return 0
+
+    written = write_agent_files(session.agents[0].stack, output_path)
+    if written.is_error:
+        print()
+        print(f"    Could not write: {written.content.get('error')}")
+        return 1
+    return None
+
+
 def _report_rejected(env: Any, output_path: str) -> None:
     """Land whatever the builder produced and say what was wrong with it.
 
@@ -550,6 +684,27 @@ Examples:
     )
     parser.add_argument("--output", help="Directory to write the agent to")
     parser.add_argument(
+        "--edit",
+        metavar="PATH",
+        help="Edit the existing agent in PATH instead of creating one",
+    )
+    parser.add_argument(
+        "--instruction",
+        help="What to change, with --edit",
+    )
+    parser.add_argument(
+        "--allow-dirty",
+        action="store_true",
+        help="Edit even when the target has uncommitted changes",
+    )
+    parser.add_argument(
+        "--only",
+        action="append",
+        metavar="FILE",
+        help="Restrict an edit to these files, e.g. --only tools/x.py "
+        "(repeatable)",
+    )
+    parser.add_argument(
         "--stub-tools",
         action="store_true",
         help="Emit tool signatures that raise NotImplementedError, rather "
@@ -581,7 +736,11 @@ Examples:
     args = parser.parse_args(argv)
 
     # Run wizard
-    user_input = run_wizard(args=args)
+    editing = bool(getattr(args, "edit", None))
+    if getattr(args, "instruction", None) and not editing:
+        print("    --instruction only applies with --edit.")
+        return 2
+    user_input = run_edit_wizard(args) if editing else run_wizard(args=args)
 
     # Set up storage path
     storage_path = Path("./storage/agent_builder")
@@ -591,7 +750,12 @@ Examples:
 
     # Show building screen
     show_header(
-        "Building Your Agent", "Please wait while the AI creates your agent..."
+        "Editing Your Agent" if editing else "Building Your Agent",
+        (
+            "Please wait while the AI edits your agent..."
+            if editing
+            else "Please wait while the AI creates your agent..."
+        ),
     )
     print("  To monitor progress, run:")
     print(f"    uv run hugin monitor -s {storage_path}\n")
@@ -637,7 +801,7 @@ Examples:
 
         # Get config and task
         config = env.config_registry.get("agent_builder")
-        task = env.task_registry.get("build_agent")
+        task = env.task_registry.get("edit_agent" if editing else "build_agent")
 
         # Override the builder's model with user's selection
         builder_model = user_input.get("builder_model", "sonnet-latest")
@@ -654,6 +818,14 @@ Examples:
             ]
 
         # Create and run session
+        if user_input.get("authorised_keys"):
+            env.env_vars["authorised_keys"] = user_input["authorised_keys"]
+
+        if editing and not args.yes:
+            # Hold the writer at preview until the user has seen the diff.
+            # Unattended edits (--yes) have nobody to ask, so they write.
+            env.env_vars["await_confirmation"] = True
+
         session = Session(environment=env)
         session.create_agent_from_task(config, task)
 
@@ -703,8 +875,16 @@ Examples:
             return 1
 
         dry_run_result = env.env_vars.get("dry_run_result")
-        if not env.env_vars.get("written_keys") and not (
-            user_input.get("dry_run") and dry_run_result
+        # An edit awaiting confirmation has deliberately not written yet, and
+        # its preview is the thing about to be shown -- treat a recorded
+        # preview as evidence the builder finished, not as an incomplete build.
+        awaiting = bool(env.env_vars.get("await_confirmation")) and bool(
+            dry_run_result
+        )
+        if (
+            not env.env_vars.get("written_keys")
+            and not awaiting
+            and not (user_input.get("dry_run") and dry_run_result)
         ):
             # Ask whether the writer actually succeeded, not whether the
             # directory exists. Re-running the builder over an existing agent,
@@ -741,6 +921,11 @@ Examples:
         if session is not None:
             session.close()
 
+    if env.env_vars.pop("await_confirmation", False):
+        outcome = _confirm_and_write(env, session, user_input["output_path"])
+        if outcome is not None:
+            return outcome
+
     if user_input.get("dry_run"):
         show_header(
             "Dry Run Complete", "The agent passed without being written"
@@ -752,6 +937,28 @@ Examples:
             f"    Would remove: {len(preview.get('would_remove', []))} file(s)"
         )
         print(f"    Built in: {elapsed:.0f}s over {step_count} steps")
+        return 0
+
+    if editing:
+        # Report the files that actually changed, not the whole payload. An
+        # edit's whole claim is that it was surgical, and "wrote 12 files"
+        # when one was asked for is exactly the failure worth seeing.
+        changed = env.env_vars.get("changed_keys", [])
+        show_header("Agent Updated", "Your agent has been edited in place")
+        print(f"        Location: {user_input['output_path']}")
+        print(f"        Edited in: {elapsed:.0f}s over {step_count} steps")
+        print()
+        if changed:
+            print(f"    Changed {len(changed)} file(s):")
+            for key in changed:
+                print(f"        {key}")
+        else:
+            print("    No file needed changing.")
+        print()
+        print("    Run it with:")
+        print()
+        print(f"        {_generated_run_command(user_input['output_path'])}")
+        print()
         return 0
 
     # Success screen

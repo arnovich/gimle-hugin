@@ -342,6 +342,7 @@ def write_agent_files(
         warnings=[
             f"{w['file']}: {w['message']}" for w in report.get("warnings", [])
         ],
+        include_framework=not env_vars.get("loaded_agent_path"),
     )
 
     output_dir = Path(output_path).expanduser()
@@ -357,6 +358,21 @@ def write_agent_files(
                 "escaping": escaping,
             },
         )
+    unauthorised = _unauthorised(to_write, env_vars)
+    if unauthorised:
+        return ToolResponse(
+            is_error=True,
+            content={
+                "error": (
+                    "Refusing to write files outside the authorised set. "
+                    "Regenerate only what the instruction asked for, or "
+                    "re-run without --only."
+                ),
+                "unauthorised": sorted(unauthorised),
+                "authorised": sorted(env_vars.get("authorised_keys") or []),
+            },
+        )
+
     if conflicts:
         return ToolResponse(
             is_error=True,
@@ -390,8 +406,14 @@ def write_agent_files(
         if key not in superseded
     ]
 
-    requested_dry_run = _as_bool(dry_run) or _as_bool(
-        user_input.get("dry_run", False)
+    # ``await_confirmation`` is edit mode's hold: the writer previews, the CLI
+    # shows the diff and asks, and only then clears the flag and calls again.
+    # Kept separate from ``dry_run`` so the two cannot be confused -- a dry run
+    # never writes, this one is waiting to.
+    requested_dry_run = (
+        _as_bool(dry_run)
+        or _as_bool(user_input.get("dry_run", False))
+        or _as_bool(env_vars.get("await_confirmation", False))
     )
     if requested_dry_run:
         preview = {
@@ -461,6 +483,10 @@ def write_agent_files(
     # model merely claiming that it finished. Set it only after every required
     # write and removal has completed successfully.
     env_vars["written_keys"] = sorted(files)
+    # What actually changed on disk, as opposed to the whole payload. An edit
+    # reports this: "wrote 1 file" is the evidence that it was surgical, and
+    # `written_keys` (every file considered) cannot show that.
+    env_vars["changed_keys"] = sorted(written)
     registered = _register(stack, output_dir)
 
     return ToolResponse(
@@ -475,6 +501,28 @@ def write_agent_files(
             "registered_config": registered,
         },
     )
+
+
+def _unauthorised(
+    to_write: Dict[str, str], env_vars: Dict[str, Any]
+) -> List[str]:
+    """Return the pending writes the caller did not authorise.
+
+    ``--only`` bounds an edit's blast radius deterministically. The spec asked
+    for this set to be *derived from the instruction*, which would mean asking
+    a model which files a sentence implies -- a guess, enforcing itself. A list
+    the caller states is the same protection without the guesswork, and an
+    unattended edit is the case that needs it: an interactive one already shows
+    a diff and asks.
+
+    An empty or absent list authorises everything, so this is inert unless
+    asked for.
+    """
+    authorised = env_vars.get("authorised_keys")
+    if not authorised:
+        return []
+    allowed = set(authorised)
+    return [key for key in to_write if key not in allowed]
 
 
 def _classify_superseded(
@@ -647,3 +695,34 @@ def _register(stack: "Stack", output_dir: Path) -> Optional[str]:
     """
     del stack, output_dir
     return None
+
+
+def adopt_existing_files(
+    env_vars: Dict[str, Any], output_dir: Path, files: Dict[str, str]
+) -> None:
+    """Record ``files`` as owned, at the content they were just read with.
+
+    Edit mode reads an agent this builder session did not write, so nothing is
+    owned and :func:`_classify` would call every existing file a conflict --
+    the writer would refuse the whole edit. Adopting what was read is what
+    makes an edit writable at all.
+
+    It gives up less than it appears to. Ownership is keyed on the *hash* read
+    at load time, so the guard still fires for the case it exists to catch: a
+    file that changes between load and write (someone editing the directory
+    while the builder runs) no longer matches and is refused. What is waived is
+    only the claim "this session created it", which for an edit is never true.
+
+    Args:
+        env_vars: The environment's mutable env_vars mapping.
+        output_dir: The directory the files were read from.
+        files: The ``{key: content}`` mapping as read from disk.
+    """
+    owned = _owned_files(env_vars, output_dir)
+    owned.update(
+        {
+            key: _digest(content.encode("utf-8"))
+            for key, content in files.items()
+        }
+    )
+    _set_owned_files(env_vars, output_dir, owned)
