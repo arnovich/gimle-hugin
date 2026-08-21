@@ -1,0 +1,38 @@
+name: propose_change
+description: >-
+  Record one proposed change to the agent, citing the trace-report metric that
+  justifies it. The citation is checked against the stored report: a metric
+  that does not exist, or a value that does not match, is rejected. Cite what
+  the agent does not choose about itself -- a tool error rate, a loop, an
+  oversized result -- never its own success rate.
+parameters:
+  file:
+    type: string
+    description: Generated-file key the change would touch, e.g. tools/fetch.py
+    required: true
+  change_type:
+    type: string
+    description: >-
+      One of edit_tool, edit_template, edit_task, edit_config, remove_tool
+    required: true
+  metric:
+    type: string
+    description: >-
+      Dotted path into the report, e.g. 'tools.fetch.error_rate' or
+      'model_turns.p90' or 'dead_tools'
+    required: true
+  observed_value:
+    type: string
+    description: The value that metric has in the report
+    required: true
+  rationale:
+    type: string
+    description: Why that number implies this change
+    required: true
+  replacement_for:
+    type: string
+    description: A file whose earlier proposal this supersedes
+    required: false
+is_interactive: false
+implementation_path: agent_builder.tools.propose_change:propose_change
+options: {}

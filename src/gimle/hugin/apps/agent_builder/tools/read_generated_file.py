@@ -15,6 +15,12 @@ if TYPE_CHECKING:
 # several, so cap what one call can put into context.
 MAX_CHARS = 20_000
 
+# Reading the same unchanged file more than this many times is a loop, not
+# research. Generous enough that re-reading a file before editing it is fine.
+MAX_REPEAT_READS = 3
+
+READ_COUNTS = "generated_file_read_counts"
+
 
 def read_generated_file(stack: "Stack", path: str) -> ToolResponse:
     """Return the current content of one generated file.
@@ -33,9 +39,8 @@ def read_generated_file(stack: "Stack", path: str) -> ToolResponse:
     Returns:
         ToolResponse with the file's content, or an error naming what exists.
     """
-    generated_files = stack.agent.environment.env_vars.get(
-        "generated_files", {}
-    )
+    env_vars = stack.agent.environment.env_vars
+    generated_files = env_vars.get("generated_files", {})
     if not generated_files:
         return ToolResponse(
             is_error=True,
@@ -53,6 +58,25 @@ def read_generated_file(stack: "Stack", path: str) -> ToolResponse:
             content={
                 "error": f"'{path}' has not been generated",
                 "available": sorted(generated_files),
+            },
+        )
+
+    reads = env_vars.setdefault(READ_COUNTS, {})
+    reads[path] = reads.get(path, 0) + 1
+    if reads[path] > MAX_REPEAT_READS:
+        # Refusing is kinder than serving the same bytes forever. The model
+        # re-reads because eviction made an earlier read invisible, so it has
+        # no way to notice the repetition itself -- something outside the
+        # context window has to.
+        return ToolResponse(
+            is_error=True,
+            content={
+                "error": (
+                    f"'{path}' has already been read {reads[path] - 1} "
+                    "times. Its content has not changed. Act on what you "
+                    "have rather than reading it again."
+                ),
+                "reads_so_far": reads[path] - 1,
             },
         )
 

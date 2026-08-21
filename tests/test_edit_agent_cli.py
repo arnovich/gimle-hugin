@@ -111,14 +111,16 @@ class TestTheEditTask:
     @pytest.mark.parametrize(
         "task_name", ["build_agent", "review_agent", "finalize_agent"]
     )
-    def test_no_build_stage_can_load_an_agent_over_its_own_work(
-        self, task_name
-    ):
+    @pytest.mark.parametrize(
+        "tool", ["load_agent_files", "analyze_traces", "propose_change"]
+    )
+    def test_no_build_stage_gets_another_mode_s_tools(self, task_name, tool):
         """`load_agent_files` replaces the payload wholesale.
 
         A build stage calling it would discard the agent that build just
-        produced, so it must stay out of every build stage's tool list.
+        produced. The improve-mode tools are pointless mid-build for the
+        mirror-image reason: a freshly built agent has no run history.
         """
         task = self._task(task_name)
 
-        assert "load_agent_files" not in (task.get("tools") or [])
+        assert tool not in (task.get("tools") or [])

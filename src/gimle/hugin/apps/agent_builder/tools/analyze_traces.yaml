@@ -1,0 +1,25 @@
+name: analyze_traces
+description: >-
+  Summarise an agent's historic runs into a compact report -- per-tool call and
+  error counts, detected loops, oversized results, dead tools, step and token
+  distributions. The numbers in this report are the only evidence
+  propose_change will accept, so call this first.
+parameters:
+  storage_path:
+    type: string
+    description: The storage directory the agent ran against
+    required: true
+  limit:
+    type: integer
+    description: Most recent runs to read (default 50)
+    required: false
+  agent_name:
+    type: string
+    description: Only consider runs whose config has this name
+    required: false
+is_interactive: false
+implementation_path: agent_builder.tools.analyze_traces:analyze_traces
+options:
+  # The report is the evidence every later proposal is checked against;
+  # dropping it from context would leave the builder proposing from memory.
+  include_only_in_context_window: false
