@@ -1,0 +1,32 @@
+name: make_decision
+description: Make a decision that requires human approval
+parameters:
+  decision:
+    type: string
+    description: ''
+    required: false
+    default: Should we proceed with the database migration?
+  context:
+    type: string
+    description: ''
+    required: false
+    default: The migration will update the schema but requires downtime
+prompt: 'You need to help make the following decision:
+
+
+  Decision: {{ decision.value }}
+
+  Context: {{ context.value }}
+
+
+  Follow your workflow:
+
+  1. Analyze the decision and its implications
+
+  2. Request approval from the human with clear explanation
+
+  3. Act based on their response
+
+  4. Summarize the outcome
+
+  '

@@ -1,0 +1,10 @@
+name: process_data
+description: Process data and mark current stage as complete
+parameters:
+  stage:
+    type: string
+    description: Current stage name (extract, transform, analyze, report)
+  output:
+    type: string
+    description: Processed output from this stage
+implementation_path: task_sequences.tools.process_data:process_data

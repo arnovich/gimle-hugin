@@ -1,0 +1,12 @@
+name: set_number
+description: Set a number in shared state
+parameters:
+  key:
+    type: string
+    description: The key to store the number under (e.g., 'num_1')
+    required: true
+  value:
+    type: integer
+    description: The number to store
+    required: true
+implementation_path: shared_state.tools.state_tools:set_number

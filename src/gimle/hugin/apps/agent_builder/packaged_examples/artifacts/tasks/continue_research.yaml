@@ -1,0 +1,34 @@
+name: continue_research
+description: Continue researching based on previous findings
+parameters:
+  query:
+    type: string
+    description: ''
+    required: false
+    default: AI safety
+  new_focus:
+    type: string
+    description: ''
+    required: false
+    default: recent developments
+prompt: 'Continue our research based on previous findings.
+
+
+  Query: {{ query.value }}
+
+  New Focus: {{ new_focus.value }}
+
+
+  Workflow:
+
+  1. Use query_artifacts to find our previous research on "{{ query.value }}"
+
+  2. If found, use get_artifact_content to review the full details
+
+  3. Research new developments in this area
+
+  4. Save updated insights, noting what''s new since last time
+
+  5. Finish with a summary of new findings
+
+  '

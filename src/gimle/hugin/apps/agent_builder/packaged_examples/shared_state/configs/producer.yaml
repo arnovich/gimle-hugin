@@ -1,0 +1,12 @@
+name: producer
+description: Agent that produces numbers to shared state
+system_template: producer_system
+llm_model: haiku-latest
+tools:
+  - set_number:set_number
+  - list_numbers:list_numbers
+  - builtins.finish:finish
+state_namespaces:
+  - numbers
+interactive: false
+options: {}

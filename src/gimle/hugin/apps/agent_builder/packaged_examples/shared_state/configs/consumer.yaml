@@ -1,0 +1,12 @@
+name: consumer
+description: Agent that consumes numbers from shared state
+system_template: consumer_system
+llm_model: haiku-latest
+tools:
+  - get_number:get_number
+  - list_numbers:list_numbers
+  - builtins.finish:finish
+state_namespaces:
+  - numbers
+interactive: false
+options: {}

@@ -1,0 +1,39 @@
+name: research_topic
+description: Research a topic and save findings as artifacts
+parameters:
+  topic:
+    type: string
+    description: ''
+    required: false
+    default: Artificial Intelligence
+  focus_areas:
+    type: array
+    description: ''
+    required: false
+    default: []
+prompt: 'Research the following topic and save your findings as artifacts:
+
+
+  Topic: {{ topic.value }}
+
+  {% if focus_areas.value %}
+
+  Focus Areas: {{ focus_areas.value | join('', '') }}
+
+  {% endif %}
+
+
+  Follow your research workflow:
+
+  1. First, query existing artifacts to see if we have prior research on this topic
+
+  2. Conduct your research, building on any existing knowledge
+
+  3. Save new insights as artifacts (use markdown format)
+
+  4. Summarize your findings and finish
+
+
+  Remember: Always check for existing research before starting!
+
+  '

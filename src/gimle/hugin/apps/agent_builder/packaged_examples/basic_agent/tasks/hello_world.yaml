@@ -1,0 +1,27 @@
+name: hello_world
+description: A task that responds to user questions
+parameters:
+  questions:
+    type: string
+    description: Questions to answer
+    required: false
+    default: What is the meaning of life?
+prompt: 'The user has asked you the following questions:
+
+
+  {{ questions.value }}
+
+
+  Please provide thoughtful and helpful answers to these questions.
+
+  Use the tools available to you to help you answer the questions and to answer the
+  question by saving it as an insight.
+
+  Once you have answered all the questions, use the finish tool to complete the task.
+
+  '
+tools:
+- builtins.finish:finish
+- builtins.save_insight:save_insight
+system_template: basic_system
+llm_model: sonnet-latest

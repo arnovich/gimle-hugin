@@ -1,0 +1,4 @@
+name: list_numbers
+description: List all numbers in shared state
+parameters: {}
+implementation_path: shared_state.tools.state_tools:list_numbers

@@ -242,11 +242,22 @@ def source_examples_path() -> Path:
     return Path(__file__).parents[6] / "examples"
 
 
+def packaged_examples_path() -> Path:
+    """Return the curated examples that ship inside the package."""
+    return Path(__file__).parent.parent / "packaged_examples"
+
+
 def discover_examples_path() -> Optional[Path]:
-    """Find an explicitly configured or source-checkout example catalogue.
+    """Find an example catalogue: configured, source checkout, or packaged.
 
     The current working directory is intentionally never consulted: a library
     embedded in another project must not silently ingest that project's files.
+
+    The packaged copy is last, and exists because it is the only one an
+    installed Hugin has. `examples/` sits at the repository root, outside the
+    `src/gimle` package, so it never reaches a wheel -- and `list_examples`
+    still advertised those examples by name from hardcoded metadata, leaving
+    the builder told they existed and unable to open one.
     """
     candidates = []
     configured = os.environ.get("HUGIN_EXAMPLES_PATH")
@@ -257,6 +268,8 @@ def discover_examples_path() -> Optional[Path]:
     source_root = source_path.parent
     if (source_root / "pyproject.toml").is_file():
         candidates.append(source_path)
+
+    candidates.append(packaged_examples_path())
 
     for candidate in candidates:
         try:

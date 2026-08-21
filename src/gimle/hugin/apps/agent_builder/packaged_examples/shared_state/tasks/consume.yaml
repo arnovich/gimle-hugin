@@ -1,0 +1,12 @@
+name: consume
+description: Consume numbers from shared state
+prompt: |
+  You are a number consumer. Read numbers from shared state.
+
+  1. First use list_numbers to see what's available
+  2. Then read each number using get_number
+  3. Sum up all the numbers you read
+  4. Report the total and finish
+
+  Wait a moment before starting to give the producer time to write.
+parameters: {}

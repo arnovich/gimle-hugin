@@ -1,0 +1,34 @@
+name: extract_data
+description: Extract data from raw input (Stage 1)
+parameters:
+  raw_data:
+    type: string
+    description: ''
+    required: false
+    default: 'User purchases: Alice bought 3 apples, Bob bought 2 oranges, Carol bought
+      5 apples'
+task_sequence:
+- transform_data
+- analyze_data
+- generate_report
+pass_result_as: extracted_data
+prompt: 'STAGE 1: EXTRACT
+
+
+  Raw Data: {{ raw_data.value }}
+
+
+  Your task:
+
+  1. Parse the raw data
+
+  2. Extract key information (who bought what and how many)
+
+  3. Structure the data in a clear format
+
+  4. Use process_data to output your structured data
+
+
+  The structured data will be passed to the next stage.
+
+  '
