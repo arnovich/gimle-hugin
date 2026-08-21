@@ -10,6 +10,10 @@ tools:
   # Edit mode: read an existing agent in, so every generator above
   # becomes an edit tool for the file it regenerates.
   - load_agent_files
+  # Improve mode: read an agent's own run history, and propose changes
+  # that have to cite a number from it.
+  - analyze_traces
+  - propose_change
   - generate_config
   - generate_task
   - generate_template
