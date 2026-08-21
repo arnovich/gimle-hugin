@@ -25,6 +25,13 @@ parameters:
     type: string
     description: Directory to write the agent files
     required: true
+  reference_files:
+    type: string
+    description: >-
+      Files the user supplied to model the agent on, already wrapped in an
+      untrusted-data block. Empty when none were given.
+    required: false
+    default: ""
 prompt: |
   ## THE AGENT YOU MUST BUILD
 
@@ -32,6 +39,8 @@ prompt: |
   **Description**: {{ description.value }}
   **Model**: {{ llm_model.value }}
   **Output**: {{ output_path.value }}
+
+  {{ reference_files.value }}
 
   READ THE DESCRIPTION ABOVE CAREFULLY. Every decision you make - the config name,
   the tools you create, the system template, the task parameters - must directly

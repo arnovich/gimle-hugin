@@ -252,6 +252,37 @@ prompt: |
   Check the weather for {{ location }} and give me a summary.
 ```
 
+## Building From a Spec You Have
+
+If you already have the API spec, a sample script, or a data file the agent
+must work with, point the creator at it rather than describing it:
+
+```bash
+uv run hugin create --reference-file ./openapi.yaml \
+  --description "Look up the delivery status of a parcel by tracking number."
+```
+
+The generated tool then uses the real endpoint, the real parameter names and
+the real response fields, instead of plausible-looking invented ones. Repeat
+the flag for more than one file (up to 5; 20k characters each, 60k total).
+
+It works with `--edit` too — "make it match this spec" is a common change.
+
+### Reference files are treated as data
+
+Anything you point at could contain text someone else wrote, and the creator's
+output is code that gets executed. So the contents reach the builder inside a
+delimited block marked as quoted data, with an instruction to report anything
+that looks like a command rather than act on it.
+
+The builder is **not** given a general file-reading tool. It sees the files you
+named and nothing else — so no instruction inside a reference file can widen
+what it can read.
+
+This reduces the risk; it does not eliminate it. Treat a reference file the way
+you would treat any input to a code generator: if you would not run a script
+from that source, do not build an agent from its spec unread.
+
 ## When the Creator Should Ask
 
 By default the creator never asks anything — it reads your description, decides,
