@@ -11,6 +11,11 @@ parameters:
 is_interactive: false
 implementation_path: agent_builder.tools.read_generated_file:read_generated_file
 options:
-  # A repair loop may read several files; keep only the recent ones in context.
+  # Wide enough to hold a whole small agent at once. At 3, a task reasoning
+  # about five files evicted the oldest read on every new one -- so the model
+  # would notice a file it needed was no longer visible, read it again, and
+  # evict another. That is a rational loop, not a flaky model, and it burned
+  # entire runs: one improve run spent 18 reads over 5 files and never got
+  # as far as proposing anything.
   include_only_in_context_window: true
-  context_window: 3
+  context_window: 10

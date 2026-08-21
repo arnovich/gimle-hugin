@@ -316,6 +316,13 @@ def cmd_install_models(args: argparse.Namespace) -> int:
     return install_main()
 
 
+def cmd_improve(args: argparse.Namespace) -> int:
+    """Propose evidence-backed changes from an agent's run history."""
+    from gimle.hugin.cli.improve_agent import main as improve_main
+
+    return improve_main(args.extra_args)
+
+
 def cmd_analyze(args: argparse.Namespace) -> int:
     """Report on an agent's historic runs, without an LLM in the loop."""
     from gimle.hugin.analysis.traces import (
@@ -805,6 +812,20 @@ Examples:
         "extra_args", nargs="*", help="Additional arguments for the app"
     )
     app_parser.set_defaults(func=cmd_app)
+
+    # improve command
+    improve_parser = subparsers.add_parser(
+        "improve",
+        help="Propose changes to an agent from its run history",
+        description="Read an agent's historic runs and propose changes, each "
+        "citing a metric from them. Proposes only -- nothing is written.",
+    )
+    improve_parser.add_argument(
+        "extra_args",
+        nargs=argparse.REMAINDER,
+        help="Arguments for the improve run (see: hugin improve --help)",
+    )
+    improve_parser.set_defaults(func=cmd_improve)
 
     # analyze command
     analyze_parser = subparsers.add_parser(
