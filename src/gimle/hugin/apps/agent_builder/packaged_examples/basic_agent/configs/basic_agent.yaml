@@ -1,0 +1,9 @@
+name: basic_agent
+description: A basic agent configuration for simple tasks
+system_template: basic_system
+llm_model: haiku-latest
+tools:
+  - builtins.save_insight:save_insight
+  - builtins.finish:finish
+interactive: false
+options: {}

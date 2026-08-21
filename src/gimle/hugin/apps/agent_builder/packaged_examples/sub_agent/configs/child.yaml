@@ -1,0 +1,8 @@
+name: child
+description: Child agent that performs computations
+system_template: child_system
+llm_model: haiku-latest
+tools:
+  - builtins.finish:finish
+interactive: false
+options: {}

@@ -1,0 +1,20 @@
+name: process_data
+description: Process input data through the validation, transformation, and storage
+  pipeline
+parameters:
+  input_data:
+    type: string
+    description: ''
+    required: false
+    default: ''
+prompt: 'Please process the following data through the pipeline:
+
+
+  {{ input_data.value }}
+
+
+  Use the validate_data tool to start the processing. The pipeline will automatically
+
+  validate, transform, and store the data.
+
+  '

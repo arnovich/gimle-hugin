@@ -1,0 +1,10 @@
+name: pipeline_agent
+description: Agent that demonstrates deterministic tool chaining for data processing
+system_template: pipeline_system
+llm_model: haiku-latest
+tools:
+  - validate_data
+  - get_stored_records
+  - transform_data
+  - store_data
+  - builtins.finish:finish
