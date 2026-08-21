@@ -252,6 +252,33 @@ prompt: |
   Check the weather for {{ location }} and give me a summary.
 ```
 
+## When the Creator Should Ask
+
+By default the creator never asks anything — it reads your description, decides,
+and you find out what it decided when it finishes. For a description with a
+detail you care about, `--interactive` lets it ask instead of guessing:
+
+```bash
+uv run hugin create --interactive \
+  --description "Report the weather for a city. I have strong opinions about \
+the units and what to include, so ask me before you decide."
+```
+
+```
+Before I build the weather agent, I need to know your preferences:
+
+1. Units: Celsius or Fahrenheit? Wind speed in mph, km/h, or m/s?
+2. What to include: temperature, conditions, humidity, wind, pressure?
+
+👤 Fahrenheit, and always include wind speed.
+```
+
+It works with `--edit` too, where the question is usually the more useful one:
+"what exactly do you want changed?"
+
+`--interactive` cannot be combined with `--yes`: one exists to run without a
+human, the other to ask one questions.
+
 ## Letting the Creator Make the Change
 
 Anything above can also be described rather than hand-edited:

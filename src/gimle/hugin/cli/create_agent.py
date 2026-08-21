@@ -679,8 +679,33 @@ def setup_file_logging(log_dir: Path, log_level: str) -> Path:
     return log_file
 
 
-def main(argv: Optional[List[str]] = None) -> int:
-    """Run the agent builder wizard."""
+def step_cap_outcome(step_count: int, max_steps: int, wrote_files: bool) -> str:
+    """Decide what hitting the step cap means for a build.
+
+    ``test_agent`` runs *after* the write and out of the same allowance: its
+    sub-agent's steps count against the builder's budget. So a build that
+    produced a complete, validated agent could still exhaust the budget in the
+    optional test that follows -- and the agent was discarded to `.rejected`
+    for it. That happened twice while testing `--interactive`, which makes it
+    likelier again, since asking a question costs steps too.
+
+    Returns:
+        ``"ok"``, ``"capped_after_write"`` (the build succeeded, the test did
+        not finish), or ``"capped_empty"`` (a real failure: nothing was made).
+    """
+    if step_count < max_steps:
+        return "ok"
+    return "capped_after_write" if wrote_files else "capped_empty"
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Return the argument parser.
+
+    Split out from ``main`` so flag defaults can be asserted directly. Which
+    flags default off is a behavioural property -- ``--interactive`` off keeps
+    scripted runs unattended -- and a test that cannot read the default cannot
+    check it.
+    """
     parser = argparse.ArgumentParser(
         description="Interactive wizard for creating new Hugin agents",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -720,6 +745,12 @@ Examples:
         help="Edit even when the target has uncommitted changes",
     )
     parser.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Let the builder ask a clarifying question when the description "
+        "or instruction is ambiguous, instead of guessing",
+    )
+    parser.add_argument(
         "--only",
         action="append",
         metavar="FILE",
@@ -755,10 +786,20 @@ Examples:
         default="WARNING",
         help="Logging level for log file (default: WARNING)",
     )
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    """Run the agent builder wizard."""
+    args = build_parser().parse_args(argv)
 
     # Run wizard
     editing = bool(getattr(args, "edit", None))
+    if args.interactive and args.yes:
+        # --yes exists to run without a human; --interactive exists to ask
+        # one questions. Silently preferring either would surprise somebody.
+        print("    --interactive and --yes cannot be used together.")
+        return 2
     if getattr(args, "instruction", None) and not editing:
         print("    --instruction only applies with --edit.")
         return 2
@@ -822,7 +863,9 @@ Examples:
         )
 
         # Get config and task
-        config = env.config_registry.get("agent_builder")
+        config = env.config_registry.get(
+            "agent_builder_interactive" if args.interactive else "agent_builder"
+        )
         task = env.task_registry.get("edit_agent" if editing else "build_agent")
 
         # Override the builder's model with user's selection
@@ -895,13 +938,22 @@ Examples:
             print()
             return 1
 
-        if step_count >= args.max_steps:
+        cap_outcome = step_cap_outcome(
+            step_count, args.max_steps, bool(env.env_vars.get("written_keys"))
+        )
+        if cap_outcome == "capped_empty":
             print(f"    Error: Reached maximum steps ({args.max_steps})")
             print("    The agent may not have finished building.")
             print()
             _report_rejected(env, user_input["output_path"])
             print(f"    Monitor session: hugin monitor -s {storage_path}")
             return 1
+
+        if cap_outcome == "capped_after_write":
+            print(f"    Note: reached maximum steps ({args.max_steps}).")
+            print("    The agent was written; the test run after it did not")
+            print("    finish. Try it yourself, or re-run with --max-steps.")
+            print()
 
         dry_run_result = env.env_vars.get("dry_run_result")
         # An edit awaiting confirmation has deliberately not written yet, and

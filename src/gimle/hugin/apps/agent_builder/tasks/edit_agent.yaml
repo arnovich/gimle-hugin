@@ -25,6 +25,10 @@ tools:
   - validate_agent
   - write_agent_files
   - write_and_finish
+  # Reachable only under `--interactive`: Stack.get_tools filters out
+  # is_interactive tools unless the config allows them, so this is inert
+  # on the default path.
+  - builtins.ask_user:ask_user
 prompt: |
   ## THE AGENT YOU MUST CHANGE
 
