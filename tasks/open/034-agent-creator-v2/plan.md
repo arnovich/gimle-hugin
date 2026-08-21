@@ -493,7 +493,7 @@ Merged from the original 4.1+4.2: `load_agent_files` alone had no caller.
 - [x] `tasks/edit_agent.yaml`; `hugin create --edit <path> --instruction "..."`
 - [x] Unified diff + y/n confirmation before writing; `--dry-run` already existed
 - [x] Authorised-write allowlist (`--only`); git dirty-tree guard
-- [ ] Provenance markers — **deferred, see below**
+- [x] Provenance markers — `.hugin-manifest.json` (#113)
 - [x] Round-trip test: one regenerated file touches exactly one file and leaves a
       hand-added unrelated file intact
 
@@ -520,12 +520,16 @@ sentence implies — a guess, enforcing itself as if it were a rule. `--only`
 takes the set from the caller instead: same protection, deterministic. It
 matters most for `--yes`, since an interactive edit already shows a diff.
 
-**Provenance deferred, with a reason.** The in-session hash manifest already
-gives edit mode the "refuse to overwrite something modified since we read it"
-guarantee. What is missing is *cross-session* provenance — an on-disk manifest
-saying which lines a machine wrote. That is a new file format in the agent
-directory and belongs with Phase 5 attribution, which is the first thing that
-actually needs it. Building it now would ship a format with no reader.
+**Provenance shipped in #113** as `.hugin-manifest.json`: per file, a content
+hash, the command that wrote it, and when.
+
+Note what it deliberately is *not*. Spec 4.2 asks for "refusal to overwrite a
+file modified since the last generation". A blanket refusal would break
+`hugin create --edit` on hand-written agents, which the docs explicitly
+support. It warns instead, in the diff, naming the files it is about to
+replace that someone changed by hand — and a file Hugin never wrote is
+reported as untracked rather than modified, so a hand-written agent is not
+flagged as suspicious throughout.
 
 **Known cosmetic issue:** regenerating a YAML file round-trips it through the
 parser, so block scalars can come back as quoted strings. Nothing breaks and
@@ -619,19 +623,30 @@ safe direction here.
 - [x] Before/after replay on identical harvested inputs — via `hugin replay`
       (#111) rather than `test_agent`, which returns an `AgentCall` and is
       builder-internal
-- [ ] Agent-directory hash stamped into session metadata — **not built**
+- [ ] Agent-directory hash stamped into session metadata — **not built, but
+      now cheap: see below**
 - [x] `dead_tools` proposals refused below 20 analysed runs
 - [x] `--apply` opt-in, after a diff, with the revert path named in the output
 
 Shipped as #112.
 
-**Session-metadata attribution deferred, with a reason.** `Session.to_dict`
-has no metadata slot; adding one is a core serialisation change touching
-`Session`, `from_dict` and storage. The replay report now carries a digest of
-the agent's files, which covers what *apply* needs — telling before from after,
-and catching an apply that wrote no bytes. Stamping *production* runs so
-post-improve traces do not mix with pre-improve ones is a real but separate
-concern, and deserves its own PR rather than riding along here.
+**Session-metadata attribution: still unbuilt, and the original reason for
+deferring it was wrong.** I recorded that it needed a core serialisation
+change. It does not. `Session.to_dict` persists `state`, and `SessionState`
+(`agent/session_state.py`) is already a namespaced key-value store — so a run
+can be stamped with the agent digest with no change to serialisation at all.
+
+What it still needs, and why it is its own PR: `hugin run` has to compute the
+digest of `--task-path` and stamp it, `read_runs` has to surface it, and
+`analyze_traces` has to be able to filter on it. That touches the main user
+path, and appending it to a provenance PR would mean shipping a change to
+`hugin run` under a heading about file manifests.
+
+The payoff is real, and it is what makes Phase 5 honest over time: without it,
+post-improve production runs mix with pre-improve ones in the same storage
+directory, and any "did the improvement help?" question answered from that
+directory is answering about both agents at once. `agent_digest` in
+`analysis/replay.py` is the function to reuse.
 
 **Apply is deliberately not unattended.** The edit instruction is built from
 the model's rationale, written while reading trace text an outside party may

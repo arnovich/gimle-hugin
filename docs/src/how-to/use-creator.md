@@ -282,6 +282,33 @@ never touched by an edit.
 Committing before an edit is worth the ten seconds: an edit rewrites files in
 place, so your version control is the undo.
 
+### Knowing what Hugin wrote
+
+Every write leaves a `.hugin-manifest.json` at the agent root recording, per
+file, a content hash, which command wrote it, and when:
+
+```json
+"tools/get_weather.py": {
+  "sha256": "964b8a1644...",
+  "generated_by": "hugin create",
+  "generated_at": "2026-08-21T09:14:02+00:00"
+}
+```
+
+That matters once you have both hand-written and generated code in one agent.
+When an edit would replace a file you changed by hand, it says so before
+asking:
+
+```
+Changed by hand since Hugin wrote them:
+    tasks/answer_weather_question.yaml
+Applying this edit replaces those hand-written versions.
+```
+
+It is a warning, not a refusal — editing hand-written agents is supported, and
+a file Hugin never wrote is reported as untracked rather than modified. Delete
+the manifest and everything still works; you just lose the record.
+
 ### When to hand-edit instead
 
 Editing by hand is still the better tool for a change you can make faster than

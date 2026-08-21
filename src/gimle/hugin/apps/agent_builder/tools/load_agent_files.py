@@ -18,6 +18,10 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, List, Tuple
 
+from gimle.hugin.apps.agent_builder.manifest import (
+    hand_modified,
+    untracked,
+)
 from gimle.hugin.apps.agent_builder.tools.agent_paths import (
     PathConfinementError,
     confine,
@@ -180,6 +184,7 @@ def load_agent_files(
     env_vars["loaded_agent_path"] = str(agent_dir)
     adopt_existing_files(env_vars, agent_dir, files)
 
+    edited_by_hand = hand_modified(agent_dir, files)
     return ToolResponse(
         is_error=False,
         content={
@@ -187,6 +192,12 @@ def load_agent_files(
             "manifest": _manifest(files),
             "characters": total,
             "skipped": skipped,
+            # Files a person changed after Hugin wrote them. Regenerating one
+            # of these discards hand-written work, so they are worth reading
+            # before touching -- and worth leaving alone if the instruction
+            # does not require them.
+            "hand_modified": edited_by_hand,
+            "not_written_by_hugin": untracked(agent_dir, files),
             "message": (
                 f"Loaded {len(files)} file(s). Read a file with "
                 "read_generated_file before regenerating it -- regenerating "

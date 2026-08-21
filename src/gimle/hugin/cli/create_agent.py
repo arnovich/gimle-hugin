@@ -3,6 +3,7 @@
 
 import argparse
 import logging
+import os
 import re
 import sys
 import textwrap
@@ -554,6 +555,27 @@ def _confirm_and_write(
     show_header("Review the Edit", "Nothing has been written yet")
     print(render_agent_diff(generated, target))
     print()
+
+    # Warn when the edit would overwrite work someone did by hand after Hugin
+    # last wrote the file. The diff shows *what* changes; this says the old
+    # side was not machine-written, which is what makes it worth keeping.
+    from gimle.hugin.apps.agent_builder.manifest import hand_modified
+
+    # Compare what is *on disk* against the manifest -- the question is
+    # whether someone edited the existing file, not what the new one says.
+    on_disk = {}
+    for key in changed:
+        try:
+            on_disk[key] = (target / key).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+    overwriting = hand_modified(target, on_disk)
+    if overwriting:
+        print("    Changed by hand since Hugin wrote them:")
+        for key in overwriting:
+            print(f"        {key}")
+        print("    Applying this edit replaces those hand-written versions.")
+        print()
     if not prompt_yes_no(
         f"    Apply this edit to {len(changed) + len(added)} file(s)?"
     ):
@@ -818,6 +840,13 @@ Examples:
             ]
 
         # Create and run session
+        # Which command wrote a file is the useful half of provenance --
+        # "Hugin wrote this" is much less informative than "an --apply run
+        # wrote this, on that date".
+        env.env_vars["provenance_command"] = os.environ.get(
+            "HUGIN_PROVENANCE_COMMAND"
+        ) or ("hugin create --edit" if editing else "hugin create")
+
         if user_input.get("authorised_keys"):
             env.env_vars["authorised_keys"] = user_input["authorised_keys"]
 
