@@ -107,9 +107,38 @@ raise it is for the agent to declare success sooner or do less work. It is
 worth reading as a symptom — a run that self-reports failure is worth
 investigating — and it is never a target.
 
-For the same reason there is no `--apply`. Automating "make this number go up"
-when the agent chooses the number is the one thing this design is built to
-avoid; applying a change stays a step you take, after reading the diff.
+### Applying a proposal
+
+`--apply` acts on the proposals and then checks the result:
+
+```bash
+uv run hugin improve ./agents/price_agent -s ./storage/price_agent --apply
+```
+
+It records how the agent behaves now, makes each edit, replays the same inputs
+again, and **reverts everything if any input stopped finishing**:
+
+```
+REGRESSED 3008a2061c58  success -> None
+
+Reverted: 1 input(s) stopped finishing.
+    restored tasks/check.yaml
+```
+
+Five things it will not do:
+
+| | |
+|---|---|
+| Apply without a baseline | No run history means no way to tell if a change made things worse. It refuses. |
+| Apply without showing you | Each edit goes through `hugin create --edit`, which prints a diff and asks. |
+| Touch files it did not propose | Each edit is bounded with `--only`. |
+| Leave a regression in place | It reverts from a snapshot, which works for unversioned agents too. |
+| Call "nothing changed" a success | It hashes the agent, so an edit that wrote no bytes is reported as such. |
+
+**It is deliberately not unattended.** The edit instruction is built from the
+model's rationale, which was written while reading trace text that someone
+outside your team may have influenced. A human between that prose and a code
+change is the point, not an inconvenience.
 
 ### Treat the report as data
 

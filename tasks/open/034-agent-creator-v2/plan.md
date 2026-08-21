@@ -614,17 +614,37 @@ teaches the model to abandon real findings. Strictness is not automatically the
 safe direction here.
 
 ### PR 5.2 — `--apply` with a regression guard `task/034_improve_apply`
-- [ ] **Never optimise `self_reported_success_rate`** (spec §5.1c). It is the
-      agent's own `finish_type`, so the cheapest way to raise it is to declare
-      success sooner. Where gimle-router has an outcome for a run
-      (`llm/router_outcome.py` already POSTs one), that is the authority;
-      otherwise the replay comparison is. `propose_change` should reject a
-      proposal citing the self-reported metric as evidence of improvement.
-- [ ] Before/after replay on identical harvested inputs via `test_agent`
-- [ ] Agent-directory hash stamped into session metadata for attribution
-- [ ] `dead_tools` proposals are warnings with a minimum-N threshold, never
-      automatic deletions
-- [ ] `--apply` opt-in, after a diff, with the revert path named in the output
+- [x] **Never optimise `self_reported_success_rate`** — `propose_change`
+      refuses it outright, even when quoted correctly (shipped in #109)
+- [x] Before/after replay on identical harvested inputs — via `hugin replay`
+      (#111) rather than `test_agent`, which returns an `AgentCall` and is
+      builder-internal
+- [ ] Agent-directory hash stamped into session metadata — **not built**
+- [x] `dead_tools` proposals refused below 20 analysed runs
+- [x] `--apply` opt-in, after a diff, with the revert path named in the output
+
+Shipped as #112.
+
+**Session-metadata attribution deferred, with a reason.** `Session.to_dict`
+has no metadata slot; adding one is a core serialisation change touching
+`Session`, `from_dict` and storage. The replay report now carries a digest of
+the agent's files, which covers what *apply* needs — telling before from after,
+and catching an apply that wrote no bytes. Stamping *production* runs so
+post-improve traces do not mix with pre-improve ones is a real but separate
+concern, and deserves its own PR rather than riding along here.
+
+**Apply is deliberately not unattended.** The edit instruction is built from
+the model's rationale, written while reading trace text an outside party may
+have influenced, so each edit goes through `hugin create --edit` *without*
+`--yes` and a human sees the diff. A test asserts `--yes` never appears in that
+call, because losing it is a one-word change that would silently remove the
+only barrier between trace-influenced prose and a code write.
+
+**Replay verdict stability, measured before building this.** Four replays of an
+unchanged 3-input agent: zero verdict flips, identical turn counts, output
+tokens ranging 44. The coarse finished/not verdict is deterministic; the soft
+number underneath is not — the same split #110 found in the eval. So `--apply`
+is not reverting good changes on noise, at least at this scale.
 
 ---
 
