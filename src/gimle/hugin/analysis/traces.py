@@ -189,6 +189,7 @@ def _summarise_run(
         "output_tokens": 0,
         "tool_calls": [],
         "unresolved_template_turns": 0,
+        "task": None,
     }
 
     # Current ToolResult records carry tool_name and usually tool_call_id. Old
@@ -226,6 +227,19 @@ def _summarise_run(
             }
             pending.append(pending_call)
             run["tool_calls"].append(pending_call)
+
+        elif kind == "TaskDefinition" and run["task"] is None:
+            # The first task definition is the run's entry point; later ones
+            # are chained stages. Captured raw, values included, because the
+            # only consumer is `analysis.replay`, which needs the real inputs
+            # to replay anything. It is deliberately NOT part of the report
+            # `analyze_traces` returns -- that goes to a model, this does not.
+            task = _mapping(data.get("task"))
+            if task.get("name"):
+                run["task"] = {
+                    "name": task.get("name"),
+                    "parameters": task.get("parameters") or {},
+                }
 
         elif kind == "ToolResult":
             matched_call = _take_pending_call(pending, data)

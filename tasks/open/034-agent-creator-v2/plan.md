@@ -591,16 +591,20 @@ Gated on PR 3.1. `hugin analyze` already shipped in Phase 1.5.
       validating against the stored report — rejects uncited or mismatched
       claims structurally (spec §5.2)
 - [x] Trace-derived strings in a delimited untrusted block, never instructions
-- [ ] Replay set harvested from real trace parameters — **not built, see below**
+- [x] Replay set harvested from real trace parameters — shipped separately as
+      `hugin replay` (#111); the deferral reason below was wrong
 - [x] Proposals printed with their evidence; **no write path** — the task has
       no write tool and chains nowhere, so applying is not expressible
 
 Shipped as #109, with `hugin improve`.
 
-**Replay deferred to 5.2, deliberately.** A replay set only earns its keep next
-to a before/after comparison, and there is nothing to compare until something
-can be applied. Building the harvester now would ship a fixture with no
-consumer. It stays a hard prerequisite for `--apply`.
+**~~Replay deferred to 5.2.~~ That reasoning was wrong, and it shipped as
+`hugin replay` in #111.** I recorded it as having no consumer until `--apply`
+exists. It does: a human editing an agent with `hugin create --edit` wants to
+know they did not break it on inputs it really saw, and that needs no
+automation. Building it standalone also means 5.2's guard can be characterised
+before anything is automated on top of it -- which is the lesson from the
+variance work applied forwards rather than after the fact.
 
 **The citation check had to be loosened once, and the reason matters.** The
 first version compared each row of a list metric against the whole cited
