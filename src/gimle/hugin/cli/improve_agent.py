@@ -14,6 +14,7 @@ nothing here should be able to write.
 
 import argparse
 import logging
+import os
 import shutil
 import subprocess
 import sys
@@ -95,12 +96,16 @@ def _apply_one(
         proposal["file"],
         "--allow-dirty",
     ]
+    # Distinguish an automated improvement from a hand-driven edit in the
+    # manifest; they are the two provenances someone reading it cares about.
+    environment = dict(os.environ)
+    environment["HUGIN_PROVENANCE_COMMAND"] = "hugin improve --apply"
     if model:
         command += ["--builder-model", model]
     print()
     print(f"    Editing {proposal['file']} ...")
     print()
-    completed = subprocess.run(command)
+    completed = subprocess.run(command, env=environment)
     return completed.returncode == 0
 
 

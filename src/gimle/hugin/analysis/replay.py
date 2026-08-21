@@ -40,7 +40,9 @@ DEFAULT_TIMEOUT_SECONDS = 300
 
 # Not part of what makes an agent that agent: its own run history and
 # build artefacts change without the agent changing.
-_DIGEST_SKIP = frozenset({"storage", "artifacts", "__pycache__", ".git"})
+_DIGEST_SKIP = frozenset(
+    {"storage", "artifacts", "__pycache__", ".git", ".hugin-manifest.json"}
+)
 
 
 def _parameter_values(task: Dict[str, Any]) -> Dict[str, Any]:
