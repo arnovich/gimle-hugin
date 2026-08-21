@@ -117,3 +117,51 @@ Traces contain text the agent read, which can include text someone else wrote �
 a fetched page, a filename, an error from a remote service. The improve task is
 told to treat all of it as quoted data rather than instructions, and it reports
 anything that looks like an instruction rather than acting on it.
+
+## Check an edit against real inputs
+
+`hugin replay` re-runs an agent on the task inputs its past runs actually used,
+so you can tell whether an edit broke something before your users do.
+
+```bash
+# Record how the agent behaves today
+uv run hugin replay ./agents/price_agent -s ./storage/price_agent --out before.json
+
+# ... make a change, by hand or with hugin create --edit ...
+
+uv run hugin replay ./agents/price_agent -s ./storage/price_agent --baseline before.json
+```
+
+```
+738790ad6a03  check                success        2 turns
+32352468798e  check                unfinished     7 turns
+
+finished 1/2   self-reported ok 1/2
+compared 2 input(s)
+REGRESSED 32352468798e  success -> None
+```
+
+Inputs are matched by fingerprint, so a comparison across different input sets
+tells you what it could not match rather than quietly comparing totals of
+different things.
+
+### The verdict is deliberately coarse
+
+An input either finished or it did not. `finish_type` is the agent's own
+verdict on itself, so reading it more finely would be reading a self-grade —
+and turn counts are shown beside the verdict rather than being part of it,
+because "fewer turns" can just mean "did less work".
+
+### A provider outage is not a regression
+
+A run that never reached the agent — an expired key, a rate limit, an
+exhausted balance — is excluded from the rates rather than counted as a
+failure, and reported separately. Without that, a billing lapse looks
+identical to the agent collapsing.
+
+### The harvested inputs are your real data
+
+Replay needs the actual values your users supplied, so unlike `hugin analyze`
+it does not redact them. The values stay on your machine: reports quote a short
+fingerprint instead, and nothing harvested is ever put into a model's context.
+Treat `--workdir` as you would any directory holding production inputs.
