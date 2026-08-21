@@ -64,10 +64,12 @@ Then, in order of evidence:
    rational from inside the window, and unbounded. The window now holds a whole
    small agent, plus a per-file repeat guard as a backstop.
 
-   **Worth re-running the golden-set eval to see whether this moves it.**
-   `refund_approver` is the case to watch; it read files 12 times before hitting
-   the step cap. This is the first change in a while with a plausible claim on
-   the validation rate.
+   **It moved the eval, and the predicted case is the one that moved.**
+   15/15 from 14/15, and `refund_approver` -- the case that hit the loop --
+   went from 168s and a step-cap failure to a 68s pass. Tool expectations rose
+   10 -> 13 and output tokens fell. Still one run each, so treat the *rate* as
+   provisional; the specific case is not provisional, since the mechanism was
+   identified first and the predicted case is what changed.
 2. **`preview_files` returns 24k chars and `read_example` 12k** — measured from
    a real builder trace. The context-window caps added in #83 only started
    working after the `stack.py` membership fix, so capping `preview_files` is a
