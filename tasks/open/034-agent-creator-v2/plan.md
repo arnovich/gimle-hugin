@@ -50,10 +50,38 @@ PR 2.1 to support it without re-deciding first — see below.
 
 ### Pick up here
 
-**Establish variance before trusting any further comparison.** Every number so
-far is a single run of fifteen cases with a model in the loop. A `0.933 → 0.867`
-move was reported and is almost certainly noise; two or three repeats would give
-a real baseline and spread. ~25 minutes and a few dollars per run.
+**Variance is established. Read this before quoting any eval number.**
+
+Three identical runs on `d0ca367` (2026-08-21), same commit, same models,
+temperature 0. Any difference between them is noise by construction:
+
+| Metric | a, b, c | Spread | Use it? |
+|---|---|---|---|
+| `validates` | 15, 15, 15 | **0** | yes — a one-case move is signal |
+| `built` | 15, 15, 15 | **0** | yes |
+| `meets_task_expectation` | 15, 15, 15 | **0** | yes |
+| `produced_a_pipeline` | 2, 2, 2 | **0** | yes |
+| `meets_tool_expectation` | 10, 13, 12 | **3** | no — noise-dominated |
+| `output_tokens` | 55027, 57896, 52616 | **5281** | no — noise-dominated |
+
+All fifteen cases passed in all three runs, individually stable.
+
+This **falsifies the note that used to sit here**, which assumed a
+`0.933 → 0.867` move was probably noise. For `validates` it is not: the metric
+is deterministic across runs, so a single case changing is evidence. The
+surprise runs the other way — the metrics that look like hard numbers (tokens)
+are the unreliable ones, because they aggregate a model's word choices.
+
+**A correction this forced.** #109 reported four improvements from the
+read-loop fix. Two do not survive: `meets_tool_expectation: 10 -> 13` is
+exactly the observed spread on identical code, and `output_tokens: -2944` is
+well inside a 5281 range. Both were noise read as signal. What survives is the
+`validates` move (14/15 -> 15/15) and `refund_approver` going from a 168s
+step-cap failure to a 68s pass — mechanism-first, and on a zero-spread metric.
+
+Rule: gate on `validates` / `built` / `meets_task_expectation` /
+`produced_a_pipeline`. Never claim a win from `meets_tool_expectation` or
+token counts without several runs.
 
 Then, in order of evidence:
 
@@ -66,10 +94,10 @@ Then, in order of evidence:
 
    **It moved the eval, and the predicted case is the one that moved.**
    15/15 from 14/15, and `refund_approver` -- the case that hit the loop --
-   went from 168s and a step-cap failure to a 68s pass. Tool expectations rose
-   10 -> 13 and output tokens fell. Still one run each, so treat the *rate* as
-   provisional; the specific case is not provisional, since the mechanism was
-   identified first and the predicted case is what changed.
+   went from 168s and a step-cap failure to a 68s pass. `validates` has zero
+   spread across repeat runs, so that move is signal. The tool-expectation and
+   token "improvements" reported alongside it were noise and are withdrawn --
+   see the variance table above.
 2. **`preview_files` returns 24k chars and `read_example` 12k** — measured from
    a real builder trace. The context-window caps added in #83 only started
    working after the `stack.py` membership fix, so capping `preview_files` is a
@@ -615,6 +643,6 @@ safe direction here.
 fix for each, what a missing dependency means, how to retry, roughly what a build
 costs. Given the failure path in spec §1.2c, this is the page users will actually
 open. Also: `hugin validate`, `hugin analyze`, the non-interactive flags,
-`--architecture`, `--reference-file`, `--edit`, and a model table generated from
-`model_registry.py` rather than restated (`use-creator.md:71-73` is already stale
-against `create_agent.py:167-170`).
+`--architecture`, `--reference-file`, `--edit`, . The model-table item is **done** -- `use-creator.md` now points at
+`model_registry.py` instead of restating the list; the note claiming otherwise
+was itself stale, and its line numbers no longer resolve.
