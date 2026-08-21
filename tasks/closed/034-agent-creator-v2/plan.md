@@ -10,6 +10,11 @@ Branch per PR off `main`, snake_case, `task/` prefix. See `spec.md` for design.
 
 ## Status — start here
 
+**CLOSED 2026-08-21.** All five goals from the original brief shipped, plus
+the eval calibration and two defects found along the way. Three Phase 2 items
+are deliberate non-goals and one follow-up is recorded — see "What was not
+built, and why" at the end.
+
 **Last updated: 2026-08-21. Phases 1 and 1.5 complete. Phase 2 partly done and
 partly abandoned; Phase 4's schema work pulled forward because the eval said so.**
 
@@ -48,7 +53,38 @@ A draft (schema tables inlined into `builder_system.yaml`, no packaging) is
 stashed on `task/034_schema_in_prompt` if it is ever wanted. Do not build
 PR 2.1 to support it without re-deciding first — see below.
 
-### Pick up here
+### What was not built, and why
+
+Three deliberate non-goals. None is a "ran out of time"; each is a decision
+with a reason, and each should be re-opened only if the reason stops holding.
+
+- **PR 2.1 — package the reference docs / restructure for the plugin.** The
+  panel's most-criticised item: all the cost, no benefit until 2.2, and it
+  degrades the Claude Code plugin in between. Examples being wired in and read
+  at build time (#83, #115) delivered its main justification by another route.
+- **PR 2.2 — schema into the builder prompt.** The golden-set eval was built
+  to gate this, and across eight interventions it never once pointed at the
+  prompt: every real defect was mechanical. Worse, there is now no headroom —
+  15/15 with zero spread on `validates` means a prompt change can only hold or
+  regress it. The only honest experiment left is "does the rewrite break
+  anything?", which is not the case 2.2 was written to make.
+- **PR 2.3 — example index and `search_examples`.** Scoped for searching a
+  large catalogue. The packaged set is seven examples, which `list_examples`
+  returns whole. Revisit if the packaged set grows past roughly twenty.
+
+One genuine follow-up, not a non-goal:
+
+- **Agent-directory hash stamped into session metadata.** Deferred twice, and
+  both stated reasons were wrong — it does not need a serialisation change,
+  because `Session.to_dict` already persists `state` and `SessionState` is a
+  namespaced key-value store. What it needs is `hugin run` to compute and stamp
+  the digest and `read_runs`/`analyze_traces` to surface it. It is what keeps
+  `hugin improve` honest over time: without it, post-improve production runs
+  mix with pre-improve ones in one storage directory, and any "did the
+  improvement help?" question answered from that directory is answering about
+  both agents at once. Reuse `agent_digest` in `analysis/replay.py`.
+
+### Historical: where to pick up (superseded by the above)
 
 **Variance is established. Read this before quoting any eval number.**
 
