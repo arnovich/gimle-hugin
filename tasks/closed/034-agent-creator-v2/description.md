@@ -1,6 +1,6 @@
 ---
 title: Agent Creator v2
-state: OPEN
+state: CLOSED
 labels: [enhancement, agent-builder]
 priority: high
 supersedes: 013-agent-builder-enhancements
@@ -130,3 +130,25 @@ Criteria still open are Phase 3-5 work (edit mode, machine-checked architecture
 claims, `hugin analyze` / `hugin improve`) and the one measurement criterion:
 nothing yet counts places-to-change-per-`Config`-field, because the knowledge
 base work in Phase 2 has not started.
+
+
+## Closed 2026-08-21
+
+All five goals from the original brief shipped:
+
+| Goal | Where |
+|---|---|
+| Depth — pipelines, chained tasks | #103 |
+| Correctness — validation gate, defects | #82-87, #97, #101, #107 |
+| Unify — one knowledge base | partly: packaged examples #115, reference files #116; the rest is a recorded non-goal |
+| Iterate — edit an existing agent | #108 |
+| Traces — improve an agent from its own runs | #109, #111, #112 |
+
+Plus, found along the way rather than planned: the eval calibrated (#110), a
+chained-stage history-rendering bug that failed 100% of builds (#107), a read
+loop that burned whole runs (#109), a step cap discarding valid agents (#114),
+and an installed builder that could not open any of the examples it advertised
+(#115).
+
+Golden set: 15/15, stable across repeat runs. `plan.md` holds the non-goals and
+the one recorded follow-up.
