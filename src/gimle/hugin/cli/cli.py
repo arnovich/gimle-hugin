@@ -316,6 +316,128 @@ def cmd_install_models(args: argparse.Namespace) -> int:
     return install_main()
 
 
+def cmd_replay(args: argparse.Namespace) -> int:
+    """Re-run an agent on inputs harvested from its own history."""
+    from gimle.hugin.analysis.replay import (
+        compare_replays,
+        harvest_inputs,
+        replay_inputs,
+    )
+    from gimle.hugin.analysis.traces import TraceReadError, default_storage_path
+
+    storage_path = args.storage_path
+    if not storage_path and args.agent_path:
+        storage_path = default_storage_path(args.agent_path)
+    if not storage_path:
+        print("    Pass --storage-path (the directory the agent ran against).")
+        return 2
+
+    try:
+        inputs = harvest_inputs(
+            storage_path,
+            limit=args.limit,
+            agent_name=args.agent,
+            max_inputs=args.max_inputs,
+        )
+    except TraceReadError as error:
+        print(f"    {error}")
+        return 2
+
+    if not inputs:
+        print("    No replayable inputs found in that storage directory.")
+        print("    A run must have reached a task definition to be replayed.")
+        return 2
+
+    print()
+    print(f"    Replaying {len(inputs)} input(s) against {args.agent_path}")
+    print("    (these are real inputs from past runs, run again for real)")
+    print()
+
+    try:
+        report = replay_inputs(
+            args.agent_path,
+            inputs,
+            workdir=args.workdir,
+            max_steps=args.max_steps,
+            timeout=args.timeout,
+            model=args.model,
+        )
+    except TraceReadError as error:
+        print(f"    {error}")
+        return 2
+
+    _print_replay(report)
+
+    if args.out:
+        Path(args.out).write_text(json.dumps(report, indent=2))
+        print(f"    report: {args.out}")
+
+    if args.baseline:
+        try:
+            previous = json.loads(Path(args.baseline).read_text())
+        except (OSError, ValueError) as error:
+            print(f"    could not read baseline: {error}")
+            return 2
+        _print_comparison(compare_replays(previous, report))
+    return 0
+
+
+def _print_replay(report: dict) -> None:
+    """Render a replay report. Fingerprints, never parameter values."""
+    for row in report["results"]:
+        if row.get("provider_failure"):
+            state = "PROVIDER"
+        elif row["timed_out"]:
+            state = "timed out"
+        else:
+            state = row["finish_type"] or "unfinished"
+        print(
+            f"    {row['fingerprint']}  {row['task']:20} {state:12}"
+            f" {row['model_turns']:>3} turns"
+        )
+    print()
+    scored = report.get("scored", report["inputs"])
+    outages = report.get("provider_failures", 0)
+    if not scored:
+        # Reporting "finished 0/0" as though the agent had been measured is
+        # how a billing lapse gets read as a collapse.
+        print(f"    Nothing was measured: all {outages} run(s) failed before")
+        print("    reaching the agent (provider outage, not your agent).")
+        print()
+        return
+    print(
+        f"    finished {report['finished']}/{scored}"
+        f"   self-reported ok {report['succeeded']}/{scored}"
+    )
+    if outages:
+        print(
+            f"    {outages} run(s) excluded: the provider failed, "
+            "so they say nothing about the agent"
+        )
+    print()
+
+
+def _print_comparison(comparison: dict) -> None:
+    """Render a before/after comparison, regressions first."""
+    print(f"    compared {comparison['compared']} input(s)")
+    for row in comparison["regressions"]:
+        print(
+            f"    REGRESSED {row['fingerprint']}  "
+            f"{row['before']} -> {row['after']}"
+        )
+    for row in comparison["improvements"]:
+        print(
+            f"    improved  {row['fingerprint']}  "
+            f"{row['before']} -> {row['after']}"
+        )
+    if not comparison["regressions"] and not comparison["improvements"]:
+        print("    no input changed outcome")
+    unmatched = comparison["unmatched_before"] + comparison["unmatched_after"]
+    if unmatched:
+        print(f"    {len(unmatched)} input(s) could not be matched")
+    print()
+
+
 def cmd_improve(args: argparse.Namespace) -> int:
     """Propose evidence-backed changes from an agent's run history."""
     from gimle.hugin.cli.improve_agent import main as improve_main
@@ -812,6 +934,51 @@ Examples:
         "extra_args", nargs="*", help="Additional arguments for the app"
     )
     app_parser.set_defaults(func=cmd_app)
+
+    # replay command
+    replay_parser = subparsers.add_parser(
+        "replay",
+        help="Re-run an agent on inputs harvested from its own history",
+        description="Harvest the task inputs past runs used, run the agent on "
+        "them again, and report each outcome. With --baseline, compare against "
+        "an earlier replay to see whether a change regressed anything.",
+    )
+    replay_parser.add_argument("agent_path", help="Agent directory to replay")
+    replay_parser.add_argument(
+        "-s", "--storage-path", help="Storage directory the agent ran against"
+    )
+    replay_parser.add_argument(
+        "--agent", help="Only runs whose config has this name"
+    )
+    replay_parser.add_argument(
+        "--limit",
+        type=_non_negative_int,
+        default=50,
+        help="Most recent runs to harvest from",
+    )
+    replay_parser.add_argument(
+        "--max-inputs",
+        type=_non_negative_int,
+        default=10,
+        help="Cap on distinct inputs to replay (default: 10)",
+    )
+    replay_parser.add_argument(
+        "--max-steps", type=int, default=40, help="Max steps per replayed run"
+    )
+    replay_parser.add_argument(
+        "--timeout", type=int, default=300, help="Seconds per replayed run"
+    )
+    replay_parser.add_argument("--model", help="Override the agent's model")
+    replay_parser.add_argument(
+        "--workdir",
+        default="./storage/replay",
+        help="Where replayed runs write their traces",
+    )
+    replay_parser.add_argument("--out", help="Write the report as JSON")
+    replay_parser.add_argument(
+        "--baseline", help="Earlier report to compare against"
+    )
+    replay_parser.set_defaults(func=cmd_replay)
 
     # improve command
     improve_parser = subparsers.add_parser(
