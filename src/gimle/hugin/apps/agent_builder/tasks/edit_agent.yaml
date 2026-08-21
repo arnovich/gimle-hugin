@@ -9,6 +9,13 @@ parameters:
     type: string
     description: What to change about the agent
     required: true
+  reference_files:
+    type: string
+    description: >-
+      Files the user supplied to work from, already wrapped in an
+      untrusted-data block. Empty when none were given.
+    required: false
+    default: ""
 tools:
   # No `finish`. write_and_finish is the only way to end this task, so an
   # edit that was reasoned about but never written is not expressible --
@@ -34,6 +41,8 @@ prompt: |
 
   **Directory**: {{ agent_path.value }}
   **Instruction**: {{ instruction.value }}
+
+  {{ reference_files.value }}
 
   You are editing an agent that already exists and already works. Someone may
   have hand-written parts of it. Your job is to make the change that was asked

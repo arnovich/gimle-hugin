@@ -745,6 +745,15 @@ Examples:
         help="Edit even when the target has uncommitted changes",
     )
     parser.add_argument(
+        "--reference-file",
+        action="append",
+        metavar="PATH",
+        dest="reference_file",
+        help="A local file to model the agent on, e.g. an API spec or a "
+        "sample script (repeatable). Its contents reach the builder as "
+        "quoted data, never as instructions",
+    )
+    parser.add_argument(
         "--interactive",
         action="store_true",
         help="Let the builder ask a clarifying question when the description "
@@ -804,6 +813,28 @@ def main(argv: Optional[List[str]] = None) -> int:
         print("    --instruction only applies with --edit.")
         return 2
     user_input = run_edit_wizard(args) if editing else run_wizard(args=args)
+
+    # Read the reference files once, up front. A bad path should surface now,
+    # not after a multi-stage build has been paid for.
+    reference_paths = list(getattr(args, "reference_file", None) or [])
+    user_input["reference_files"] = ""
+    if reference_paths:
+        from gimle.hugin.apps.agent_builder.reference_files import (
+            read_reference_files,
+            render_reference_block,
+            summarise,
+        )
+
+        reference_files, problems = read_reference_files(reference_paths)
+        for problem in problems:
+            print(f"    {problem}")
+        if not reference_files:
+            # Every named file failed. Continuing would build from the
+            # description alone while the user believes their spec was used.
+            print("    No reference file could be read.")
+            return 2
+        user_input["reference_files"] = render_reference_block(reference_files)
+        print(f"    {summarise(reference_files)}")
 
     # Set up storage path
     storage_path = Path("./storage/agent_builder")

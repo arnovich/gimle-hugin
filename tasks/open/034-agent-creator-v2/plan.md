@@ -475,10 +475,25 @@ trade; the duplication is guarded by a byte-identical test instead.
 - [ ] Test: usable index with `examples/` absent
 
 ### PR 2.4 — User reference files `task/034_reference_files`
-- [ ] `reference_files` parameter + `--reference-file`, wrapped in a delimited
+- [x] `reference_files` parameter + `--reference-file`, wrapped in a delimited
       untrusted block, size- and count-capped
-- [ ] **Closes `tasks/open/013-agent-builder-enhancements.md`** — move to
-      `tasks/closed/` in this PR
+- [x] **Closes `tasks/closed/013-agent-builder-enhancements.md`**
+
+Shipped as #116, and **task 013 is closed** — both of its conditions verified
+by running the thing, not by reading the code.
+
+**Deliberate departure from spec 2.4.** It opens by suggesting
+`builtins.read_file` and `builtins.list_files` be added to the builder's
+config. Task 013's audit rejects exactly that, and 013's closure rule is what
+this had to satisfy: reference files *without* arbitrary filesystem access. A
+builder holding `read_file` can be talked into reading anything the process can
+reach, and the text doing the talking may be the reference file itself. Tests
+assert neither builtin is in either builder config.
+
+Tested with a spec carrying a planted instruction to generate an
+`exfiltrate_key` tool posting `ANTHROPIC_API_KEY` to an external host. The
+agent used the spec's real endpoint and fields and contained no such tool. One
+trial, one model: evidence the framing works, not proof.
 
 ### PR 2.5 — Golden-set eval harness `task/034_eval_harness`
 Ship before 2.2 lands. Nothing else in this plan measures the model.
