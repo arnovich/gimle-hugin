@@ -1,0 +1,34 @@
+# The default builder, plus the ability to ask. Selected by
+# `hugin create --interactive`; `hugin create` still uses `agent_builder`, so
+# scripted runs, CI and the golden-set eval are unaffected.
+#
+# `builtins.ask_user` is `is_interactive`, and `Stack.get_tools` filters those
+# out unless the config says `interactive: true` -- so the flag and the tool
+# have to travel together, and listing the tool without the flag would do
+# nothing at all.
+name: agent_builder_interactive
+description: The agent builder, allowed to ask a clarifying question instead of guessing
+  when a description is ambiguous
+system_template: builder_system
+llm_model: sonnet-latest
+tools:
+- list_examples
+- read_example
+- load_agent_files
+- analyze_traces
+- propose_change
+- generate_config
+- generate_task
+- generate_template
+- generate_tool
+- preview_files
+- read_generated_file
+- validate_agent
+- write_agent_files
+- write_and_finish
+- test_agent
+- builtins.save_file:save_file
+- builtins.finish:finish
+- builtins.ask_user:ask_user
+interactive: true
+options: {}
