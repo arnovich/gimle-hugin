@@ -10,7 +10,7 @@ Branch per PR off `main`, snake_case, `task/` prefix. See `spec.md` for design.
 
 ## Status — start here
 
-**Last updated: 2026-08-20. Phases 1 and 1.5 complete. Phase 2 partly done and
+**Last updated: 2026-08-21. Phases 1 and 1.5 complete. Phase 2 partly done and
 partly abandoned; Phase 4's schema work pulled forward because the eval said so.**
 
 | PR | What | State |
@@ -27,7 +27,8 @@ partly abandoned; Phase 4's schema work pulled forward because the eval said so.
 | #103 | 4.1 multi-stage agents (`task_sequence` et al) | merged |
 | #104 | writing and finishing made indivisible | reverted (#106) |
 | #107 | chained-stage history rendering + #104 re-landed | merged |
-| #108 | 3.1 edit an existing agent | open |
+| #108 | 3.1 edit an existing agent | merged |
+| #109 | 5.1 propose changes from traces + read-loop fix | open |
 
 ### What the eval changed about the plan
 
@@ -56,11 +57,17 @@ a real baseline and spread. ~25 minutes and a few dollars per run.
 
 Then, in order of evidence:
 
-1. **The builder loops in stage 1.** The one eval failure in #107
-   (`refund_approver`) called `generate_config` 30 times, never left
-   `build_agent`, and hit the 200-step cap. It is now the *only* observed
-   failure mode, so it is the highest-value thing left. A per-tool repeat
-   guard, or a cap on regenerating the same file, is the obvious shape.
+1. **~~The builder loops in stage 1.~~ Cause found and fixed in #109.**
+   `read_generated_file` kept only its 3 most recent results in context, so a
+   task reasoning about five files evicted the oldest read on every new one.
+   The model then re-read a file it could no longer see, evicting another —
+   rational from inside the window, and unbounded. The window now holds a whole
+   small agent, plus a per-file repeat guard as a backstop.
+
+   **Worth re-running the golden-set eval to see whether this moves it.**
+   `refund_approver` is the case to watch; it read files 12 times before hitting
+   the step cap. This is the first change in a while with a plausible claim on
+   the validation rate.
 2. **`preview_files` returns 24k chars and `read_example` 12k** — measured from
    a real builder trace. The context-window caps added in #83 only started
    working after the `stack.py` membership fix, so capping `preview_files` is a
@@ -550,12 +557,27 @@ Add only on demand. `delegating` needs `generate_tool`'s
 Gated on PR 3.1. `hugin analyze` already shipped in Phase 1.5.
 
 ### PR 5.1 — `improve_agent`, propose-only `task/034_improve_agent`
-- [ ] `propose_change(file, change_type, metric, observed_value, rationale)`
+- [x] `propose_change(file, change_type, metric, observed_value, rationale)`
       validating against the stored report — rejects uncited or mismatched
       claims structurally (spec §5.2)
-- [ ] Trace-derived strings in a delimited untrusted block, never instructions
-- [ ] Replay set harvested from real trace parameters
-- [ ] Proposal printed as a diff; **no write path in this PR**
+- [x] Trace-derived strings in a delimited untrusted block, never instructions
+- [ ] Replay set harvested from real trace parameters — **not built, see below**
+- [x] Proposals printed with their evidence; **no write path** — the task has
+      no write tool and chains nowhere, so applying is not expressible
+
+Shipped as #109, with `hugin improve`.
+
+**Replay deferred to 5.2, deliberately.** A replay set only earns its keep next
+to a before/after comparison, and there is nothing to compare until something
+can be applied. Building the harvester now would ship a fixture with no
+consumer. It stays a hard prerequisite for `--apply`.
+
+**The citation check had to be loosened once, and the reason matters.** The
+first version compared each row of a list metric against the whole cited
+string, so a *correct* citation of `loops_detected` was refused three times on
+a real run. A guard that rejects truthful evidence is worse than no guard: it
+teaches the model to abandon real findings. Strictness is not automatically the
+safe direction here.
 
 ### PR 5.2 — `--apply` with a regression guard `task/034_improve_apply`
 - [ ] **Never optimise `self_reported_success_rate`** (spec §5.1c). It is the
