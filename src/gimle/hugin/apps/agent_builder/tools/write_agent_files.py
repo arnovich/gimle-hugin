@@ -10,6 +10,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Tuple
 
+from gimle.hugin.apps.agent_builder.manifest import update_manifest
 from gimle.hugin.apps.agent_builder.tools.agent_paths import (
     PathConfinementError,
     check_output_path,
@@ -487,6 +488,15 @@ def write_agent_files(
     # reports this: "wrote 1 file" is the evidence that it was surgical, and
     # `written_keys` (every file considered) cannot show that.
     env_vars["changed_keys"] = sorted(written)
+    # Record authorship for the files this run actually wrote. Written after
+    # the writes succeed, so a failed write never claims provenance it does
+    # not have.
+    if written:
+        update_manifest(
+            output_dir,
+            {key: files[key] for key in written if key in files},
+            command=str(env_vars.get("provenance_command") or "hugin create"),
+        )
     registered = _register(stack, output_dir)
 
     return ToolResponse(
