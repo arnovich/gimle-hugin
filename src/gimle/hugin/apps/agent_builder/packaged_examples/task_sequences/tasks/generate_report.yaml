@@ -1,0 +1,28 @@
+name: generate_report
+description: Generate final report (Stage 4)
+parameters:
+  analysis_results:
+    type: string
+    description: ''
+    required: false
+    default: ''
+prompt: 'STAGE 4: REPORT
+
+
+  Analysis Results from previous stage: {{ analysis_results.value }}
+
+
+  Your task:
+
+  1. Generate a comprehensive report
+
+  2. Include key findings and recommendations
+
+  3. Structure the report clearly
+
+  4. Use finish tool to complete the pipeline
+
+
+  This is the final stage - produce the complete report.
+
+  '

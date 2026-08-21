@@ -1,0 +1,9 @@
+name: approval_agent
+description: Agent that requires human approval for key decisions
+system_template: approval_system
+llm_model: haiku-latest
+tools:
+  - request_approval:request_approval
+  - builtins.finish:finish
+interactive: true
+options: {}

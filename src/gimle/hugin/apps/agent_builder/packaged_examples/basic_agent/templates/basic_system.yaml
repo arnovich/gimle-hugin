@@ -1,0 +1,7 @@
+name: basic_system
+template: |
+  You are a helpful AI assistant.
+
+  Your task is to help the user accomplish their goals. Be concise and clear in your responses.
+
+  When you have completed the task, use the finish tool to indicate completion.

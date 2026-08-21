@@ -1,0 +1,8 @@
+name: compute
+description: Template task for child agent computations
+prompt: |
+  Perform the requested computation and return the result.
+
+  This is a placeholder task - the actual task description will be provided
+  by the parent agent when it spawns you via launch_agent.
+parameters: {}

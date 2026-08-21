@@ -149,6 +149,19 @@ Two lessons worth keeping:
   it degrades the Claude Code plugin in between. Now that examples are wired in
   and read at build time, re-ask whether the packaged knowledge base earns its
   keep at all.
+
+  **Note the correction #115 forced.** I argued Phase 2 was largely speculative
+  and worth dropping, without having read task 013's closure conditions. One of
+  them named a live defect — the builder could not open an example in any
+  installed distribution. The lesson is narrow and worth keeping: "the panel
+  disliked this phase" is not the same as "this phase contains nothing real",
+  and the closure conditions of the task it blocks are where to check.
+
+- **PR 2.2 (schema into the prompt) has a further problem now.** The golden set
+  sits at 15/15 with zero spread on `validates`, so there is no headroom: a
+  prompt change can only hold or regress it. The honest experiment is "does the
+  rewrite break anything?", which is worth knowing and is *not* the case 2.2
+  was written to make.
 - **Move PR 2.5 (golden-set eval harness) ahead of PR 2.2.** Nothing built so
   far measures the *model*; every test pins mechanics. 2.2 changes the builder's
   prompt, and without the harness there is no way to tell whether it helped.
@@ -434,6 +447,26 @@ unchanged.
       `dataclasses.fields(Config)` / `Task` (spec §2.1b)
 - [ ] **Gated on the golden-set harness showing no regression**
 - [ ] Record places-to-change-per-`Config`-field, before and after
+
+### PR 2.0 — Packaged examples `task/034_packaged_examples`
+Not in the original plan. Found by checking task 013's closure conditions
+rather than assuming Phase 2 was speculative.
+
+- [x] Curated examples ship inside `src/gimle`, so an installed Hugin has them
+- [x] `discover_examples_path` falls back to them, last
+- [x] Byte-identical drift test + resync script
+
+Shipped as #115. **This was a live defect, not packaging hygiene.** Measured
+on a wheel built from main and installed into a clean venv: `list_examples`
+advertised 16 examples from hardcoded metadata and `read_example` returned
+"Examples folder not found" for every one of them. After: 7 listed from the
+filesystem, `read_example("task_sequences")` returns 11751 characters.
+
+Shipped as real directories rather than a generated catalogue file, so
+`discover_examples_path` gains one candidate and the fd-based confinement,
+read budgets and both tools work unchanged. A second read path through
+security-sensitive code to avoid duplicating 47 KiB would have been the worse
+trade; the duplication is guarded by a byte-identical test instead.
 
 ### PR 2.3 — Example index `task/034_example_search`
 - [ ] Derive the index from `examples/`+`apps/`; **keep** a packaged curated set

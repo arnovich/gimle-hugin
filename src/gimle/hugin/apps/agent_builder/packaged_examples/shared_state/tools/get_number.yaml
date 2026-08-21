@@ -1,0 +1,8 @@
+name: get_number
+description: Get a number from shared state
+parameters:
+  key:
+    type: string
+    description: The key to retrieve
+    required: true
+implementation_path: shared_state.tools.state_tools:get_number

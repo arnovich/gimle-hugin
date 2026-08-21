@@ -1,0 +1,29 @@
+name: transform_data
+description: Transform extracted data (Stage 2)
+parameters:
+  extracted_data:
+    type: string
+    description: ''
+    required: false
+    default: ''
+pass_result_as: transformed_data
+prompt: 'STAGE 2: TRANSFORM
+
+
+  Extracted Data from previous stage: {{ extracted_data.value }}
+
+
+  Your task:
+
+  1. Clean and normalize the data
+
+  2. Add calculated fields (e.g., total items per customer)
+
+  3. Enrich with additional context
+
+  4. Use process_data to output your transformed data
+
+
+  The transformed data will be passed to the next stage.
+
+  '

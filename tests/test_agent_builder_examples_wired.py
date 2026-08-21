@@ -217,12 +217,16 @@ class TestToolsActuallyWork:
         listed = list_examples()
         read = read_example(example_name="private_case")
 
-        assert listed.content["source"] == "fallback"
+        # The property is that the *embedding project's* files are not read.
+        # Which catalogue is used instead is incidental -- it used to be the
+        # hardcoded fallback and is now the packaged copy, which is strictly
+        # better: an installed Hugin can finally open the examples it lists.
         assert "private_case" not in {
             item["name"] for item in listed.content["examples"]
         }
         assert read.is_error
         assert "local-secret" not in str(read.content)
+        assert "customer_project" not in str(listed.content)
 
     def test_explicit_examples_path_remains_supported(
         self, tmp_path, monkeypatch
