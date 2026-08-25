@@ -621,30 +621,18 @@ tasks/open/006-parallel-tool-calls/
 
 ### Task File Format
 
-Each task file should have YAML frontmatter:
+Task files follow **`gimle-skills/references/task-format.md`** — that document is
+the authority on frontmatter, filenames, body sections and priority meanings.
+Read it before creating or editing a task file.
 
-```markdown
----
-title: Support parallel tool calls
-state: OPEN
-labels: [enhancement]
-priority: high
----
+The short version: filename `NNN-kebab-slug.md` where the number is the task's
+identity and never changes; required frontmatter `title`, `state` (lowercase
+`open`/`ongoing`/`closed`), `priority`, `labels`; required body sections
+`## Context` and a checkable `## Outcome`; no invented frontmatter fields.
 
-# Title
-
-Description of what needs to be done and why.
-
-## Tasks
-
-- [ ] Subtask 1
-- [ ] Subtask 2
-
-## Success Criteria
-
-- [ ] Criterion 1
-- [ ] Criterion 2
-```
+`next:` is the owner's work queue, set in `tv`. **Agents never write it.**
+Existing files predating the standard are grandfathered — bring one up to
+standard when you are already editing it, not in a sweep.
 
 ### Git Worktree Workflow
 
