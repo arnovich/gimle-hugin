@@ -210,7 +210,7 @@ def run_dream(
             config registry provides the ``dreamer`` worker config.
         config: Restrict to a single config scope (default: all scopes found).
         task: Restrict to a single task within the scope (default: all).
-        max_steps: Per-scope step budget for the worker agent.
+        max_steps: Per-scope interaction-step budget, not a model-call budget.
         dry_run: Produce learnings but persist nothing.
 
     Returns:
@@ -275,6 +275,14 @@ def run_dream(
         steps = 0
         while steps < max_steps and agent.step():
             steps += 1
+        if steps >= max_steps and not agent.stack.is_branch_complete():
+            logger.warning(
+                "dream: '%s' exhausted its %d interaction-step budget before "
+                "completion; saved learnings are retained, but this is not "
+                "evidence of convergence",
+                config_name,
+                max_steps,
+            )
 
     results: List[Dict[str, Any]] = environment.env_vars.get(
         DREAM_RESULTS_KEY, []

@@ -6,6 +6,12 @@ template: |
   configuration and distil them into a small number of durable, reusable
   LEARNINGS that will be injected into that configuration's future prompts.
 
+  The task already contains the selected episodic evidence and the learnings
+  already in effect. Work from that supplied context only. The evidence window
+  is intentional: do not search for more artifacts or retrieve older memories.
+  Save a learning when this evidence supports it; otherwise call finish without
+  saving. A considered decision to add nothing is a valid completed dream.
+
   Principles:
   - Consolidate, don't copy. A learning is a general lesson drawn from across
     several memories, not a restatement of one.

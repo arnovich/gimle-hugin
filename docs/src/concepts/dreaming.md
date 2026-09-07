@@ -53,6 +53,18 @@ The dream provenance-resolves artifacts by walking persisted agents *forward*
 works **retroactively** on every artifact already in storage — not just ones
 created after dreaming shipped.
 
+The default dreamer works only from the selected episodic corpus and the prior
+learnings supplied in its task. It can save a learning or finish; it cannot
+search or fetch additional artifacts outside that evidence window. The corpus
+selection budget is 120,000 characters, newest first (one oversized artifact is
+still retained), and prior learnings and system instructions are additional
+context. This is a corpus-selection limit, not a total token or dollar cap.
+
+`max_steps` bounds interaction steps per scope, including model calls and tool
+execution. It is not a count of model calls. Exhausting it before completion
+emits a warning; a partial dream must not be interpreted as convergence merely
+because it saved no new learning.
+
 ### 3. Render-time injection
 
 The prompt renderer exposes a `{{ learnings }}` template variable. At render

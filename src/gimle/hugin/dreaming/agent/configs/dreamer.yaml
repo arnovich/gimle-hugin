@@ -6,8 +6,7 @@ system_template: dreamer_system
 llm_model: sonnet-latest
 tools:
   - dreaming.save_learning:save_learning
-  - builtins.query_artifacts:query_artifacts
-  - builtins.get_artifact_content:get_artifact_content
   - builtins.finish:finish
 interactive: false
+enable_builtin_agents: false
 options: {}

@@ -1,8 +1,10 @@
 """End-to-end dreaming loop: run -> dream -> re-render shows the learning."""
 
+from pathlib import Path
 from typing import List
 from unittest.mock import Mock, patch
 
+import gimle.hugin.dreaming as dreaming_pkg
 import gimle.hugin.tools  # noqa: F401  (registers dreaming.save_learning)
 from gimle.hugin.agent.agent import Agent
 from gimle.hugin.agent.config import Config
@@ -34,9 +36,11 @@ class ScriptedModel(Model):
         )
         self._responses = responses
         self._index = 0
+        self.offered_tools = []
 
     def chat_completion(self, system_prompt, messages, tools=None):
         """Return the next scripted response, repeating the last."""
+        self.offered_tools.append({tool.name for tool in tools or []})
         response = self._responses[min(self._index, len(self._responses) - 1)]
         self._index += 1
         return response
@@ -68,25 +72,19 @@ def _seed_episodic_memory(storage):
     storage.save_agent(agent)
 
 
+def _default_dream_env(storage):
+    """Load the worker configuration used by production callers."""
+    return Environment.load(
+        str(Path(dreaming_pkg.__file__).parent / "agent"), storage=storage
+    )
+
+
 def test_run_dream_then_reinjects_learning():
     """Run -> dream -> re-render shows the consolidated learning."""
     storage = MemoryStorage()
     _seed_episodic_memory(storage)
 
-    # Dream environment with a dreamer worker config registered.
-    dream_env = Environment(storage=storage)
-    dream_env.config_registry.register(
-        Config(
-            name="dreamer",
-            description="dream worker",
-            system_template="You are the dream worker.",
-            llm_model="test-model",
-            tools=[
-                "dreaming.save_learning:save_learning",
-                "builtins.finish:finish",
-            ],
-        )
-    )
+    dream_env = _default_dream_env(storage)
 
     # The worker calls save_learning once, then finishes with plain text.
     scripted = ScriptedModel(
@@ -116,6 +114,9 @@ def test_run_dream_then_reinjects_learning():
 
     # A scoped learning was produced.
     assert len(results) == 1
+    assert all(
+        tools == {"save_learning", "finish"} for tools in scripted.offered_tools
+    )
     assert results[0]["scope_config"] == "researcher"
 
     # Re-rendering a researcher prompt that opts into {{ learnings }} now
@@ -136,19 +137,7 @@ def test_dry_run_persists_nothing():
     storage = MemoryStorage()
     _seed_episodic_memory(storage)
 
-    dream_env = Environment(storage=storage)
-    dream_env.config_registry.register(
-        Config(
-            name="dreamer",
-            description="dream worker",
-            system_template="You are the dream worker.",
-            llm_model="test-model",
-            tools=[
-                "dreaming.save_learning:save_learning",
-                "builtins.finish:finish",
-            ],
-        )
-    )
+    dream_env = _default_dream_env(storage)
 
     scripted = ScriptedModel(
         [
@@ -180,3 +169,60 @@ def test_dry_run_persists_nothing():
         storage.load_artifact_record(a) for a in storage.list_artifacts()
     ]
     assert not any(r["type"] == "Learning" for r in learning_records)
+
+
+def test_step_budget_exhaustion_is_visible(caplog):
+    """Stopping before a proposed learning executes is not convergence."""
+    storage = MemoryStorage()
+    _seed_episodic_memory(storage)
+    scripted = ScriptedModel(
+        [
+            ModelResponse(
+                role="assistant",
+                content={"content": LESSON},
+                tool_call="save_learning",
+                tool_call_id="tc-budget",
+            )
+        ]
+    )
+    registry = Mock()
+    registry.get_model.return_value = scripted
+    registry.get_provider.return_value = None
+    with patch(
+        "gimle.hugin.llm.completion.get_model_registry", return_value=registry
+    ):
+        results = run_dream(
+            _default_dream_env(storage), config="researcher", max_steps=2
+        )
+    assert results == []
+    assert scripted._index == 1
+    assert "exhausted its 2 interaction-step budget" in caplog.text
+    assert "not evidence of convergence" in caplog.text
+
+
+def test_finish_on_last_budgeted_step_is_not_exhaustion(caplog):
+    """A completed abstention at the budget boundary must stay quiet."""
+    storage = MemoryStorage()
+    _seed_episodic_memory(storage)
+    scripted = ScriptedModel(
+        [
+            ModelResponse(
+                role="assistant",
+                content={"finish_type": "success", "result": "No new evidence"},
+                tool_call="finish",
+                tool_call_id="tc-finish",
+            )
+        ]
+    )
+    registry = Mock()
+    registry.get_model.return_value = scripted
+    registry.get_provider.return_value = None
+    with patch(
+        "gimle.hugin.llm.completion.get_model_registry", return_value=registry
+    ):
+        results = run_dream(
+            _default_dream_env(storage), config="researcher", max_steps=6
+        )
+    assert results == []
+    assert scripted._index == 1
+    assert "exhausted" not in caplog.text
