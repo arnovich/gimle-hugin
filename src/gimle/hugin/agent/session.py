@@ -34,6 +34,8 @@ class Session:
         environment: Environment,
         agents: Optional[List["Agent"]] = None,
         state: Optional[SessionState] = None,
+        *,
+        router_outcome_validator: Optional[Callable[["Session"], bool]] = None,
     ):
         """Initialize a session.
 
@@ -41,6 +43,9 @@ class Session:
             environment: The environment containing configs, tasks, etc.
             agents: Optional list of agents in this session
             state: Optional SessionState instance (creates new if not provided)
+            router_outcome_validator: Optional application completion check.
+                Can reject framework success, never promote failure to success.
+                Reinstall on resumed sessions; the callable is not serialized.
         """
         self.environment = environment
         self.agents = agents if agents else []
@@ -63,6 +68,8 @@ class Session:
         # edition, so keep an in-process latch while still allowing a
         # non-terminal run to resume and report later.
         self._router_outcome_reported = False
+        self.router_outcome_validator = router_outcome_validator
+        self.router_outcome_success: Optional[bool] = None
 
     @property
     def id(self) -> str:
@@ -363,6 +370,15 @@ class Session:
         if self._router_outcome_reported:
             return
         self._router_outcome_reported = True
+        if success and self.router_outcome_validator is not None:
+            try:
+                success = self.router_outcome_validator(self) is True
+            except Exception as error:
+                logger.warning(
+                    "Application outcome validation failed: %s", error
+                )
+                success = False
+        self.router_outcome_success = success
         try:
             report_outcome(self.id, success=success)
         except Exception as error:  # observability must never break an edition

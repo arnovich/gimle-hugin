@@ -1,8 +1,11 @@
 """Tool to create and update newspaper layout."""
 
+import hashlib
+import json
 import os
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
+from uuid import uuid4
 
 from gimle.hugin.artifacts.text import Text
 from gimle.hugin.tools.tool import ToolResponse
@@ -501,10 +504,15 @@ def update_newspaper_layout(
         stack.interactions[-1].add_artifact(artifact)
 
         # Also save HTML file for backward compatibility
-        newspaper_dir = "storage/newspaper_layouts"
+        env_vars = stack.agent.environment.env_vars
+        newspaper_dir = env_vars.get(
+            "newspaper_layout_dir", "storage/newspaper_layouts"
+        )
         os.makedirs(newspaper_dir, exist_ok=True)
 
-        filename = f"newspaper_{now.strftime('%Y%m%d_%H%M%S')}.html"
+        filename = (
+            f"newspaper_{now.strftime('%Y%m%d_%H%M%S')}_{uuid4().hex}.html"
+        )
         filepath = os.path.join(newspaper_dir, filename)
 
         with open(filepath, "w", encoding="utf-8") as f:
@@ -514,6 +522,22 @@ def update_newspaper_layout(
         latest_path = os.path.join(newspaper_dir, "latest.html")
         with open(latest_path, "w", encoding="utf-8") as f:
             f.write(html_content)
+
+        # A receipt is written only after the current layout was saved. The
+        # application validates this exact file, never the shared latest alias.
+        env_vars["newspaper_layout_receipt"] = {
+            "session_id": stack.agent.session.id,
+            "execution_id": env_vars.get("newspaper_execution_id"),
+            "layout_file": os.path.abspath(filepath),
+            "html_sha256": hashlib.sha256(
+                html_content.encode("utf-8")
+            ).hexdigest(),
+            "articles_sha256": hashlib.sha256(
+                json.dumps(articles, sort_keys=True, allow_nan=False).encode(
+                    "utf-8"
+                )
+            ).hexdigest(),
+        }
 
         result = {
             "success": True,

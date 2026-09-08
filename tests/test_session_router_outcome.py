@@ -370,3 +370,41 @@ def test_reporting_failure_never_breaks_the_completed_session():
         side_effect=RuntimeError("router unavailable"),
     ):
         assert session.run() == 0
+
+
+@pytest.mark.parametrize("accepted", [True, False, None, "yes"])
+def test_application_validator_must_explicitly_accept_success(accepted):
+    validator = Mock(return_value=accepted)
+    session = Session(
+        environment=Environment(), router_outcome_validator=validator
+    )
+    _agent(session, finish_type="success")
+    with patch("gimle.hugin.agent.session.report_outcome") as report:
+        session.run()
+        session.finalize_router_outcome()
+    validator.assert_called_once_with(session)
+    report.assert_called_once_with(session.id, success=accepted is True)
+    assert session.router_outcome_success is (accepted is True)
+
+
+def test_application_validator_error_rejects_success():
+    session = Session(
+        environment=Environment(),
+        router_outcome_validator=Mock(side_effect=ValueError("bad evidence")),
+    )
+    _agent(session, finish_type="success")
+    with patch("gimle.hugin.agent.session.report_outcome") as report:
+        session.run()
+    report.assert_called_once_with(session.id, success=False)
+
+
+def test_application_validator_cannot_promote_failure():
+    validator = Mock(return_value=True)
+    session = Session(
+        environment=Environment(), router_outcome_validator=validator
+    )
+    _agent(session, finish_type="failure")
+    with patch("gimle.hugin.agent.session.report_outcome") as report:
+        session.run()
+    validator.assert_not_called()
+    report.assert_called_once_with(session.id, success=False)

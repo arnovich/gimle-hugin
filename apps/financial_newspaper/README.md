@@ -303,3 +303,45 @@ This app demonstrates patterns from the `examples/` directory:
 - **`examples/sub_agent/`** - Sub-agent delegation with `launch_agent` (technical analyst and editor sub-agents)
 - **`examples/artifacts/`** - Long-term memory with `save_insight`, `query_artifacts`, and `get_artifact_content`
 - **`examples/task_chaining/`** - Incremental mode task transitions between `daily_edition` and `write_next_article`
+
+
+## Router outcomes and experiment evidence
+
+When `HUGIN_GIMLE_ROUTER=1`, the session reports one boolean outcome for a
+fresh newspaper run. Framework completion alone is insufficient: the app
+also requires the requested article count, nonempty article fields, distinct
+article IDs, and a layout receipt belonging to the current session and run.
+The receipt binds the exact article snapshot and saved HTML by SHA-256.
+Missing, stale or modified output makes the task unsuccessful.
+
+Every layout receives a unique filename. `latest.html` remains a convenience
+alias for browsing; it is never the evidence used to accept an edition. Each
+run writes `storage/newspaper_layouts/outcome_<execution-id>.json`, including
+its task ID, deterministic checks, final success and the specific layout file.
+Exceptions, step-budget exhaustion, a resumable wait at the end of this CLI
+invocation, and cancellation count as incomplete runs. A keyboard interruption
+returns exit status 130. A hard process kill cannot publish an outcome; count
+such runs as missing instead of silently excluding them from an experiment.
+
+The completion checker is **not a factual-quality evaluator**. The editor's
+own score, when present, is retained only as `editor_self_score_advisory` in
+that local evidence file. It is not posted as the router's numeric score.
+`independent_evaluation: not_run` is explicit until a separate, fixed evaluator
+and human review assess quality. Successful completion by itself is not a
+reason to adopt a cheaper model.
+
+For a controlled campaign, use fresh sessions with a fixed requested article
+count and bounded `--max-steps`. Do not mix resumed/incremental sessions with
+independent editions: resuming retains the original task identity and is not a
+new randomization unit. Numeric-quality-based status thresholds must not reuse
+the old editor self-score. Establish a new campaign, outcome definition and
+independent evaluation before exposing production traffic.
+
+Other Hugin applications can supply `Session(...,
+router_outcome_validator=check_output)` or set that callable before execution.
+It receives the session and must return exactly `True` to accept framework
+success. A false result or exception rejects success, and it cannot turn a
+framework failure into success. `session.router_outcome_success` exposes the
+final boolean independently of whether optional HTTP reporting is enabled.
+Validators are runtime application code and must be reinstalled after loading
+a session; they are not serialized.

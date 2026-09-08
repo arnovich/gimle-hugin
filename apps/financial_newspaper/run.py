@@ -2,12 +2,14 @@
 """Run the Financial Newspaper agent."""
 
 import argparse
+import json
 import sys
 import time
 import webbrowser
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+from uuid import uuid4
 
 from dotenv import load_dotenv
 
@@ -18,7 +20,6 @@ from gimle.hugin.cli.helpers import (
     open_in_browser,
     start_monitor_dashboard,
 )
-from gimle.hugin.llm.router_outcome import report_outcome
 from gimle.hugin.storage.local import LocalStorage
 
 # Load environment variables from .env file
@@ -28,6 +29,10 @@ load_dotenv()
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
+from apps.financial_newspaper.outcomes import (  # noqa: E402
+    assess_edition,
+    validate_edition,
+)
 
 # Use centralized storage (consistent with examples)
 SCRIPT_DIR = Path(__file__).parent
@@ -54,6 +59,7 @@ def create_newspaper_session(
         "target_symbols": target_symbols,
         "articles_written": 0,
         "number_of_articles": number_of_articles,  # Limit for write_article tool
+        "newspaper_expected_articles": 1 if incremental else number_of_articles,
     }
 
     # Get the path to the financial_newspaper directory
@@ -179,6 +185,7 @@ def load_newspaper_session(
         )
         new_limit = len(current_articles) + 1
         session.environment.env_vars["number_of_articles"] = new_limit
+        session.environment.env_vars["newspaper_expected_articles"] = new_limit
         print(f"📝 Increased article limit: {current_limit} → {new_limit}")
 
         # Add a new TaskDefinition to continue the existing agent
@@ -199,25 +206,9 @@ def load_newspaper_session(
     return session, storage
 
 
-def _edition_quality_score(articles: list) -> Optional[float]:
-    """Mean editor quality score across the edition's articles.
-
-    A 1-10 mean, or None if none carry a numeric score. Supplements the success
-    flag reported to gimle-router with a graded signal.
-    """
-    scores: list[float] = []
-    for article in articles:
-        if not isinstance(article, dict):
-            continue
-        value = article.get("quality_score")
-        if isinstance(value, (int, float)) and not isinstance(value, bool):
-            scores.append(float(value))
-    if not scores:
-        return None
-    return sum(scores) / len(scores)
-
-
-def run_newspaper_generation(session: Session, max_steps: int) -> bool:
+def run_newspaper_generation(
+    session: Session, max_steps: Optional[int]
+) -> bool:
     """Run the newspaper generation process."""
     print("📰" + "=" * 58 + "📰")
     print("📰 THE DAILY MARKET HERALD - AGENT JOURNALIST 📰")
@@ -240,26 +231,50 @@ def run_newspaper_generation(session: Session, max_steps: int) -> bool:
             flush=True,
         )
 
-    session.run(max_steps=max_steps, step_callback=print_step)
-    print()  # New line after in-place updates
+    if session.router_outcome_success is not None:
+        raise ValueError(
+            "This session already has an edition outcome; use a fresh session."
+        )
+    values = session.environment.env_vars
+    execution_id = str(uuid4())
+    values["newspaper_execution_id"] = execution_id
+    values["newspaper_layout_dir"] = str(Path(LAYOUT_DIR).resolve())
+    values.pop("newspaper_layout_receipt", None)
+    previous_validator = session.router_outcome_validator
 
-    # Get articles from env_vars
-    articles = session.environment.env_vars.get("newspaper_articles", [])
+    def validate_current_edition(current: Session) -> bool:
+        return validate_edition(current) and (
+            previous_validator is None or previous_validator(current) is True
+        )
 
-    # The edition succeeds iff a final newspaper layout was produced.
-    layout_path = Path(LAYOUT_DIR) / "latest.html"
-    success = layout_path.exists()
+    session.router_outcome_validator = validate_current_edition
+    try:
+        session.run(max_steps=max_steps, step_callback=print_step)
+        # This CLI invocation is finished even if the agent stopped in a
+        # resumable wait. An unfinished edition is a failed campaign task.
+        session.finalize_router_outcome(max_steps_reached=True)
+    except BaseException:
+        session.finalize_router_outcome(error=True)
+        raise
+    finally:
+        session.router_outcome_validator = previous_validator
+        evidence = assess_edition(session)
+        evidence["success"] = session.router_outcome_success is True
+        try:
+            evidence_dir = Path(LAYOUT_DIR)
+            evidence_dir.mkdir(parents=True, exist_ok=True)
+            (evidence_dir / f"outcome_{execution_id}.json").write_text(
+                json.dumps(evidence, indent=2, allow_nan=False),
+                encoding="utf-8",
+            )
+        except (OSError, ValueError, TypeError) as error:
+            print(f"⚠️ Could not save edition evidence: {error}")
+    print()
+    articles = values.get("newspaper_articles", [])
+    success = session.router_outcome_success is True
+    layout_path = Path(evidence["layout_file"]) if success else None
 
-    # Report this edition's result to gimle-router (opt-in, best-effort): the
-    # session id is the x-gimle-task the calls were stamped with, so this closes
-    # the loop the router's A/B tripwire needs.
-    report_outcome(
-        session.id,
-        success=success,
-        score=_edition_quality_score(articles),
-    )
-
-    if success:
+    if success and layout_path is not None:
         print()
         print("🎉 NEWSPAPER GENERATION COMPLETE! 🎉")
         print(f"📰 Articles published: {len(articles)}")
@@ -483,7 +498,7 @@ def main() -> int:
 
     except KeyboardInterrupt:
         print("\n🛑 Interrupted by user")
-        return 0
+        return 130
     except Exception as e:
         print(f"❌ Error during generation: {e}")
         raise e
