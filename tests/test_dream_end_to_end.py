@@ -4,6 +4,8 @@ from pathlib import Path
 from typing import List
 from unittest.mock import Mock, patch
 
+import pytest
+
 import gimle.hugin.dreaming as dreaming_pkg
 import gimle.hugin.tools  # noqa: F401  (registers dreaming.save_learning)
 from gimle.hugin.agent.agent import Agent
@@ -12,7 +14,7 @@ from gimle.hugin.agent.environment import Environment
 from gimle.hugin.agent.session import Session
 from gimle.hugin.agent.task import Task
 from gimle.hugin.artifacts.text import Text
-from gimle.hugin.dreaming.consolidate import run_dream
+from gimle.hugin.dreaming.consolidate import DREAM_SCOPE_RESULTS_KEY, run_dream
 from gimle.hugin.llm.models.model import Model, ModelResponse
 from gimle.hugin.llm.prompt.renderer import PromptRenderer
 
@@ -37,10 +39,12 @@ class ScriptedModel(Model):
         self._responses = responses
         self._index = 0
         self.offered_tools = []
+        self.system_prompts = []
 
     def chat_completion(self, system_prompt, messages, tools=None):
         """Return the next scripted response, repeating the last."""
         self.offered_tools.append({tool.name for tool in tools or []})
+        self.system_prompts.append(system_prompt)
         response = self._responses[min(self._index, len(self._responses) - 1)]
         self._index += 1
         return response
@@ -195,7 +199,7 @@ def test_step_budget_exhaustion_is_visible(caplog):
             _default_dream_env(storage), config="researcher", max_steps=2
         )
     assert results == []
-    assert scripted._index == 1
+    assert scripted._index == 0
     assert "exhausted its 2 interaction-step budget" in caplog.text
     assert "not evidence of convergence" in caplog.text
 
@@ -226,3 +230,103 @@ def test_finish_on_last_budgeted_step_is_not_exhaustion(caplog):
     assert results == []
     assert scripted._index == 1
     assert "exhausted" not in caplog.text
+
+
+@pytest.mark.parametrize("finish_type", ["success", "failure"])
+def test_reserves_closing_turn_after_three_saves(finish_type, caplog):
+    """The production 20-step budget fits three saves and an honest finish."""
+    storage = MemoryStorage()
+    _seed_episodic_memory(storage)
+    env = _default_dream_env(storage)
+    scripted = ScriptedModel(
+        [
+            ModelResponse(
+                role="assistant",
+                content={"content": f"Lesson {index}"},
+                tool_call="save_learning",
+                tool_call_id=f"save-{index}",
+            )
+            for index in range(3)
+        ]
+        + [
+            ModelResponse(
+                role="assistant",
+                content={"finish_type": finish_type, "result": "Review status"},
+                tool_call="finish",
+                tool_call_id="finish",
+            )
+        ]
+    )
+    registry = Mock()
+    registry.get_model.return_value = scripted
+    with patch(
+        "gimle.hugin.llm.completion.get_model_registry", return_value=registry
+    ):
+        results = run_dream(env, config="researcher")
+    assert len(results) == 3
+    assert scripted._index == 4
+    assert "at most 3 more save_learning" in scripted.system_prompts[0]
+    assert "at most 1 more save_learning" in scripted.system_prompts[2]
+    assert "CLOSING TURN" in scripted.system_prompts[3]
+    assert env.env_vars[DREAM_SCOPE_RESULTS_KEY] == [
+        {
+            "config": "researcher",
+            "status": "completed" if finish_type == "success" else "incomplete",
+            "steps": 18,
+        }
+    ]
+    assert ("not evidence of convergence" in caplog.text) == (
+        finish_type == "failure"
+    )
+
+
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_ignoring_closing_turn_cannot_save_more_or_claim_completion(
+    dry_run, caplog
+):
+    """A model repeating saves is stopped before its fourth write, within 20 steps."""
+    storage = MemoryStorage()
+    _seed_episodic_memory(storage)
+    env = _default_dream_env(storage)
+    scripted = ScriptedModel(
+        [
+            ModelResponse(
+                role="assistant",
+                content={"content": LESSON},
+                tool_call="save_learning",
+                tool_call_id="save",
+            )
+        ]
+    )
+    registry = Mock()
+    registry.get_model.return_value = scripted
+    with patch(
+        "gimle.hugin.llm.completion.get_model_registry", return_value=registry
+    ):
+        results = run_dream(env, config="researcher", dry_run=dry_run)
+    assert len(results) == 3
+    assert scripted._index == 4
+    assert env.env_vars[DREAM_SCOPE_RESULTS_KEY] == [
+        {
+            "config": "researcher",
+            "status": "budget_exhausted",
+            "steps": 15,
+        }
+    ]
+    assert "not evidence of convergence" in caplog.text
+    stored = [storage.load_artifact_record(a) for a in storage.list_artifacts()]
+    assert sum(r["type"] == "Learning" for r in stored) == (0 if dry_run else 3)
+
+
+@pytest.mark.parametrize("max_steps", [0, 1, 2, 5])
+def test_tiny_budget_never_starts_an_unfinishable_model_call(max_steps):
+    """Insufficient budgets are visible without spending a provider call."""
+    storage = MemoryStorage()
+    _seed_episodic_memory(storage)
+    env = _default_dream_env(storage)
+    with patch("gimle.hugin.llm.completion.get_model_registry") as registry:
+        assert run_dream(env, config="researcher", max_steps=max_steps) == []
+    registry.assert_not_called()
+    report = env.env_vars[DREAM_SCOPE_RESULTS_KEY][0]
+    assert report["status"] == "budget_exhausted"
+    assert report["steps"] <= max_steps

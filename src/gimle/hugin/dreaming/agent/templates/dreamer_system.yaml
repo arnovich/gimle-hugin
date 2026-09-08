@@ -12,6 +12,8 @@ template: |
   Save a learning when this evidence supports it; otherwise call finish without
   saving. A considered decision to add nothing is a valid completed dream.
 
+  {{ dream_budget | default('Finish promptly when the review is complete.') }}
+
   Principles:
   - Consolidate, don't copy. A learning is a general lesson drawn from across
     several memories, not a restatement of one.

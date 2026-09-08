@@ -19,6 +19,9 @@ from gimle.hugin.dreaming.provenance import (
     scan_provenance,
 )
 from gimle.hugin.dreaming.selector import select_learnings
+from gimle.hugin.interaction.ask_oracle import AskOracle
+from gimle.hugin.interaction.oracle_response import OracleResponse
+from gimle.hugin.interaction.task_result import TaskResult
 from gimle.hugin.storage.storage import Storage
 
 logger = logging.getLogger(__name__)
@@ -33,6 +36,95 @@ DEFAULT_CORPUS_CHARS = 120_000
 DREAM_SCOPE_KEY = "dream_scope"
 DREAM_DRY_RUN_KEY = "dream_dry_run"
 DREAM_RESULTS_KEY = "dream_results"
+DREAM_SCOPE_RESULTS_KEY = "dream_scope_results"
+
+# AskOracle -> OracleResponse -> ToolCall -> ToolResult -> TaskResult -> Waiting.
+# A save instead returns from ToolResult to AskOracle after four steps.
+FINISH_STEPS = 5
+SAVE_STEPS = 4
+
+
+def _drive_dream(agent: Agent, max_steps: int) -> Dict[str, Any]:
+    """Reserve a closing turn and report incomplete work without raising the cap.
+
+    Tools stay unchanged so historical tool calls still render correctly. If
+    the model ignores the closing instruction, its proposed tool is not run:
+    the orchestrator records a failure, never a synthetic successful finish.
+    """
+    steps = 0
+    closing = False
+    truncated = False
+    while steps < max_steps and not agent.stack.is_branch_complete():
+        current = agent.stack.interactions[-1]
+        if isinstance(current, AskOracle):
+            remaining = max_steps - steps
+            if remaining < FINISH_STEPS:
+                truncated = True
+                break
+            saves_left = (remaining - FINISH_STEPS) // SAVE_STEPS
+            closing = saves_left == 0
+            current.template_inputs = {
+                **(current.template_inputs or {}),
+                "dream_budget": (
+                    "CLOSING TURN: call finish now. Use finish_type='success' "
+                    "only if you have considered the supplied evidence and "
+                    "saved every worthwhile new lesson. If any work remains, "
+                    "use finish_type='failure' and describe the unfinished "
+                    "work. Do not save another learning."
+                    if closing
+                    else f"Budget: at most {saves_left} more save_learning "
+                    "calls before the reserved closing turn. Prioritize the "
+                    "most useful lessons; finish early when done."
+                ),
+            }
+        if (
+            closing
+            and isinstance(current, OracleResponse)
+            and (current.response or {}).get("tool_call") != "finish"
+        ):
+            truncated = True
+            break
+        progressed = agent.step()
+        steps += 1
+        # Plain-text completion creates TaskResult but returns False. Allow
+        # its local bookkeeping step to run within the same budget.
+        if not progressed and not isinstance(
+            agent.stack.interactions[-1], TaskResult
+        ):
+            break
+
+    if not agent.stack.is_branch_complete():
+        truncated = True
+        if steps < max_steps:
+            agent.stack.add_interaction(
+                TaskResult(
+                    stack=agent.stack,
+                    finish_type="failure",
+                    result={
+                        "reason": "Dream interaction budget truncated the review"
+                    },
+                )
+            )
+            agent.step()
+            steps += 1
+    terminal = next(
+        (
+            i
+            for i in reversed(agent.stack.interactions)
+            if isinstance(i, TaskResult)
+        ),
+        None,
+    )
+    status = (
+        "budget_exhausted"
+        if truncated
+        else (
+            "completed"
+            if terminal is not None and terminal.finish_type == "success"
+            else "incomplete"
+        )
+    )
+    return {"status": status, "steps": steps}
 
 
 def _episodic_block(
@@ -210,12 +302,13 @@ def run_dream(
             config registry provides the ``dreamer`` worker config.
         config: Restrict to a single config scope (default: all scopes found).
         task: Restrict to a single task within the scope (default: all).
-        max_steps: Per-scope interaction-step budget, not a model-call budget.
+        max_steps: Per-scope interaction-step budget, reserving room to finish.
         dry_run: Produce learnings but persist nothing.
 
     Returns:
         A list of result records (one per saved learning), as collected by
-        ``dreaming.save_learning``.
+        ``dreaming.save_learning``. Per-scope completion records are also
+        available in ``environment.env_vars["dream_scope_results"]``.
     """
     storage = environment.storage
     if storage is None:
@@ -228,6 +321,7 @@ def run_dream(
     target_configs = [config] if config is not None else sorted(grouped)
 
     environment.env_vars[DREAM_RESULTS_KEY] = []
+    environment.env_vars[DREAM_SCOPE_RESULTS_KEY] = []
 
     for config_name in target_configs:
         provenances = grouped.get(config_name, [])
@@ -236,6 +330,9 @@ def run_dream(
         if not provenances:
             logger.info(
                 "dream: no episodic artifacts for config '%s'", config_name
+            )
+            environment.env_vars[DREAM_SCOPE_RESULTS_KEY].append(
+                {"config": config_name, "status": "skipped", "steps": 0}
             )
             continue
 
@@ -272,16 +369,21 @@ def run_dream(
                 else prior_block.count("\n\n") + 1
             ),
         )
-        steps = 0
-        while steps < max_steps and agent.step():
-            steps += 1
-        if steps >= max_steps and not agent.stack.is_branch_complete():
+        scope_result = {"config": config_name, **_drive_dream(agent, max_steps)}
+        environment.env_vars[DREAM_SCOPE_RESULTS_KEY].append(scope_result)
+        if scope_result["status"] == "budget_exhausted":
             logger.warning(
                 "dream: '%s' exhausted its %d interaction-step budget before "
                 "completion; saved learnings are retained, but this is not "
                 "evidence of convergence",
                 config_name,
                 max_steps,
+            )
+        elif scope_result["status"] == "incomplete":
+            logger.warning(
+                "dream: '%s' reported an incomplete review; saved learnings "
+                "are retained, but this is not evidence of convergence",
+                config_name,
             )
 
     results: List[Dict[str, Any]] = environment.env_vars.get(

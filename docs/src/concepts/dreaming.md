@@ -65,6 +65,21 @@ execution. It is not a count of model calls. Exhausting it before completion
 emits a warning; a partial dream must not be interpreted as convergence merely
 because it saved no new learning.
 
+The worker is told how many saves fit before a reserved closing turn. The
+default 20 steps allow up to three saves followed by `finish` (18 steps),
+instead of five saves with no room to finish. On the closing turn it must
+report success only if the supplied evidence has been considered and no
+worthwhile new lesson remains; otherwise it reports failure and describes the
+unfinished work. A further proposed save is not executed. The orchestrator
+records a failed, truncated review while retaining earlier saves. Budgets too
+small to finish do not start a model call. These limits also apply to dry runs.
+
+`run_dream` still returns a list of saved-learning records. Callers can read
+`environment.env_vars["dream_scope_results"]` for per-scope `config`, `steps`,
+and `status`: `completed`, `incomplete` (worker-reported failure),
+`budget_exhausted` (orchestrator truncation), or `skipped` (no evidence).
+Completion is a worker report, not an independent quality or convergence score.
+
 ### 3. Render-time injection
 
 The prompt renderer exposes a `{{ learnings }}` template variable. At render
