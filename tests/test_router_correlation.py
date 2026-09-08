@@ -13,6 +13,7 @@ from gimle.hugin.agent.agent import Agent
 from gimle.hugin.interaction.ask_oracle import AskOracle
 from gimle.hugin.llm.router_correlation import (
     ROUTER_ROUTE_HEADER,
+    ROUTER_SESSION_HEADER,
     ROUTER_TASK_HEADER,
     correlation_scope,
     router_headers,
@@ -37,7 +38,10 @@ def test_disabled_by_default_emits_no_header():
 def test_enabled_emits_the_header(enabled):
     """With the flag on, an in-scope call carries the x-gimle-task header."""
     with correlation_scope("edition-1"):
-        assert router_headers() == {ROUTER_TASK_HEADER: "edition-1"}
+        assert router_headers() == {
+            ROUTER_TASK_HEADER: "edition-1",
+            ROUTER_SESSION_HEADER: "edition-1",
+        }
 
 
 # --- the contextvar --------------------------------------------------------
@@ -86,14 +90,18 @@ def test_route_rides_alongside_the_task_id(enabled):
     with correlation_scope("edition-1", route="editor"):
         assert router_headers() == {
             ROUTER_TASK_HEADER: "edition-1",
+            ROUTER_SESSION_HEADER: "edition-1",
             ROUTER_ROUTE_HEADER: "editor",
         }
 
 
-def test_no_route_means_only_the_task_id(enabled):
-    """Without a route, only x-gimle-task is emitted (back-compat)."""
+def test_no_route_still_supplies_task_and_budget_session(enabled):
+    """Session budgets remain usable even when no role is supplied."""
     with correlation_scope("edition-1"):
-        assert router_headers() == {ROUTER_TASK_HEADER: "edition-1"}
+        assert router_headers() == {
+            ROUTER_TASK_HEADER: "edition-1",
+            ROUTER_SESSION_HEADER: "edition-1",
+        }
 
 
 def test_route_resets_on_scope_exit(enabled):
@@ -150,7 +158,8 @@ def test_anthropic_stamps_the_header_when_enabled_and_in_scope(enabled):
     with correlation_scope("edition-7"):
         create = _run_anthropic()
     assert create.call_args.kwargs["extra_headers"] == {
-        ROUTER_TASK_HEADER: "edition-7"
+        ROUTER_TASK_HEADER: "edition-7",
+        ROUTER_SESSION_HEADER: "edition-7",
     }
 
 
@@ -166,6 +175,7 @@ def test_anthropic_forwards_the_route_when_in_scope(enabled):
         create = _run_anthropic()
     assert create.call_args.kwargs["extra_headers"] == {
         ROUTER_TASK_HEADER: "edition-7",
+        ROUTER_SESSION_HEADER: "edition-7",
         ROUTER_ROUTE_HEADER: "editor",
     }
 
@@ -195,7 +205,8 @@ def test_openai_stamps_the_header_when_enabled_and_in_scope(enabled):
     with correlation_scope("edition-9"):
         create = _run_openai()
     assert create.call_args.kwargs["extra_headers"] == {
-        ROUTER_TASK_HEADER: "edition-9"
+        ROUTER_TASK_HEADER: "edition-9",
+        ROUTER_SESSION_HEADER: "edition-9",
     }
 
 
@@ -223,6 +234,7 @@ def test_ask_oracle_stamps_the_session_id(
     AskOracle(stack=mock_stack, prompt=sample_prompt, template_inputs={}).step()
     assert seen["headers"] == {
         ROUTER_TASK_HEADER: mock_stack.agent.session.id,
+        ROUTER_SESSION_HEADER: mock_stack.agent.session.id,
         ROUTER_ROUTE_HEADER: mock_stack.agent.config.name,
     }
 
@@ -248,6 +260,17 @@ def test_sub_agents_of_one_edition_share_the_id(
 
     expected = {
         ROUTER_TASK_HEADER: mock_agent.session.id,
+        ROUTER_SESSION_HEADER: mock_agent.session.id,
         ROUTER_ROUTE_HEADER: mock_agent.config.name,
     }
     assert seen == [expected, expected]
+
+
+def test_budget_session_scope_resets_on_exception(enabled):
+    with correlation_scope("outer"):
+        with pytest.raises(RuntimeError):
+            with correlation_scope("inner"):
+                assert router_headers()[ROUTER_SESSION_HEADER] == "inner"
+                raise RuntimeError("failed call")
+        assert router_headers()[ROUTER_SESSION_HEADER] == "outer"
+    assert router_headers() == {}

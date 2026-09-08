@@ -1,11 +1,13 @@
 """Per-edition + per-agent correlation headers for gimle-router.
 
-One ``Session`` run is one "edition". When enabled, this stamps two headers on
+One ``Session`` run is one "edition". When enabled, this stamps three headers on
 every Anthropic/OpenAI request of that edition:
 
   - ``x-gimle-task`` — gimle-router's task-id contract; its wire value is the
     hugin ``session.id``, so the router groups the edition's sub-agent calls
     (journalist, analyst, editor) under one task.
+  - ``x-gimle-session`` — the same Hugin session ID, for router lifetime
+    session-budget accounting across the edition and its sub-agents.
   - ``x-gimle-route`` — gimle-router's use-case key; its value is the calling
     agent's config name (its role), so the router keys each role as its own
     stable use-case (``tag:<role>``). This matters because the router otherwise
@@ -39,6 +41,7 @@ from typing import Dict, Iterator, Optional
 # gimle-router's task-id header. Its wire value is the hugin Session id; the
 # router groups every call sharing this value as one edition.
 ROUTER_TASK_HEADER = "x-gimle-task"
+ROUTER_SESSION_HEADER = "x-gimle-session"
 
 # gimle-router's use-case route header. Its wire value is the calling agent's
 # config name (role); the router keys each role as a stable use-case, bypassing
@@ -96,6 +99,7 @@ def router_headers() -> Dict[str, str]:
     session_id = _session_id.get()
     if session_id:
         headers[ROUTER_TASK_HEADER] = session_id
+        headers[ROUTER_SESSION_HEADER] = session_id
     route = _route.get()
     if route:
         headers[ROUTER_ROUTE_HEADER] = route

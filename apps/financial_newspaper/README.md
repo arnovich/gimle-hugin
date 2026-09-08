@@ -307,7 +307,10 @@ This app demonstrates patterns from the `examples/` directory:
 
 ## Router outcomes and experiment evidence
 
-When `HUGIN_GIMLE_ROUTER=1`, the session reports one boolean outcome for a
+When `HUGIN_GIMLE_ROUTER=1`, provider calls carry the Hugin session ID in
+both `x-gimle-task` (edition outcomes) and `x-gimle-session` (lifetime spend
+limits), with `x-gimle-route` identifying the agent role. The session reports
+one boolean outcome for a
 fresh newspaper run. Framework completion alone is insufficient: the app
 also requires the requested article count, nonempty article fields, distinct
 article IDs, and a layout receipt belonging to the current session and run.
