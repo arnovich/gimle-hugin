@@ -1,11 +1,8 @@
 ---
 title: Agent-to-agent communication across machines, not just within one runner
-state: ongoing
+state: open
 priority: medium
 labels: [design, enhancement, multi-agent]
-claimed_by: claude-code
-claimed_at: 2026-09-22T09:45:27Z
-branch: task/038_inter_agent_messaging
 depends_on: ["036", "039", "040", "041"]
 related: ["003", "004", "029"]
 ---
