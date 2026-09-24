@@ -288,10 +288,10 @@ class AskOracle(Interaction):
             rendered_user_message = render_user_message(self, reduced=False)
 
         # Tag every call of this edition with the session id so a router can
-        # group an edition's sub-agent calls (gimle-router x-gimle-task header,
-        # opt-in via HUGIN_GIMLE_ROUTER). session.id is the stable external
+        # group an edition's sub-agent calls (ctrlrtn x-ctrlrtn-task header,
+        # opt-in via HUGIN_CTRLRTN). session.id is the stable external
         # correlation contract — changing its semantics changes router grouping.
-        # The agent's config name rides along as x-gimle-route so the router
+        # The agent's config name rides along as x-ctrlrtn-route so the router
         # keys each role as its own stable use-case (immune to prompt drift).
         with correlation_scope(
             self.stack.agent.session.id,
