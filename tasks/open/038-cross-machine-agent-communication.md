@@ -291,7 +291,7 @@ Three rules the fields only work under:
 - **`trace` is its own field.** An earlier draft reused `session.id` for
   multi-hop tracing. That is wrong twice over: `session.id` is minted per
   process and two machines cannot agree on one, and it is now the router's
-  lifetime spend-budget key (`llm/router_correlation.py`, `x-gimle-session`,
+  lifetime spend-budget key (`llm/router_correlation.py`, `x-ctrlrtn-session`,
   landed in #124). A swarm sharing one `session.id` would share one spend
   budget non-deterministically and post competing outcomes from every machine.
   `trace` is minted by the originating ask and inherited across hops;
@@ -570,10 +570,10 @@ k readers to claim the correlation id may reply, the rest see it claimed and
 skip. Reads are bounded too — `limit` and a body-size cap, with an explicit
 truncation marker rather than silent loss.
 
-**Attribution.** The swarm id gets its own header (`x-gimle-swarm`) alongside
-the existing `x-gimle-task` and `x-gimle-route`
+**Attribution.** The swarm id gets its own header (`x-ctrlrtn-swarm`) alongside
+the existing `x-ctrlrtn-task` and `x-ctrlrtn-route`
 (`llm/router_correlation.py`), and calls made while handling a message carry
-`x-gimle-group`. Without this, chatter arrives as ordinary input tokens on the
+`x-ctrlrtn-group`. Without this, chatter arrives as ordinary input tokens on the
 same route as real work and no bill can distinguish them.
 
 **Empty results must say why.** "Zero replies is a success" plus "topics are

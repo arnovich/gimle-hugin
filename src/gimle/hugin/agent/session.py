@@ -366,7 +366,7 @@ class Session:
             self._report_router_outcome(False)
 
     def _report_router_outcome(self, success: bool) -> None:
-        """Best-effort, once-per-session bridge to gimle-router."""
+        """Best-effort, once-per-session bridge to ctrlrtn."""
         if self._router_outcome_reported:
             return
         self._router_outcome_reported = True
@@ -382,7 +382,7 @@ class Session:
         try:
             report_outcome(self.id, success=success)
         except Exception as error:  # observability must never break an edition
-            logger.warning("gimle-router outcome reporting failed: %s", error)
+            logger.warning("ctrlrtn outcome reporting failed: %s", error)
 
     def close(self) -> None:
         """Release session-owned resources (background jobs, then sandboxes).

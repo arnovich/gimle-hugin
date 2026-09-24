@@ -1,4 +1,4 @@
-"""Tests for the gimle-router correlation header.
+"""Tests for the ctrlrtn correlation header.
 
 Covers the opt-in flag, the contextvar, adapter attachment, and the
 multi-agent grouping invariant the feature exists for.
@@ -23,7 +23,7 @@ from gimle.hugin.llm.router_correlation import (
 @pytest.fixture
 def enabled(monkeypatch):
     """Turn the opt-in integration on for a test."""
-    monkeypatch.setenv("HUGIN_GIMLE_ROUTER", "1")
+    monkeypatch.setenv("HUGIN_CTRLRTN", "1")
 
 
 # --- the opt-in flag -------------------------------------------------------
@@ -36,7 +36,7 @@ def test_disabled_by_default_emits_no_header():
 
 
 def test_enabled_emits_the_header(enabled):
-    """With the flag on, an in-scope call carries the x-gimle-task header."""
+    """With the flag on, an in-scope call carries the x-ctrlrtn-task header."""
     with correlation_scope("edition-1"):
         assert router_headers() == {
             ROUTER_TASK_HEADER: "edition-1",
@@ -86,7 +86,7 @@ def test_none_session_id_yields_no_header(enabled):
 
 
 def test_route_rides_alongside_the_task_id(enabled):
-    """A route in scope adds x-gimle-route beside the task id."""
+    """A route in scope adds x-ctrlrtn-route beside the task id."""
     with correlation_scope("edition-1", route="editor"):
         assert router_headers() == {
             ROUTER_TASK_HEADER: "edition-1",
@@ -170,7 +170,7 @@ def test_anthropic_sends_no_header_outside_a_scope(enabled):
 
 
 def test_anthropic_forwards_the_route_when_in_scope(enabled):
-    """The adapter forwards x-gimle-route alongside the task id."""
+    """The adapter forwards x-ctrlrtn-route alongside the task id."""
     with correlation_scope("edition-7", route="editor"):
         create = _run_anthropic()
     assert create.call_args.kwargs["extra_headers"] == {

@@ -1,4 +1,4 @@
-"""Session boundaries report one correlated outcome to gimle-router."""
+"""Session boundaries report one correlated outcome to ctrlrtn."""
 
 from unittest.mock import Mock, patch
 

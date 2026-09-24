@@ -1,20 +1,20 @@
-"""Per-edition + per-agent correlation headers for gimle-router.
+"""Per-edition + per-agent correlation headers for ctrlrtn.
 
 One ``Session`` run is one "edition". When enabled, this stamps three headers on
 every Anthropic/OpenAI request of that edition:
 
-  - ``x-gimle-task`` — gimle-router's task-id contract; its wire value is the
+  - ``x-ctrlrtn-task`` — ctrlrtn's task-id contract; its wire value is the
     hugin ``session.id``, so the router groups the edition's sub-agent calls
     (journalist, analyst, editor) under one task.
-  - ``x-gimle-session`` — the same Hugin session ID, for router lifetime
+  - ``x-ctrlrtn-session`` — the same Hugin session ID, for router lifetime
     session-budget accounting across the edition and its sub-agents.
-  - ``x-gimle-route`` — gimle-router's use-case key; its value is the calling
+  - ``x-ctrlrtn-route`` — ctrlrtn's use-case key; its value is the calling
     agent's config name (its role), so the router keys each role as its own
     stable use-case (``tag:<role>``). This matters because the router otherwise
     fingerprints the system prompt, which forks a new key whenever the app
     injects a volatile span (the current date) — the explicit route is immune.
 
-Opt-in: only emitted when ``HUGIN_GIMLE_ROUTER`` is truthy, so a default hugin
+Opt-in: only emitted when ``HUGIN_CTRLRTN`` is truthy, so a default hugin
 deployment that never runs the router sends nothing extra to the providers
 (mirrors the ``HUGIN_CAPTURE_RENDERED_PROMPTS`` precedent).
 
@@ -38,23 +38,23 @@ import os
 from contextlib import contextmanager
 from typing import Dict, Iterator, Optional
 
-# gimle-router's task-id header. Its wire value is the hugin Session id; the
+# ctrlrtn's task-id header. Its wire value is the hugin Session id; the
 # router groups every call sharing this value as one edition.
-ROUTER_TASK_HEADER = "x-gimle-task"
-ROUTER_SESSION_HEADER = "x-gimle-session"
+ROUTER_TASK_HEADER = "x-ctrlrtn-task"
+ROUTER_SESSION_HEADER = "x-ctrlrtn-session"
 
-# gimle-router's use-case route header. Its wire value is the calling agent's
+# ctrlrtn's use-case route header. Its wire value is the calling agent's
 # config name (role); the router keys each role as a stable use-case, bypassing
 # system-prompt fingerprinting (which drifts when a date is injected).
-ROUTER_ROUTE_HEADER = "x-gimle-route"
+ROUTER_ROUTE_HEADER = "x-ctrlrtn-route"
 
-_ENABLE_FLAG = "HUGIN_GIMLE_ROUTER"
+_ENABLE_FLAG = "HUGIN_CTRLRTN"
 
 _session_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
-    "gimle_router_session_id", default=None
+    "ctrlrtn_session_id", default=None
 )
 _route: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
-    "gimle_router_route", default=None
+    "ctrlrtn_route", default=None
 )
 
 
@@ -86,10 +86,10 @@ def correlation_scope(
 
 
 def router_headers() -> Dict[str, str]:
-    """Return the gimle-router correlation headers for the current call.
+    """Return the ctrlrtn correlation headers for the current call.
 
-    ``x-gimle-task`` (the edition/session id) and, when one is in scope,
-    ``x-gimle-route`` (the agent's use-case key) — only when the integration is
+    ``x-ctrlrtn-task`` (the edition/session id) and, when one is in scope,
+    ``x-ctrlrtn-route`` (the agent's use-case key) — only when the integration is
     enabled and each value is present, else ``{}`` (providers get nothing extra
     by default).
     """
