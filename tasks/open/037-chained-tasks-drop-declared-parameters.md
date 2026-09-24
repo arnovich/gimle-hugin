@@ -53,7 +53,7 @@ successor. The chained `Task` is otherwise built from the registry template, so
 every declared parameter starts empty.
 
 There is no runtime complaint. Parameter validation runs when an agent is
-created from a task (`CLAUDE.md`, "Task Parameters": *"Required parameters must
+created from a task (`AGENTS.md`, "Task Parameters": *"Required parameters must
 be provided or task creation fails"*), and a chained stage does not go through
 that path — worth confirming as part of this task, since a required parameter
 silently becoming `None` is the surprising half of this bug.
@@ -105,7 +105,7 @@ agents.
 - [ ] Add the validator check for an unsatisfiable required successor parameter.
 - [ ] Update the builder's guidance (`templates/builder_system.yaml`,
       `tasks/build_agent.yaml` step 5) to match whatever the framework does.
-- [ ] Update `CLAUDE.md`'s "Task Parameters" and the `pass_result_as` note to
+- [ ] Update `AGENTS.md`'s "Task Parameters" and the `pass_result_as` note to
       state the rule.
 
 ## Success Criteria

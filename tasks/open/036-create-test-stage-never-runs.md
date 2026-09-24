@@ -37,7 +37,7 @@ Four pieces that are individually correct:
 - `cli/create_agent.py:943` drives the loop with `step_fn=agent.step` — the
   **parent** agent only.
 - `tools/test_agent.py` returns an `AgentCall`, which is the documented way for
-  a tool to spawn a child (`CLAUDE.md`, "Launching Sub-Agents from Tools").
+  a tool to spawn a child (`AGENTS.md`, "Launching Sub-Agents from Tools").
 - `interaction/waiting.py:50-67` — a `Waiting` whose previous interaction is an
   `AgentCall` returns `True` indefinitely, to keep the branch alive while the
   child runs.

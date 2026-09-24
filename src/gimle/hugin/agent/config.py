@@ -16,7 +16,7 @@ class Config:
         description: Human-readable description of the agent's purpose.
         system_template: System prompt. May be a registered template name, an
                          inline Jinja2 string, or "{{ name.template }}". See
-                         CLAUDE.md -> Prompt Templates.
+                         AGENTS.md -> Prompt Templates.
         llm_model: LLM model identifier (default: "sonnet-latest").
         tools: List of tool names this agent can use.
         interactive: Whether this agent requires human interaction.

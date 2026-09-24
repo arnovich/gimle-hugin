@@ -589,7 +589,7 @@ def _check_references(
                 errors.append(finding)
             if folder == "tasks":
                 # A task prompt expands a bare template name exactly as
-                # system_template does (CLAUDE.md, "Prompt Templates"), so a
+                # system_template does (AGENTS.md, "Prompt Templates"), so a
                 # typo there renders the literal string instead of the body.
                 finding = _check_template_reference(
                     key, "prompt", document.get("prompt"), templates
@@ -652,7 +652,7 @@ def _check_task_parameter_schemas(files: Dict[str, str]) -> List[Finding]:
 
     The per-parameter check is shared with ``Task`` so both paths enforce the
     same field presence, value types and categorical choices. The old scalar
-    form (``topic: "AI"``) raises ``ValueError`` at construction. CLAUDE.md
+    form (``topic: "AI"``) raises ``ValueError`` at construction. AGENTS.md
     still documents the scalar form as supported, so the builder emits it --
     and without this the agent validated clean, was written to disk, and failed
     at ``hugin run``. An agent that passes the gate and cannot load is exactly

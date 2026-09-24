@@ -690,7 +690,7 @@ class TestTaskParameterSchemas:
     """The validator must not pass what Task itself refuses to construct."""
 
     def test_scalar_parameter_form_is_an_error(self):
-        """CLAUDE.md documents it, so the builder emits it, and Task rejects it."""
+        """AGENTS.md documents it, so the builder emits it, and Task rejects it."""
         report = validate_files(
             agent(
                 **{

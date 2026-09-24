@@ -38,7 +38,7 @@ Four mechanisms, all of which pass a live object reference:
 | Direct messaging | `agent/agent.py:361-368` — `message_agent()` calls `stack.insert_external_input()`. Example: `examples/agent_messaging` | The caller must already hold the target `Agent` object |
 | Sub-agents | `interaction/agent_call.py:98-111` creates the child via `parent_agent.session.create_agent_from_task(...)`; the child's `TaskResult.step()` resumes the parent by pushing an `AgentResult` onto `task_def.caller.stack` (`interaction/task_result.py:136-143`) | An id on the wire, a live object at resolution time — see below |
 | Stepping | `Session.step()` (`agent/session.py:158-179`) iterates `self.agents` | A list of live agents in one interpreter |
-| Shared state | `Environment.env_vars`, e.g. the documented `{"worlds": {"world_1": shared_world_object}}` (`CLAUDE.md`, "Shared State"); and `SessionState` (`agent/session_state.py`), reached via `stack.get_shared_state` / `set_shared_state` | Arbitrary live Python objects — not serialisable in general |
+| Shared state | `Environment.env_vars`, e.g. the documented `{"worlds": {"world_1": shared_world_object}}` (`AGENTS.md`, "Shared State"); and `SessionState` (`agent/session_state.py`), reached via `stack.get_shared_state` / `set_shared_state` | Arbitrary live Python objects — not serialisable in general |
 
 So "cross-machine" is not a transport problem bolted onto an existing seam. Each
 of these would need a remote answer, and the shared-state one may not have a
