@@ -28,7 +28,7 @@ class Task:
         description: Human-readable description of the task.
         parameters: Template parameters for the prompt.
         prompt: Task prompt. May be a registered template name, an inline
-                Jinja2 string, or "{{ name.template }}". See CLAUDE.md ->
+                Jinja2 string, or "{{ name.template }}". See AGENTS.md ->
                 Prompt Templates.
         tools: Optional list of tool names for this task.
         system_template: Optional system prompt override (same forms as

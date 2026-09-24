@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to coding agents working with code in this repository.
 
 ## Git Workflow
 
@@ -621,7 +621,7 @@ tasks/open/006-parallel-tool-calls/
 
 ### Task File Format
 
-Task files follow **`gimle-skills/references/task-format.md`** — that document is
+Task files follow **`~/.agents/references/task-format.md`** — that document is
 the authority on frontmatter, filenames, body sections and priority meanings.
 Read it before creating or editing a task file.
 

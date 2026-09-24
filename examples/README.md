@@ -172,5 +172,5 @@ example_name/
 ## See Also
 
 - **[apps/](../apps/)** - Production-like application showcases
-- **[CLAUDE.md](../CLAUDE.md)** - Full development guide
+- **[AGENTS.md](../AGENTS.md)** - Full development guide
 - **[src/gimle/hugin/](../src/gimle/hugin/)** - Framework source code
