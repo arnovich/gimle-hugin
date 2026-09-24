@@ -10,7 +10,7 @@ Add this plugin to your Claude Code session:
 claude --plugin-dir ./skills/hugin-agent-creator
 ```
 
-Or reference it from your project's CLAUDE.md:
+Or reference it from your project's AGENTS.md (or CLAUDE.md):
 
 ```markdown
 Use the hugin-agent-creator plugin at ./skills/hugin-agent-creator for building Hugin agents.
