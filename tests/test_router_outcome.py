@@ -1,4 +1,4 @@
-"""Tests for the gimle-router per-edition outcome report.
+"""Tests for the ctrlrtn per-edition outcome report.
 
 Covers the opt-in flag, the payload contract, target-URL config, and the
 best-effort guarantee that a failed report never breaks the edition.
@@ -19,8 +19,8 @@ def enabled(monkeypatch):
 
     Tests opt back in to the one URL source they exercise.
     """
-    monkeypatch.setenv("HUGIN_GIMLE_ROUTER", "1")
-    for var in ("GIMLE_ROUTER_URL", "ANTHROPIC_BASE_URL", "OPENAI_BASE_URL"):
+    monkeypatch.setenv("HUGIN_CTRLRTN", "1")
+    for var in ("CTRLRTN_URL", "ANTHROPIC_BASE_URL", "OPENAI_BASE_URL"):
         monkeypatch.delenv(var, raising=False)
 
 
@@ -68,7 +68,7 @@ def test_enabled_posts_the_outcome(enabled):
     with patch("urllib.request.urlopen", fake):
         sent = report_outcome("ed-1", success=True, score=8.0)
     assert sent is True
-    assert captured["url"] == "http://127.0.0.1:4000/gimle/outcome"
+    assert captured["url"] == "http://127.0.0.1:4000/ctrlrtn/outcome"
     assert captured["method"] == "POST"
     assert captured["body"] == {
         "task_id": "ed-1",
@@ -93,11 +93,11 @@ def test_success_only_and_score_only(enabled):
 
 def test_custom_router_url_is_honored(enabled, monkeypatch):
     """The target is the router's own address, trailing slash tolerated."""
-    monkeypatch.setenv("GIMLE_ROUTER_URL", "http://router.local:9000/")
+    monkeypatch.setenv("CTRLRTN_URL", "http://router.local:9000/")
     captured, fake = _capture()
     with patch("urllib.request.urlopen", fake):
         report_outcome("ed", success=True)
-    assert captured["url"] == "http://router.local:9000/gimle/outcome"
+    assert captured["url"] == "http://router.local:9000/ctrlrtn/outcome"
 
 
 def test_falls_back_to_anthropic_base_url(enabled, monkeypatch):
@@ -109,17 +109,17 @@ def test_falls_back_to_anthropic_base_url(enabled, monkeypatch):
     captured, fake = _capture()
     with patch("urllib.request.urlopen", fake):
         report_outcome("ed", success=True)
-    assert captured["url"] == "http://127.0.0.1:4000/gimle/outcome"
+    assert captured["url"] == "http://127.0.0.1:4000/ctrlrtn/outcome"
 
 
 def test_explicit_override_beats_the_provider_base_url(enabled, monkeypatch):
-    """GIMLE_ROUTER_URL wins when the control-plane is on a different host."""
+    """CTRLRTN_URL wins when the control-plane is on a different host."""
     monkeypatch.setenv("ANTHROPIC_BASE_URL", "http://proxy:4000")
-    monkeypatch.setenv("GIMLE_ROUTER_URL", "http://control:9000")
+    monkeypatch.setenv("CTRLRTN_URL", "http://control:9000")
     captured, fake = _capture()
     with patch("urllib.request.urlopen", fake):
         report_outcome("ed", success=True)
-    assert captured["url"] == "http://control:9000/gimle/outcome"
+    assert captured["url"] == "http://control:9000/ctrlrtn/outcome"
 
 
 # --- nothing to report -----------------------------------------------------
