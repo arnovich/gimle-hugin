@@ -110,8 +110,10 @@ def get_model_registry() -> ModelRegistry:
     )
     model_registry.register_model(
         "claude-sonnet-5",
+        # Sonnet 5 rejects the temperature parameter.
         AnthropicModel(
             model_name="claude-sonnet-5",
+            temperature=None,
         ),
     )
 
