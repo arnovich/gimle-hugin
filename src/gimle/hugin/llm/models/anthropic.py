@@ -17,14 +17,18 @@ class AnthropicModel(Model):
     def __init__(
         self,
         model_name: str,
-        temperature: float = 0,
+        temperature: Optional[float] = 0,
         max_tokens: int = 5000,
         tool_choice: Dict[str, Any] = {
             "type": "any",
             "disable_parallel_tool_use": True,
         },
     ):
-        """Initialize the Anthropic model."""
+        """Initialize the Anthropic model.
+
+        A ``temperature`` of None omits the parameter from requests, for models
+        that reject it.
+        """
         super().__init__(
             config={
                 "model": model_name,
@@ -33,6 +37,12 @@ class AnthropicModel(Model):
                 "tool_choice": tool_choice,
             }
         )
+
+    def _sampling(self) -> Dict[str, Any]:
+        """Return the sampling parameters to send; empty when none are set."""
+        if self.temperature is None:
+            return {}
+        return {"temperature": self.temperature}
 
     def chat_completion(
         self,
@@ -83,9 +93,7 @@ class AnthropicModel(Model):
             if tools_to_use:
                 response = client.with_options(max_retries=5).messages.create(
                     messages=messages,  # type: ignore[arg-type]
-                    temperature=(
-                        self.temperature if self.temperature is not None else 0
-                    ),
+                    **self._sampling(),
                     max_tokens=self.max_tokens,
                     model=self.model_name,
                     system=system_prompt,
@@ -96,9 +104,7 @@ class AnthropicModel(Model):
             else:
                 response = client.with_options(max_retries=5).messages.create(
                     messages=messages,  # type: ignore[arg-type]
-                    temperature=(
-                        self.temperature if self.temperature is not None else 0
-                    ),
+                    **self._sampling(),
                     max_tokens=self.max_tokens,
                     model=self.model_name,
                     system=system_prompt,

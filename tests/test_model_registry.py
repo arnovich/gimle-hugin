@@ -119,3 +119,10 @@ class TestGetModelRegistry:
         except ImportError:
             # Expected in test environment without actual model dependencies
             pytest.skip("Model dependencies not available in test environment")
+
+
+def test_claude_sonnet_5_is_registered():
+    """Sonnet 5 resolves by its API id, as an Anthropic model."""
+    registry = get_model_registry()
+    assert registry.get_model("claude-sonnet-5").model_name == "claude-sonnet-5"
+    assert registry.get_provider("claude-sonnet-5") == "anthropic"
