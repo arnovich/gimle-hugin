@@ -12,6 +12,7 @@ MODEL_PROVIDERS: Dict[str, str] = {
     "haiku-latest": "anthropic",
     "sonnet-latest": "anthropic",
     "opus-latest": "anthropic",
+    "claude-sonnet-5": "anthropic",
     # OpenAI models
     "gpt-4o": "openai",
     "gpt-4o-mini": "openai",
@@ -105,6 +106,12 @@ def get_model_registry() -> ModelRegistry:
         "opus-latest",
         AnthropicModel(
             model_name="claude-opus-4-5",
+        ),
+    )
+    model_registry.register_model(
+        "claude-sonnet-5",
+        AnthropicModel(
+            model_name="claude-sonnet-5",
         ),
     )
 
