@@ -221,3 +221,50 @@ class TestOpenAIAdapterPreservesNewlines:
         assert response.tool_call is None
         assert response.content == MULTILINE
         assert "\n" in response.content
+
+
+def _anthropic_request(model):
+    """Send one tool request through ``model`` and return the create kwargs."""
+    fake_response = SimpleNamespace(
+        content=[_tool_use("read_file", {"path": "a"}, "t1")],
+        usage=SimpleNamespace(input_tokens=1, output_tokens=1),
+        id="r",
+    )
+    create = MagicMock(return_value=fake_response)
+    fake_client = MagicMock()
+    fake_client.with_options.return_value.messages.create = create
+    tool = SimpleNamespace(
+        name="read_file",
+        description="d",
+        parameters={"path": {"type": "string", "description": "p"}},
+    )
+    with patch("anthropic.Anthropic", return_value=fake_client):
+        model.chat_completion(
+            "sys", [{"role": "user", "content": "hi"}], [tool]
+        )
+    return create.call_args.kwargs
+
+
+class TestAnthropicTemperature:
+    """Temperature is sent when set, and omitted for models that reject it."""
+
+    def test_default_temperature_is_sent(self):
+        """Existing models keep their deterministic temperature of 0."""
+        from gimle.hugin.llm.models.anthropic import AnthropicModel
+
+        kwargs = _anthropic_request(AnthropicModel(model_name="claude-test"))
+        assert kwargs["temperature"] == 0
+
+    def test_no_temperature_means_the_parameter_is_omitted(self):
+        """Models such as Sonnet 5 reject the parameter, so it is not sent."""
+        from gimle.hugin.llm.models.anthropic import AnthropicModel
+
+        model = AnthropicModel(model_name="claude-test", temperature=None)
+        assert "temperature" not in _anthropic_request(model)
+
+    def test_registered_sonnet_5_omits_temperature(self):
+        """The registry entry for Sonnet 5 does not send a temperature."""
+        from gimle.hugin.llm.models.model_registry import get_model_registry
+
+        model = get_model_registry().get_model("claude-sonnet-5")
+        assert "temperature" not in _anthropic_request(model)
