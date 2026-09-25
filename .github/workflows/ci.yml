@@ -3,6 +3,9 @@ name: CI
 on:
   push:
     branches: [main]
+    # Task metadata (claims, notes, closes, answers) and docs land on main as
+    # their own commits; no check is required on a push, so they skip CI.
+    paths-ignore: ["tasks/**", "docs/**"]
   pull_request:
     branches: [main]
 
@@ -21,24 +24,65 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history so the detection below can diff against the merge
+          # base; a shallow clone cannot.
+          fetch-depth: 0
+          persist-credentials: false
+
+      # `test (3.12)` is a REQUIRED status check, so this job must always run
+      # and report on a pull request. A `paths-ignore` on the trigger would
+      # leave a tasks-only PR permanently pending — GitHub treats a skipped
+      # required check as unsatisfied. So the job runs and the expensive steps
+      # are gated instead, taking a tasks-only PR to under a minute. Pushes to
+      # main carry no required check and ignore tasks/ and docs/ outright.
+      - name: Detect whether anything outside tasks/ and docs/ changed
+        id: changes
+        run: |
+          # FAIL SAFE. `code` starts true and is only cleared when this
+          # positively establishes that every changed path is under tasks/ or
+          # docs/. Any failure here — a base ref that does not resolve, an empty
+          # diff, a tool that errors — leaves the full suite running.
+          code=true
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            if base=$(git merge-base "refs/remotes/origin/$GITHUB_BASE_REF" HEAD); then
+              changed=$(git diff --name-only "$base" HEAD)
+              echo "changed files:"; echo "$changed"
+              outside=$(printf '%s\n' "$changed" | sed -E '/^(tasks|docs)\//d')
+              if [ -n "$changed" ] && [ -z "$outside" ]; then
+                code=false
+              fi
+            else
+              echo "could not resolve the merge base - running everything"
+            fi
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          if [ "$code" = "false" ]; then
+            echo "tasks/docs only - skipping install, lint, type and test steps"
+          fi
 
       - name: Install uv
+        if: steps.changes.outputs.code == 'true'
         uses: astral-sh/setup-uv@v4
         with:
           version: "latest"
 
       - name: Set up Python ${{ matrix.python-version }}
+        if: steps.changes.outputs.code == 'true'
         run: uv python install ${{ matrix.python-version }}
 
       - name: Install dependencies
+        if: steps.changes.outputs.code == 'true'
         run: uv sync --all-extras --group dev
 
       - name: Run formatters
+        if: steps.changes.outputs.code == 'true'
         run: |
           uv run black src examples tests apps --exclude '_version\.py'
           uv run isort src examples tests apps --skip _version.py
 
       - name: Check for formatting changes
+        if: steps.changes.outputs.code == 'true'
         run: |
           # Ignore auto-generated _version.py from git status check
           if [ -n "$(git status --porcelain -- . ':!*/_version.py')" ]; then
@@ -48,21 +92,26 @@ jobs:
           fi
 
       - name: Run flake8
+        if: steps.changes.outputs.code == 'true'
         run: uv run flake8 src examples tests apps
 
       - name: Run type checking
+        if: steps.changes.outputs.code == 'true'
         run: uv run mypy src examples
 
       # Every agent this repo ships must pass the same validator that gates
       # generated agents. A validator that fails these is wrong about the
       # framework, not right about the agents.
       - name: Validate shipped agents
+        if: steps.changes.outputs.code == 'true'
         run: uv run hugin validate -r examples apps src/gimle/hugin/apps
 
       - name: Run tests
+        if: steps.changes.outputs.code == 'true'
         run: uv run pytest --cov --cov-report=xml
 
       - name: Upload coverage reports
+        if: steps.changes.outputs.code == 'true'
         uses: codecov/codecov-action@v4
         with:
           file: ./coverage.xml
