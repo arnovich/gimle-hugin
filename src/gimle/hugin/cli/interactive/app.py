@@ -22,6 +22,7 @@ class AgentLaunchConfig:
     config_name: Optional[str] = None
     parameters: Dict[str, Any] = field(default_factory=dict)
     max_steps: int = 100
+    max_iterations: int = 10000
     model: Optional[str] = None
 
 

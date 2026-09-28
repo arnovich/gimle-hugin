@@ -294,10 +294,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Model that does the analysis (default: sonnet-latest)",
     )
     parser.add_argument(
+        "--max-iterations",
+        type=int,
+        default=10000,
+        help="Scheduler iteration guard, independent of LLM calls (default: 10000)",
+    )
+    parser.add_argument(
+        "--max-llm-calls",
         "--max-steps",
+        dest="max_steps",
         type=int,
         default=DEFAULT_MAX_STEPS,
-        help=f"Maximum session steps (default: {DEFAULT_MAX_STEPS})",
+        help=f"Maximum LLM calls (default: {DEFAULT_MAX_STEPS})",
     )
     parser.add_argument(
         "--apply",
@@ -369,7 +377,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         _, last_error = run_steps_with_spinner(
             step_fn=session.step,
             save_fn=lambda: storage.save_session(session),
-            max_steps=args.max_steps,
+            max_llm_calls=args.max_steps,
+            max_iterations=args.max_iterations,
             prefix="    ",
             clear_width=40,
             session=session,
@@ -378,6 +387,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         if last_error:
             logging.error("Error during improve run", exc_info=last_error)
             print(f"    Error: {type(last_error).__name__}: {last_error}")
+            return 1
+
+        if session.limit_reached is not None:
+            print(
+                f"    Reached {session.limit_reached} limit; improvement is unfinished."
+            )
             return 1
 
         proposals = env.env_vars.get("proposed_changes") or []

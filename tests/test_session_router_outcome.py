@@ -120,11 +120,11 @@ def test_spinner_step_loop_reports_budget_exhaustion():
         steps, error = run_steps_with_spinner(
             step_fn=session.step,
             save_fn=Mock(),
-            max_steps=1,
+            max_iterations=1,
             session=session,
         )
 
-    assert steps == 1
+    assert steps == 0
     assert error is None
     report.assert_called_once_with(session.id, success=False)
 
@@ -209,7 +209,7 @@ def test_max_steps_without_terminal_result_reports_failure():
     session.add_agent(agent)
 
     with patch("gimle.hugin.agent.session.report_outcome") as report:
-        assert session.run(max_steps=1) == 1
+        assert session.run(max_iterations=1) == 1
 
     report.assert_called_once_with(session.id, success=False)
 
@@ -220,7 +220,7 @@ def test_terminal_result_wins_when_created_on_the_last_allowed_step():
     _agent(session, finish_type="success", waiting=False)
 
     with patch("gimle.hugin.agent.session.report_outcome") as report:
-        assert session.run(max_steps=1) == 1
+        assert session.run(max_iterations=1) == 1
 
     report.assert_called_once_with(session.id, success=True)
 
@@ -258,7 +258,7 @@ def test_intermediate_task_result_does_not_beat_budget_exhaustion():
     session.add_agent(agent)
 
     with patch("gimle.hugin.agent.session.report_outcome") as report:
-        assert session.run(max_steps=1) == 1
+        assert session.run(max_iterations=1) == 1
 
     report.assert_called_once_with(session.id, success=False)
 
@@ -303,7 +303,7 @@ def test_final_task_sequence_result_is_terminal():
     session.add_agent(agent)
 
     with patch("gimle.hugin.agent.session.report_outcome") as report:
-        assert session.run(max_steps=1) == 1
+        assert session.run(max_iterations=1) == 1
 
     report.assert_called_once_with(session.id, success=True)
 
@@ -374,6 +374,7 @@ def test_reporting_failure_never_breaks_the_completed_session():
 
 @pytest.mark.parametrize("accepted", [True, False, None, "yes"])
 def test_application_validator_must_explicitly_accept_success(accepted):
+    """Require an explicit boolean approval from the application validator."""
     validator = Mock(return_value=accepted)
     session = Session(
         environment=Environment(), router_outcome_validator=validator
@@ -388,6 +389,7 @@ def test_application_validator_must_explicitly_accept_success(accepted):
 
 
 def test_application_validator_error_rejects_success():
+    """Treat failed application validation as a failed edition."""
     session = Session(
         environment=Environment(),
         router_outcome_validator=Mock(side_effect=ValueError("bad evidence")),
@@ -399,6 +401,7 @@ def test_application_validator_error_rejects_success():
 
 
 def test_application_validator_cannot_promote_failure():
+    """Keep framework failure authoritative over application approval."""
     validator = Mock(return_value=True)
     session = Session(
         environment=Environment(), router_outcome_validator=validator

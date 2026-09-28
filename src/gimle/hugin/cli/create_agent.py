@@ -679,18 +679,20 @@ def setup_file_logging(log_dir: Path, log_level: str) -> Path:
     return log_file
 
 
-def step_cap_outcome(step_count: int, max_steps: int, wrote_files: bool) -> str:
-    """Classify a shared session-step cap by whether files were written.
+def step_cap_outcome(
+    step_count: int,
+    max_steps: int,
+    wrote_files: bool,
+    *,
+    exhausted: Optional[bool] = None,
+) -> str:
+    """Classify a call/iteration cap while preserving successfully written files.
 
-    Each session step advances the builder and its children. All build stages,
-    including the generated agent's test, share the default 200-step allowance.
-    Written files survive a cap, but do not prove the test started or finished.
-
-    Returns:
-        ``"ok"``, ``"capped_after_write"`` (files exist, session work remains),
-        or ``"capped_empty"`` (nothing was written).
+    The explicit exhaustion flag distinguishes an attempted extra call from a
+    successful build finishing exactly at its limit. The count fallback keeps
+    existing callers compatible.
     """
-    if step_count < max_steps:
+    if exhausted is False or (exhausted is None and step_count < max_steps):
         return "ok"
     return "capped_after_write" if wrote_files else "capped_empty"
 
@@ -781,10 +783,18 @@ Examples:
         help="Build and validate without writing the agent directory",
     )
     parser.add_argument(
+        "--max-iterations",
+        type=int,
+        default=10000,
+        help="Scheduler iteration guard, independent of LLM calls (default: 10000)",
+    )
+    parser.add_argument(
+        "--max-llm-calls",
         "--max-steps",
+        dest="max_steps",
         type=int,
         default=200,
-        help="Maximum session steps shared by the builder and its test agents "
+        help="Maximum LLM calls shared by the builder and its test agents "
         "(default: 200)",
     )
     parser.add_argument(
@@ -940,7 +950,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         step_count, last_error = run_steps_with_spinner(
             step_fn=session.step,
             save_fn=lambda: storage.save_session(session),
-            max_steps=args.max_steps,
+            max_llm_calls=args.max_steps,
+            max_iterations=args.max_iterations,
             prefix="    ",
             clear_width=40,
             session=session,
@@ -968,12 +979,18 @@ def main(argv: Optional[List[str]] = None) -> int:
             return 1
 
         cap_outcome = step_cap_outcome(
-            step_count, args.max_steps, bool(env.env_vars.get("written_keys"))
+            step_count,
+            args.max_steps,
+            bool(env.env_vars.get("written_keys")),
+            exhausted=session.limit_reached is not None,
+        )
+        cap_label = (
+            f"LLM calls ({args.max_steps})"
+            if session.limit_reached == "llm_calls"
+            else f"iterations ({args.max_iterations})"
         )
         if cap_outcome == "capped_empty":
-            print(
-                f"    Error: Reached maximum session steps ({args.max_steps})"
-            )
+            print(f"    Error: Reached maximum {cap_label}")
             print("    The agent may not have finished building.")
             print()
             _report_rejected(env, user_input["output_path"])
@@ -981,18 +998,14 @@ def main(argv: Optional[List[str]] = None) -> int:
             return 1
 
         if cap_outcome == "capped_after_write":
-            print(
-                f"    Note: reached maximum session steps ({args.max_steps})."
-            )
+            print(f"    Note: reached maximum {cap_label}.")
             print(
                 "    The agent was written, but the builder session did not finish."
             )
             print(
                 "    Check the session trace for unfinished build or test work."
             )
-            print(
-                "    Run the agent yourself, or re-run with a larger --max-steps."
-            )
+            print("    Run the agent yourself, or re-run with a larger budget.")
             print()
 
         dry_run_result = env.env_vars.get("dry_run_result")
@@ -1057,7 +1070,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(
             f"    Would remove: {len(preview.get('would_remove', []))} file(s)"
         )
-        print(f"    Built in: {elapsed:.0f}s over {step_count} steps")
+        print(f"    Built in: {elapsed:.0f}s over {step_count} LLM calls")
         return 0
 
     if editing:
@@ -1067,7 +1080,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         changed = env.env_vars.get("changed_keys", [])
         show_header("Agent Updated", "Your agent has been edited in place")
         print(f"        Location: {user_input['output_path']}")
-        print(f"        Edited in: {elapsed:.0f}s over {step_count} steps")
+        print(f"        Edited in: {elapsed:.0f}s over {step_count} LLM calls")
         print()
         if changed:
             print(f"    Changed {len(changed)} file(s):")
@@ -1091,7 +1104,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     print()
     output_path = user_input["output_path"]
     print(f"        Location: {output_path}")
-    print(f"        Built in: {elapsed:.0f}s over {step_count} steps")
+    print(f"        Built in: {elapsed:.0f}s over {step_count} LLM calls")
     requirements = Path(output_path) / "requirements.txt"
     if requirements.exists():
         print(f"        Install:  uv pip install -r {requirements}")

@@ -397,6 +397,12 @@ class Stack:
                 last = self.get_last_interaction_for_branch(branch)
                 if last is None:
                     continue
+                if (
+                    isinstance(last, AskOracle)
+                    and not self.agent.session.can_call_model
+                ):
+                    self.agent.session.limit_reached = "llm_calls"
+                    continue
                 stepped = last.step()
                 # Some interactions report completion while appending their
                 # deterministic successor (for example a plain-text result).

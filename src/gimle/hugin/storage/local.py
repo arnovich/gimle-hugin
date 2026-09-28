@@ -1,6 +1,5 @@
 """Local storage implementation module."""
 
-import datetime
 import json
 import logging
 import os
@@ -14,36 +13,12 @@ from gimle.hugin.agent.session import Session
 from gimle.hugin.artifacts.artifact import Artifact
 from gimle.hugin.artifacts.feedback import ArtifactFeedback
 from gimle.hugin.interaction.interaction import Interaction
+from gimle.hugin.storage.json import SafeJSONEncoder, sanitize_for_json
 from gimle.hugin.storage.storage import Storage
 
 if TYPE_CHECKING:
     from gimle.hugin.agent.environment import Environment
     from gimle.hugin.interaction.stack import Stack
-
-
-class SafeJSONEncoder(json.JSONEncoder):
-    """JSON encoder that handles non-serializable types gracefully."""
-
-    def default(self, o: Any) -> Any:
-        """Convert non-serializable objects to strings."""
-        if isinstance(o, (datetime.datetime, datetime.date)):
-            return o.isoformat()
-        # Handle pandas Timestamp and other datetime-like objects
-        if hasattr(o, "isoformat"):
-            return o.isoformat()
-        if hasattr(o, "item"):
-            # numpy scalar types
-            return o.item()
-        return str(o)
-
-
-def _sanitize_for_json(obj: Any) -> Any:
-    """Recursively convert non-serializable dict keys and values."""
-    if isinstance(obj, dict):
-        return {str(k): _sanitize_for_json(v) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple)):
-        return [_sanitize_for_json(item) for item in obj]
-    return obj
 
 
 logger = logging.getLogger(__name__)
@@ -363,7 +338,7 @@ class LocalStorage(Storage):
             with open(
                 self.base_path / "interactions" / interaction.uuid, "w"
             ) as f:
-                data = _sanitize_for_json(interaction.to_dict())
+                data = sanitize_for_json(interaction.to_dict())
                 json.dump(data, f, cls=SafeJSONEncoder)
 
     def _delete_interaction(self, interaction: Interaction) -> None:

@@ -1,16 +1,18 @@
 """New agent wizard screen for the interactive TUI."""
 
 import curses
+import logging
 import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from gimle.hugin.agent.environment import Environment
-from gimle.hugin.agent.session import Session
+from gimle.hugin.agent.session import Session, SessionBusyError
 from gimle.hugin.cli.interactive.logging.handler import (
     clear_agent_context,
     set_agent_context,
 )
+from gimle.hugin.cli.interactive.runner import run_controlled_session
 from gimle.hugin.cli.interactive.screens.base import BaseScreen
 from gimle.hugin.cli.interactive.widgets.list_view import ListItem, ListView
 
@@ -114,6 +116,7 @@ class NewAgentScreen(BaseScreen):
         self.param_input_buffer: str = ""
 
         self.max_steps: int = 100
+        self.max_iterations: int = 10000
         self.error_message: Optional[str] = None
         self.running_agent_id: Optional[str] = None
 
@@ -167,6 +170,7 @@ class NewAgentScreen(BaseScreen):
 
         # Set max steps
         self.max_steps = config.max_steps
+        self.max_iterations = config.max_iterations
 
         # Launch
         self._launch_agent()
@@ -374,36 +378,35 @@ class NewAgentScreen(BaseScreen):
             def run_agent() -> None:
                 # Set agent context for logging
                 set_agent_context(agent.id, session.id)
-                step_count = 0
                 run_error = False
+                busy = False
                 try:
-                    while step_count < self.max_steps:
-                        # Check controller before each step
-                        if not controller.should_continue():
-                            # Paused or waiting for step - sleep and retry
-                            import time
-
-                            time.sleep(0.1)
-                            continue
-
-                        # Take a step
-                        if not agent.step():
-                            break  # Agent completed
-
-                        step_count += 1
-                        self.state.storage.save_session(session)
+                    run_controlled_session(
+                        session,
+                        controller,
+                        lambda: self.state.storage.save_session(session),
+                        max_llm_calls=self.max_steps,
+                        get_controller=self.state.get_controller,
+                        max_iterations=self.max_iterations,
+                    )
+                except SessionBusyError:
+                    busy = True
+                    logging.getLogger(__name__).warning(
+                        "Session already running; resume the existing controller."
+                    )
                 except Exception as e:
                     run_error = True
                     self.error_message = f"Agent error: {e}"
                 finally:
-                    session.finalize_router_outcome(
-                        max_steps_reached=step_count >= self.max_steps,
-                        error=run_error,
-                    )
                     clear_agent_context()
-                    self.state.storage.save_session(session)
-                    # Refresh state to show new agent
-                    self.state.refresh_data()
+                    if not busy:
+                        session.finalize_router_outcome(
+                            max_steps_reached=session.limit_reached is not None,
+                            error=run_error,
+                        )
+                        self.state.storage.save_session(session)
+                        # Refresh state to show new agent
+                        self.state.refresh_data()
 
             thread = threading.Thread(target=run_agent, daemon=True)
             thread.start()
@@ -681,7 +684,7 @@ class NewAgentScreen(BaseScreen):
                 stdscr.addstr(row, start_col, f"Model:     {model}")
                 row += 1
 
-            stdscr.addstr(row, start_col, f"Max steps: {self.max_steps}")
+            stdscr.addstr(row, start_col, f"Max LLM calls: {self.max_steps}")
             row += 2
 
             if self.param_names:

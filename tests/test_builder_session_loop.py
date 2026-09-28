@@ -46,7 +46,7 @@ def test_create_runs_child_and_returns_result(
     assert run.error is None
     assert run.closed
     assert (run.output / "configs" / "demo.yaml").is_file()
-    assert "maximum session steps" not in capsys.readouterr().out.lower()
+    assert "maximum LLM calls" not in capsys.readouterr().out.lower()
 
 
 @pytest.mark.parametrize("child_finished", [False, True])
@@ -88,7 +88,7 @@ def test_create_reports_capped_session_work(
     assert run.closed
     assert (run.output / "configs" / "demo.yaml").is_file()
     output = capsys.readouterr().out
-    assert "session steps (80)" in output
+    assert "LLM calls (80)" in output
     assert "builder session did not finish" in output
     assert "test run after it did not" not in output
 
@@ -123,7 +123,7 @@ def test_create_cap_before_write_is_failure(
     assert run.steps == 1
     assert run.closed
     assert not run.output.exists()
-    assert "maximum session steps (1)" in capsys.readouterr().out
+    assert "maximum LLM calls (1)" in capsys.readouterr().out
 
 
 def test_improve_advances_delegated_child(improve_cli_run: Any) -> None:

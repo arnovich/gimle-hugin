@@ -1,7 +1,10 @@
 """Session module."""
 
 import logging
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
+import time
+from contextlib import contextmanager
+from threading import Lock
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterator, List, Optional
 
 from gimle.hugin.agent.agent import Agent
 from gimle.hugin.agent.config import Config
@@ -19,6 +22,14 @@ if TYPE_CHECKING:
     from gimle.hugin.storage.storage import Storage
 
 logger = logging.getLogger(__name__)
+
+
+class SessionBusyError(RuntimeError):
+    """Another runner already owns the session execution state."""
+
+
+class LLMCallLimitReached(Exception):
+    """The next model invocation would exceed the active session budget."""
 
 
 @with_uuid
@@ -70,6 +81,12 @@ class Session:
         self._router_outcome_reported = False
         self.router_outcome_validator = router_outcome_validator
         self.router_outcome_success: Optional[bool] = None
+        self._execution_lock = Lock()
+        self.llm_calls = 0
+        self._llm_call_limit: Optional[int] = None
+        self.limit_reached: Optional[str] = None
+        self.idle_delay = 0.0
+        self._active_agents: List[Agent] = []
 
     @property
     def id(self) -> str:
@@ -162,78 +179,179 @@ class Session:
             None,
         )
 
-    def step(self) -> bool:
-        """Step the session and report an outcome at a terminal boundary.
-
-        Returns:
-            True if there is any activity in the session, False otherwise.
-        """
+    @contextmanager
+    def execution(self) -> Iterator[None]:
+        """Give one runner ownership of this session's mutable scheduler/budget."""
+        if not self._execution_lock.acquire(blocking=False):
+            raise SessionBusyError("This session already has an active runner")
         try:
-            any_activity = False
+            yield
+        finally:
+            self._execution_lock.release()
+
+    def record_llm_call(self) -> None:
+        """Reserve one invocation immediately before calling a model provider."""
+        if (
+            self._llm_call_limit is not None
+            and self.llm_calls >= self._llm_call_limit
+        ):
+            self.limit_reached = "llm_calls"
+            raise LLMCallLimitReached("Maximum LLM calls reached")
+        self.llm_calls += 1
+
+    @property
+    def can_call_model(self) -> bool:
+        """Return whether a branch may start its next provider invocation."""
+        return (
+            self._llm_call_limit is None
+            or self.llm_calls < self._llm_call_limit
+        )
+
+    @contextmanager
+    def limit_llm_calls(self, maximum: Optional[int]) -> Iterator[None]:
+        """Limit new calls in this run, including children and failed attempts."""
+        if maximum is not None and maximum < 0:
+            raise ValueError("max_llm_calls must be nonnegative")
+        previous = self._llm_call_limit
+        limit = None if maximum is None else self.llm_calls + maximum
+        if previous is not None:
+            limit = previous if limit is None else min(previous, limit)
+        self._llm_call_limit = limit
+        self.limit_reached = None
+        try:
+            yield
+        finally:
+            self._llm_call_limit = previous
+
+    def step(
+        self, agent_filter: Optional[Callable[[Agent], bool]] = None
+    ) -> bool:
+        """Advance all agents once; expose idle delay without blocking callers."""
+        from gimle.hugin.interaction.ask_human import AskHuman
+        from gimle.hugin.interaction.ask_oracle import AskOracle
+        from gimle.hugin.interaction.bash_waiting import BashWaiting
+        from gimle.hugin.interaction.waiting import Waiting
+
+        self.idle_delay = 0.0
+        self._active_agents = []
+        made_progress = False
+        delays: List[float] = []
+        try:
             for agent in self.agents:
-                agent_activity = agent.step()
-                if agent_activity:
-                    any_activity = True
+                if agent_filter is not None and not agent_filter(agent):
+                    continue
+                before = [
+                    agent.stack.get_last_interaction_for_branch(branch)
+                    for branch in agent.stack.get_active_branches()
+                ]
+                if agent.step():
+                    self._active_agents.append(agent)
+                    after = [
+                        agent.stack.get_last_interaction_for_branch(branch)
+                        for branch in agent.stack.get_active_branches()
+                    ]
+                    if len(before) != len(after) or any(
+                        a is not b for a, b in zip(before, after)
+                    ):
+                        made_progress = True
+                    elif any(
+                        not isinstance(last, (Waiting, BashWaiting, AskHuman))
+                        and not (
+                            isinstance(last, AskOracle)
+                            and not self.can_call_model
+                        )
+                        for last in after
+                    ):
+                        made_progress = True
+                    elif not any(
+                        isinstance(last, (Waiting, BashWaiting))
+                        and getattr(last, "_idle", False)
+                        for last in after
+                    ):
+                        made_progress = True
+                    else:
+                        delays.extend(
+                            last.wake_delay()
+                            for last in after
+                            if isinstance(last, (Waiting, BashWaiting))
+                            and getattr(last, "_idle", False)
+                            and (
+                                isinstance(last, BashWaiting)
+                                or last.condition is not None
+                            )
+                        )
+        except LLMCallLimitReached:
+            raise
         except Exception:
             self.finalize_router_outcome(error=True)
             raise
 
-        # ``Session.step`` is the public execution boundary used by the CLI,
-        # TUI, and several apps. A false step may mean either terminal work or
-        # a resumable wait, so let the branch-aware finalizer distinguish them.
-        if not any_activity:
+        if self._active_agents and not made_progress:
+            if self.limit_reached == "llm_calls":
+                # Drain ready deterministic work after the final allowed call,
+                # but do not park forever on a child blocked by that budget.
+                self._active_agents = []
+            else:
+                self.idle_delay = min(delays) if delays else 1.0
+        if not self._active_agents:
             self.finalize_router_outcome()
-        return any_activity
+        return bool(self._active_agents)
 
     def run(
         self,
         max_steps: Optional[int] = None,
         step_callback: Optional[Callable[[int, "Agent"], None]] = None,
+        *,
+        max_llm_calls: Optional[int] = None,
+        max_iterations: Optional[int] = 10000,
     ) -> int:
-        """Run the session.
+        """Run until completion, sleeping between passes containing only waits.
 
-        Args:
-            max_steps: The maximum number of steps to run.
-            step_callback: Optional callback called after each agent step.
-                Signature: (step_number: int, agent: Agent) -> None
-                Called for each agent that had activity in a step.
-
-        Returns:
-            The number of steps run.
+        ``max_llm_calls`` bounds model invocations across every agent/branch.
+        ``max_steps`` is its deprecated alias. ``max_iterations`` is a separate
+        scheduler guard, not a cost limit. Return scheduler iterations for
+        compatibility; ``llm_calls`` records the actual model count. Callbacks
+        receive the iteration number and each active agent.
         """
-        step_count = 0
-        max_steps_reached = False
+        if max_steps is not None and max_llm_calls is not None:
+            raise ValueError("Use max_llm_calls or max_steps, not both")
+        maximum = max_llm_calls if max_llm_calls is not None else max_steps
+        if max_iterations is not None and max_iterations < 0:
+            raise ValueError("max_iterations must be nonnegative")
+        iterations = 0
         logger.info(f"Running session {self.id}")
         try:
-            while True:
-                # Track which agents had activity
-                active_agents: List[Agent] = []
-                for agent in self.agents:
-                    if agent.step():
-                        active_agents.append(agent)
-
-                if not active_agents:
-                    break
-
-                if self.storage:
-                    self.storage.save_session(self)
-                step_count += 1
-
-                # Call the callback for each active agent
-                if step_callback:
-                    for agent in active_agents:
-                        step_callback(step_count, agent)
-
-                if max_steps and step_count >= max_steps:
-                    logger.info(f"Max steps reached ({max_steps})")
-                    max_steps_reached = True
-                    break
-                logger.info(f"Step {step_count} completed")
+            with self.execution(), self.limit_llm_calls(maximum):
+                try:
+                    while max_iterations is None or iterations < max_iterations:
+                        if not self.step():
+                            break
+                        iterations += 1
+                        if self.storage:
+                            self.storage.save_session(self)
+                        if step_callback:
+                            for agent in self._active_agents:
+                                step_callback(iterations, agent)
+                        if self.idle_delay and (
+                            max_iterations is None
+                            or iterations < max_iterations
+                        ):
+                            time.sleep(self.idle_delay)
+                    else:
+                        self.limit_reached = "iterations"
+                        logger.info(
+                            f"Maximum iterations reached ({max_iterations})"
+                        )
+                except LLMCallLimitReached:
+                    logger.info(f"Maximum LLM calls reached ({maximum})")
             if self.storage:
                 self.storage.save_session(self)
-
-            self.finalize_router_outcome(max_steps_reached=max_steps_reached)
-            return step_count
+            self.finalize_router_outcome(
+                max_steps_reached=self.limit_reached is not None
+            )
+            return iterations
+        except SessionBusyError:
+            raise
         except Exception:
             self.finalize_router_outcome(error=True)
             raise

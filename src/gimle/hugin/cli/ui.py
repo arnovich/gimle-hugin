@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import threading
 import time
+from contextlib import nullcontext
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 
@@ -244,7 +245,9 @@ def run_steps_with_spinner(
     *,
     step_fn: Callable[[], bool],
     save_fn: Callable[[], None],
-    max_steps: Optional[int],
+    max_steps: Optional[int] = None,
+    max_llm_calls: Optional[int] = None,
+    max_iterations: Optional[int] = 10000,
     prefix: str = "",
     user_prefix: str = "👤 ",
     status_message: str = "Thinking...",
@@ -259,7 +262,9 @@ def run_steps_with_spinner(
     Args:
         step_fn: Function to call for each step, returns True to continue
         save_fn: Function to save state after each step
-        max_steps: Maximum number of steps to run (None for unlimited)
+        max_steps: Deprecated alias for max_llm_calls
+        max_llm_calls: Maximum new model calls across the session
+        max_iterations: Separate scheduler iteration guard
         prefix: Prefix string for agent output (e.g., "🐣 ")
         user_prefix: Prefix string for user input (e.g., "👤 ")
         status_message: Base status message to show
@@ -271,64 +276,91 @@ def run_steps_with_spinner(
         step_delay: Delay in seconds between steps (default 0.0)
 
     Returns:
-        (step_count, last_error)
+        (model_call_count, last_error); zero calls without a session
     """
+    from gimle.hugin.agent.session import LLMCallLimitReached
+
+    if max_steps is not None and max_llm_calls is not None:
+        raise ValueError("Use max_llm_calls or max_steps, not both")
+    maximum = max_llm_calls if max_llm_calls is not None else max_steps
+    if maximum is not None and session is None:
+        raise ValueError("A session is required to enforce an LLM call budget")
+    if max_iterations is not None and max_iterations < 0:
+        raise ValueError("max_iterations must be nonnegative")
     animated = AnimatedSpinner(
-        prefix=prefix,
-        status=status_message,
-        clear_width=clear_width,
+        prefix=prefix, status=status_message, clear_width=clear_width
     )
     animated.start()
-
-    step_count = 0
+    iterations = 0
+    initial_calls = session.llm_calls if session is not None else 0
     last_error: Optional[Exception] = None
-
+    budget = (
+        session.limit_llm_calls(maximum)
+        if session is not None
+        else nullcontext()
+    )
     try:
-        while max_steps is None or step_count < max_steps:
-            try:
-                # Update status based on session state
-                if session:
-                    status = _get_session_status(session, status_message)
-                    animated.update_status(status)
-
-                if not step_fn():
-                    # Check if we stopped due to AskHuman
-                    if session and interactive:
-                        ask_human = _find_pending_ask_human(session)
-                        if ask_human:
-                            # Stop spinner with completion message
-                            animated.stop(show_completed=True)
-                            _handle_ask_human(ask_human, prefix, user_prefix)
-                            save_fn()
-                            # Restart spinner for next round
-                            animated = AnimatedSpinner(
-                                prefix=prefix,
-                                status=status_message,
-                                clear_width=clear_width,
-                            )
-                            animated.start()
-                            continue  # Continue stepping after human response
+        ownership = (
+            session.execution() if session is not None else nullcontext()
+        )
+        with ownership, budget:
+            while max_iterations is None or iterations < max_iterations:
+                try:
+                    if session:
+                        animated.update_status(
+                            _get_session_status(session, status_message)
+                        )
+                    active = step_fn()
+                    # Human input may block a child while its parent waits.
+                    ask_human = (
+                        _find_pending_ask_human(session)
+                        if session
+                        and interactive
+                        and (not active or session.idle_delay)
+                        else None
+                    )
+                    if ask_human:
+                        animated.stop(show_completed=True)
+                        _handle_ask_human(ask_human, prefix, user_prefix)
+                        save_fn()
+                        animated = AnimatedSpinner(
+                            prefix=prefix,
+                            status=status_message,
+                            clear_width=clear_width,
+                        )
+                        animated.start()
+                        continue
+                    if not active:
+                        break
+                    iterations += 1
+                    animated.increment_step()
+                    save_fn()
+                    delay = max(
+                        step_delay, session.idle_delay if session else 0.0
+                    )
+                    if delay > 0 and (
+                        max_iterations is None or iterations < max_iterations
+                    ):
+                        time.sleep(delay)
+                except LLMCallLimitReached:
                     break
-                step_count += 1
-                animated.increment_step()
-                save_fn()
-                if step_delay > 0:
-                    time.sleep(step_delay)
-            except Exception as e:
-                last_error = e
-                break
+                except Exception as e:
+                    last_error = e
+                    break
+            else:
+                if session is not None:
+                    session.limit_reached = "iterations"
     finally:
         animated.stop(show_completed=True)
 
     if session is not None:
         session.finalize_router_outcome(
-            max_steps_reached=(
-                max_steps is not None and step_count >= max_steps
-            ),
+            max_steps_reached=session.limit_reached is not None,
             error=last_error is not None,
         )
-
-    return step_count, last_error
+    return (
+        session.llm_calls - initial_calls if session is not None else 0
+    ), last_error
 
 
 def _get_session_status(session: Any, default: str) -> str:

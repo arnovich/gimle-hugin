@@ -33,11 +33,36 @@ hugin run [options]
 | `-p, --task-path` | Path to agent directory |
 | `-c, --config` | Config name (default: first found) |
 | `--parameters` | JSON string of task parameters |
-| `--max-steps` | Maximum steps (default: 100) |
+| `--max-llm-calls` | Maximum model calls shared by all agents and branches (default: 100) |
+| `--max-steps` | Deprecated alias for `--max-llm-calls` |
+| `--max-iterations` | Separate scheduler iteration guard (default: 10000) |
 | `--storage-path` | Where to save execution data |
 | `--model` | Override LLM model |
 | `--monitor` | Also start the web dashboard |
 | `-i, --interactive` | Run the agent inside the interactive TUI |
+
+`run`, `create`, and `improve` count model invocations, including failed provider
+attempts, against their call budget. Waiting and deterministic tool processing
+use no calls; a final result can finish processing after the last permitted call.
+The defaults are 100 calls for `run`, 200 for `create`, and 80 for `improve`.
+The builder and its generated test agents share one allowance. Custom conditions
+are polled at most once per second when the whole session is idle; timed waits
+sleep until the nearest deadline. Unchanged storage records are not rewritten.
+
+**Migration:** `--max-steps` and `Session.run(max_steps=...)` now mean model calls.
+Code that intentionally caps scheduler passes must use `max_iterations` instead.
+`Session.run()` still returns its scheduler iteration count; `session.llm_calls`
+counts model invocations in the current process. `session.limit_reached` is
+`"llm_calls"`, `"iterations"`, or `None`; completing exactly at a call limit is
+successful. Direct `session.step()` stays nonblocking and exposes `idle_delay`
+for custom runners; use `session.limit_llm_calls(n)` to bound their model calls.
+The TUI resumes the selected root and its descendants, honoring each child's
+pause control. Only one runner may drive a session at a time; a second resume
+request logs a warning. Resume the existing controller before starting another
+root in that session.
+
+The separate `hugin dream` command retains its documented per-scope interaction
+budget.
 
 **Examples:**
 

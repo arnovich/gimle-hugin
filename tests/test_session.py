@@ -1037,7 +1037,7 @@ class TestSessionRun:
         session.add_agent(agent)
 
         # Run with max_steps limit
-        step_count = session.run(max_steps=5)
+        step_count = session.run(max_iterations=5)
 
         assert step_count == 5
         assert mock_interaction.step.call_count == 5
@@ -1168,11 +1168,11 @@ class TestSessionRun:
 
         # Capture logs
         with patch("gimle.hugin.agent.session.logger") as mock_logger:
-            step_count = session.run(max_steps=3)
+            step_count = session.run(max_iterations=3)
 
             assert step_count == 3
             # Check that max steps log was called
-            mock_logger.info.assert_any_call("Max steps reached (3)")
+            mock_logger.info.assert_any_call("Maximum iterations reached (3)")
 
     def test_session_run_with_no_max_steps(self):
         """Test session.run() without max_steps runs until completion."""

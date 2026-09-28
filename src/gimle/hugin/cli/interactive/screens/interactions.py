@@ -5,6 +5,7 @@ import logging
 import threading
 from typing import TYPE_CHECKING, Optional
 
+from gimle.hugin.agent.session import SessionBusyError
 from gimle.hugin.cli.interactive.colors import (
     COLOR_RUNNING,
     COLOR_SUCCESS,
@@ -15,6 +16,7 @@ from gimle.hugin.cli.interactive.logging.handler import (
     clear_agent_context,
     set_agent_context,
 )
+from gimle.hugin.cli.interactive.runner import run_controlled_session
 from gimle.hugin.cli.interactive.screens.base import BaseScreen
 from gimle.hugin.cli.interactive.state import AgentInfo, InteractionInfo
 from gimle.hugin.cli.interactive.widgets.list_view import ListItem, ListView
@@ -421,38 +423,34 @@ class InteractionsScreen(BaseScreen):
         def run_agent() -> None:
             # Set agent context for logging
             set_agent_context(agent.id, self.state.selected_session_id)
-            step_count = 0
             run_error = False
+            busy = False
             try:
-                while step_count < max_steps:
-                    # Check controller before each step
-                    if not controller.should_continue():
-                        import time
-
-                        time.sleep(0.1)
-                        continue
-
-                    # Take a step
-                    if not agent.step():
-                        logger.info(
-                            f"Agent {agent.id} completed after {step_count} steps"
-                        )
-                        break  # Agent completed
-
-                    step_count += 1
-                    self.state.storage.save_session(session)
+                run_controlled_session(
+                    session,
+                    controller,
+                    lambda: self.state.storage.save_session(session),
+                    max_llm_calls=max_steps,
+                    get_controller=self.state.get_controller,
+                )
+            except SessionBusyError:
+                busy = True
+                logging.getLogger(__name__).warning(
+                    "Session already running; resume the existing controller."
+                )
             except Exception as e:
                 run_error = True
                 logger.error(f"Agent {agent.id} error: {e}")
             finally:
-                session.finalize_router_outcome(
-                    max_steps_reached=step_count >= max_steps,
-                    error=run_error,
-                )
                 clear_agent_context()
-                self.state.storage.save_session(session)
-                # Refresh state to show updated agent
-                self.state.refresh_data()
+                if not busy:
+                    session.finalize_router_outcome(
+                        max_steps_reached=session.limit_reached is not None,
+                        error=run_error,
+                    )
+                    self.state.storage.save_session(session)
+                    # Refresh state to show updated agent
+                    self.state.refresh_data()
 
         thread = threading.Thread(target=run_agent, daemon=True)
         thread.start()
