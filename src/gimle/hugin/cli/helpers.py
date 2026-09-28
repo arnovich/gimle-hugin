@@ -4,7 +4,7 @@ import subprocess
 import sys
 import time
 import webbrowser
-from typing import Optional
+from typing import List, Optional
 
 
 def start_monitor_dashboard(
@@ -12,6 +12,7 @@ def start_monitor_dashboard(
     port: int = 8080,
     config_path: Optional[str] = None,
     no_browser: bool = True,
+    extension_paths: Optional[List[str]] = None,
 ) -> subprocess.Popen:
     """
     Start the agent monitor dashboard as a subprocess.
@@ -21,6 +22,7 @@ def start_monitor_dashboard(
         port: Port for the monitor server (default: 8080)
         config_path: Optional path to config directory for loading agent configs
         no_browser: If True, don't auto-open browser from monitor (default: True)
+        extension_paths: Trusted local packages to import custom artifact/UI code from
 
     Returns:
         The subprocess.Popen object for the monitor process
@@ -36,6 +38,8 @@ def start_monitor_dashboard(
     ]
     if config_path:
         cmd.extend(["--config-path", config_path])
+    for extension_path in extension_paths or []:
+        cmd.extend(["--extension-path", extension_path])
     if no_browser:
         cmd.append("--no-browser")
 
