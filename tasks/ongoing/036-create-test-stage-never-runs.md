@@ -1,11 +1,16 @@
 ---
 title: "`hugin create`'s test stage never runs — the child agent is never stepped"
-state: OPEN
+state: ongoing
+claimed_by: codex/task036
+claimed_at: 2026-09-28T09:17:51Z
+branch: task/036_create_test_stage
 labels: [bug, agent-builder, cli]
 priority: high
 ---
 
 # `hugin create`'s test stage never runs
+
+## Context
 
 The fourth stage of a build (`test_agent`) launches a child agent and then
 waits for it forever. The child is never stepped, so the parent spins on
@@ -88,7 +93,7 @@ Worth fixing anyway so the two entry points cannot drift apart again.
       consume a step budget — spinning on a child that is not being stepped
       should be loud, not slow.
 
-## Success Criteria
+## Outcome
 
 - [ ] A build with default flags executes the generated agent in stage 4 and
       reports its result.
@@ -97,3 +102,20 @@ Worth fixing anyway so the two entry points cannot drift apart again.
       returned.
 - [ ] A build that hits the step cap does so for a reason the message states
       accurately.
+
+## Plan
+
+- Drive `create` and `improve` through `Session.step`, matching `run` so
+  dynamically launched children advance and return their results.
+- Add a scripted-model CLI regression that exercises the real build, review,
+  write, and test stages, checks the child's `TaskResult` and the parent's
+  receipt of it, and completes within the default 200 session steps.
+- Cover a genuinely capped child and an exhausted budget after the child has
+  finished. Describe the cap as unfinished session work, since file creation
+  alone cannot identify which stage remains unfinished.
+- Keep one shared 200-session-step allowance; do not create an independent
+  child budget. Each step advances all agents. General idle-loop detection,
+  storage write suppression, and LLM-call budgeting remain task 041.
+- Exercise `improve` through its real CLI loop with a scripted child as a
+  regression against future delegation. Run focused tests, the full suite,
+  pre-commit checks, and a correctness/test/maintainability review panel.
