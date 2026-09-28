@@ -524,7 +524,11 @@ def main() -> int:
     if args.monitor:
         print(f"🌐 Starting agent monitor at http://localhost:{args.port}/")
         print("⏳ Waiting for agent monitor to start...")
-        monitor_process = start_monitor_dashboard(SESSION_DIR, args.port)
+        monitor_process = start_monitor_dashboard(
+            SESSION_DIR,
+            args.port,
+            extension_paths=[str(Path(__file__).resolve().parent)],
+        )
         print("🌐 Opening agent monitor in browser...")
         open_in_browser(f"http://localhost:{args.port}/")
         print()

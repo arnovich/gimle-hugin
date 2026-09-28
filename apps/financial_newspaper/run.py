@@ -431,6 +431,7 @@ def main() -> int:
             config_path=str(Path(__file__).parent),
             port=args.monitor_port,
             no_browser=True,
+            extension_paths=[str(Path(__file__).resolve().parent)],
         )
 
         # Check if monitor process is still running
