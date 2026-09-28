@@ -49,6 +49,7 @@ class BashWaiting(Interaction):
 
     def step(self) -> bool:
         """Poll the job; keep waiting or resolve into a tool_result."""
+        self._idle = False
         background = getattr(self.stack.agent.session, "background", None)
 
         if (
@@ -56,6 +57,7 @@ class BashWaiting(Interaction):
             and self.job_id is not None
             and not background.is_done(self.job_id)
         ):
+            self._idle = True
             return True  # still running: park, siblings run
 
         content, is_error = self._collect(background)
@@ -72,6 +74,10 @@ class BashWaiting(Interaction):
             )
         )
         return True
+
+    def wake_delay(self) -> float:
+        """Poll a running background job at most once a second while idle."""
+        return 1.0
 
     def _originating_tool_call(self) -> Optional["ToolCall"]:
         """Return the latest branch-local tool call that parked this branch."""

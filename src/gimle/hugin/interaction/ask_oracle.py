@@ -316,6 +316,7 @@ class AskOracle(Interaction):
         # correlation contract — changing its semantics changes router grouping.
         # The agent's config name rides along as x-ctrlrtn-route so the router
         # keys each role as its own stable use-case (immune to prompt drift).
+        self.stack.agent.session.record_llm_call()
         with correlation_scope(
             self.stack.agent.session.id,
             route=self.stack.agent.config.name,

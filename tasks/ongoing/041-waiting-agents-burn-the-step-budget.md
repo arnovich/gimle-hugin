@@ -49,15 +49,15 @@ parked agent is load-bearing — but neither defect is specific to that task.
 
 ## Outcome
 
-- [ ] A parked agent does not keep the session loop hot: with every agent
+- [x] A parked agent does not keep the session loop hot: with every agent
       waiting, the loop sleeps until the nearest wake time rather than spinning.
-- [ ] A waiting agent performs no storage writes per pass. A test asserts that
+- [x] A waiting agent performs no storage writes per pass. A test asserts that
       an agent waiting N seconds performs fewer than a stated small number of
       storage operations and zero LLM calls.
-- [ ] A wait longer than the default `--max-steps` completes rather than
+- [x] A wait longer than the default `--max-steps` completes rather than
       terminating the run.
-- [ ] `save_session` does not rewrite unchanged agents and interactions.
-- [ ] The budget that bounds cost counts LLM calls; any iteration counter is a
+- [x] `save_session` does not rewrite unchanged agents and interactions.
+- [x] The budget that bounds cost counts LLM calls; any iteration counter is a
       separate, clearly-named guard.
 
 ## Notes
@@ -72,8 +72,76 @@ parked agent is load-bearing — but neither defect is specific to that task.
 - Any test written for a wait must use a realistic deadline; a sub-second
   deadline passes green while hiding exactly this defect.
 
+## Plan
+
+- Preserve the boolean stepping API, expose condition wake deadlines, and let
+  session and CLI runners sleep when a pass contains only parked branches.
+  Poll custom conditions at a bounded interval; never evaluate a condition
+  twice merely to inspect scheduling state. Persist completed waits so they
+  cannot restart after another branch continues.
+- Deduplicate serialized storage records, including nested mutations and
+  deletion/recreation, while preserving cascaded saves of changed children.
+- Count LLM attempts immediately before provider execution and enforce a
+  session-wide call limit across all agents and branches. Make max_steps a
+  compatibility alias for max_llm_calls; expose max_iterations separately.
+  Allow deterministic completion after the last permitted model call.
+- Cover realistic waits, nearest deadlines, zero idle writes/model calls,
+  nested storage mutations, failed writes and deletion, exact call limits,
+  multiple agents/branches, and the delegated builder path. Run focused tests,
+  full pytest and pre-commit checks before an independent review panel.
+
+## Integration verification
+
+The PR branch includes the reviewed 039 and 040 branches. Merge PR #140,
+then #141, then this scheduler PR. The two runtime conflicts preserve inbox
+wake/successor progress and the per-call budget guard.
+
+Combined full suite: **1,814 passed, 53 skipped**. Independent integration
+review passed all 53 focused tests, including a 120-second wait with three
+queued messages, a zero-call budget, fresh disk reload, and one-call resumed
+delivery. Changed-file/commit hooks passed; all-file hooks retain unrelated
+baseline findings. The final branch source and tests exactly match the tested
+integration tree.
+
 ## Conversation
 
 ### note · codex/task041 · 2026-09-28T10:44:00Z
 
 Claimed to implement, test, and panel-review a separate PR; merge awaits owner review.
+
+
+## Validation
+
+- Full suite: `TMPDIR=/private/tmp uv run pytest -x -q` — 1780 passed,
+  53 skipped. Includes a real two-second wait, simulated 120/180-second
+  deadlines, bounded background/custom polling, unchanged storage writes,
+  nested mutations and pandas inputs, and exact shared call limits.
+- Public CLI dispatch preserves zero-call budgets and forwards the separate
+  iteration guard. TUI tests cover generated children, exact budgets,
+  pause/single-step, paused siblings/descendants, and runner ownership.
+- Changed-file pre-commit checks pass after formatting. All-file checks retain
+  pre-existing failures in unrelated files (flake8 docstrings, the missing
+  return annotation in `scripts/sync_packaged_examples.py`, and four existing
+  detect-secrets test fixtures); no checks were bypassed.
+
+## Review
+
+The independent correctness/security, compatibility, and maintainability panel
+found two initial blockers and three compatibility gaps. All were fixed:
+
+- Scope TUI execution to the selected root and descendants, preserve individual
+  pause controls, and reject a second session runner without replacing its
+  budget. Log an actionable warning when another controller already owns it.
+- Compare canonical persisted JSON snapshots instead of arbitrary-object
+  equality, including unchanged and mutated pandas DataFrames.
+- Expose the new budget flags through the public CLI and preserve zero values.
+- Include background bash waits in idle scheduling and bounded polling.
+- Drain ready deterministic work after the final permitted call while leaving
+  budget-blocked oracle branches resumable.
+
+The judges approved the revised implementation with no remaining blockers.
+The task stays ongoing pending its PR and integration with tasks 039 and 040.
+
+### note · codex/task041 · 2026-09-28T11:45:09Z
+
+Integration and independent panel complete; preparing the stacked PR after #140 and #141.

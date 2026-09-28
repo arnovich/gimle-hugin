@@ -50,6 +50,7 @@ def _render(root):
 
 @pytest.fixture
 def layout_dir(tmp_path, monkeypatch):
+    """Create an isolated newspaper output directory."""
     monkeypatch.chdir(tmp_path)
     path = tmp_path / "layouts"
     path.mkdir()
@@ -65,6 +66,7 @@ def _evidence(layout_dir):
 
 
 def test_stale_layout_cannot_make_a_new_edition_successful(layout_dir):
+    """Reject stale layout files as evidence for a new edition."""
     stale = layout_dir / "latest.html"
     stale.write_text("old newspaper")
     session, root = _session()
@@ -77,6 +79,7 @@ def test_stale_layout_cannot_make_a_new_edition_successful(layout_dir):
 
 
 def test_fresh_complete_layout_reports_once_without_editor_score(layout_dir):
+    """Report one successful outcome for a fresh complete layout."""
     session, root = _session()
     root.step = Mock(side_effect=lambda: _render(root))
     with patch("gimle.hugin.agent.session.report_outcome") as report:
@@ -110,6 +113,7 @@ def test_fresh_complete_layout_reports_once_without_editor_score(layout_dir):
     ],
 )
 def test_invalid_edition_is_a_failure(layout_dir, change, failed_check):
+    """Reject each independently invalid edition component."""
     session, root = _session(count=1 if change == "partial" else 2)
     articles = session.environment.env_vars["newspaper_articles"]
     if change == "empty_content":
@@ -145,6 +149,7 @@ def test_invalid_edition_is_a_failure(layout_dir, change, failed_check):
 
 
 def test_valid_output_cannot_promote_a_failed_root(layout_dir):
+    """Keep root failure authoritative over valid layout output."""
     session, root = _session(finish_type="failure")
     root.step = Mock(side_effect=lambda: _render(root))
     with patch("gimle.hugin.agent.session.report_outcome") as report:
@@ -156,8 +161,16 @@ def test_valid_output_cannot_promote_a_failed_root(layout_dir):
 
 @pytest.mark.parametrize("active", [False, True])
 def test_wait_or_exhaustion_is_reported_as_incomplete(layout_dir, active):
+    """Report unfinished work on wait or model-call exhaustion."""
     session, root = _session(finish_type=None)
-    root.step = Mock(return_value=active)
+
+    def advance():
+        """Model an invocation when simulating an active edition."""
+        if active:
+            session.record_llm_call()
+        return active
+
+    root.step = Mock(side_effect=advance)
     with patch("gimle.hugin.agent.session.report_outcome") as report:
         assert newspaper.run_newspaper_generation(session, 1) is False
     report.assert_called_once_with(session.id, success=False)
@@ -169,6 +182,7 @@ def test_wait_or_exhaustion_is_reported_as_incomplete(layout_dir, active):
     [RuntimeError, TimeoutError, KeyboardInterrupt, asyncio.CancelledError],
 )
 def test_interruption_reports_once_and_preserves_exception(layout_dir, error):
+    """Report interruption while preserving the original exception."""
     session, root = _session()
     root.step = Mock(side_effect=error("interrupted"))
     with patch("gimle.hugin.agent.session.report_outcome") as report:
@@ -180,6 +194,7 @@ def test_interruption_reports_once_and_preserves_exception(layout_dir, error):
 
 
 def test_layouts_from_other_sessions_do_not_overwrite_evidence(layout_dir):
+    """Keep immutable edition evidence separate across sessions."""
     first, first_root = _session()
     second, second_root = _session()
     first_root.step = Mock(side_effect=lambda: _render(first_root))
@@ -202,6 +217,7 @@ def test_layouts_from_other_sessions_do_not_overwrite_evidence(layout_dir):
 
 
 def test_existing_application_validator_is_preserved(layout_dir):
+    """Respect an application validator already installed on the session."""
     session, root = _session()
     previous = Mock(return_value=False)
     session.router_outcome_validator = previous
@@ -214,6 +230,7 @@ def test_existing_application_validator_is_preserved(layout_dir):
 
 
 def test_same_session_cannot_silently_reuse_a_terminal_outcome(layout_dir):
+    """Reject reuse of a session that already reported its edition."""
     session, root = _session()
     root.step = Mock(side_effect=lambda: _render(root))
     with patch("gimle.hugin.agent.session.report_outcome") as report:

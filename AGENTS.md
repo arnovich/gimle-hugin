@@ -182,6 +182,19 @@ uv run hugin run --task hello_world --task-path examples/basic_agent -i
 uv run hugin apps
 ```
 
+### Runtime budgets and waits
+
+`Session.run(max_llm_calls=n)` and the `run`/`create`/`improve` CLI flag
+`--max-llm-calls` bound provider invocations across the whole session, including
+children, branches, and failed attempts. `max_steps`/`--max-steps` are deprecated
+aliases for that call budget; use `max_iterations`/`--max-iterations` when an
+iteration guard is intended. Waiting does not spend calls, and deterministic
+completion after the last allowed call still runs. `Session.run` returns
+iterations; `session.llm_calls` records calls and `session.limit_reached` states
+which limit actually stopped the run. Custom step loops should respect
+`session.idle_delay` and use `session.limit_llm_calls(...)` around execution.
+The separate dreaming workflow retains its per-scope interaction budget.
+
 ### Testing
 ```bash
 # Run all tests

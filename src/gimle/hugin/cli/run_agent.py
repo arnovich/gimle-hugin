@@ -508,7 +508,9 @@ def run_interactive(
 
     # Step 5: Ask for max steps (empty = no limit)
     print()
-    max_steps_str = prompt_user("    Maximum steps (empty for no limit)", "")
+    max_steps_str = prompt_user(
+        "    Maximum LLM calls (empty for no limit)", ""
+    )
     try:
         max_steps = int(max_steps_str) if max_steps_str else None
     except ValueError:
@@ -529,7 +531,7 @@ def run_interactive(
     print(f"        Task:     {task_name}")
     print(f"        Config:   {config.name}")
     print(f"        Model:    {config.llm_model}")
-    print(f"        Max steps: {max_steps if max_steps else 'unlimited'}")
+    print(f"        Max LLM calls: {max_steps if max_steps else 'unlimited'}")
     if not run_monitor:
         print(f"        Monitor:  run `hugin monitor -s {storage_path}`")
     if task.parameters:
@@ -629,15 +631,15 @@ def run_interactive(
         print(f"    Error: {type(last_error).__name__}")
         print(f"    {str(last_error)[:60]}")
         print()
-    elif max_steps is not None and step_count >= max_steps:
-        print(f"    Reached maximum steps ({max_steps})")
+    elif session.limit_reached is not None:
+        print(f"    Reached {session.limit_reached} limit")
         print("    The agent may not have finished.")
     else:
         print("    ┌─────────────────────────────────────────┐")
         print("    │          Agent Completed!               │")
         print("    └─────────────────────────────────────────┘")
         print()
-        print(f"    Completed in {step_count} steps.")
+        print(f"    Completed in {step_count} LLM calls.")
         print_completion_summary(session, prefix="    ")
 
     print()
@@ -729,10 +731,18 @@ Examples:
     )
 
     parser.add_argument(
+        "--max-iterations",
+        type=int,
+        default=10000,
+        help="Scheduler iteration guard, independent of LLM calls (default: 10000)",
+    )
+    parser.add_argument(
+        "--max-llm-calls",
         "--max-steps",
+        dest="max_steps",
         type=int,
         default=100,
-        help="Maximum number of steps to run (default: 100)",
+        help="Maximum LLM calls across all agents (default: 100); --max-steps is an alias",
     )
 
     parser.add_argument(
@@ -953,6 +963,7 @@ Examples:
             config_name=args.config,
             parameters=cli_parameters,
             max_steps=args.max_steps,
+            max_iterations=args.max_iterations,
             model=model_override,
         )
         app = InteractiveApp(
@@ -1058,7 +1069,8 @@ Examples:
         step_count, last_error = run_steps_with_spinner(
             step_fn=session.step,
             save_fn=lambda: storage.save_session(session),
-            max_steps=args.max_steps,
+            max_llm_calls=args.max_steps,
+            max_iterations=args.max_iterations,
             prefix="",
             clear_width=30,
             session=session,
@@ -1077,10 +1089,10 @@ Examples:
     agent_word = "Agent" if len(session.agents) == 1 else "Agents"
     if last_error:
         print(f"Error: {type(last_error).__name__}: {str(last_error)[:60]}")
-    elif step_count >= args.max_steps:
-        print(f"Reached maximum steps ({args.max_steps})")
+    elif session.limit_reached is not None:
+        print(f"Reached {session.limit_reached} limit")
     else:
-        print(f"{agent_word} completed in {step_count} steps!")
+        print(f"{agent_word} completed in {step_count} LLM calls!")
         print_completion_summary(session, prefix="")
 
     print(f"Session saved to: {storage_path}")
