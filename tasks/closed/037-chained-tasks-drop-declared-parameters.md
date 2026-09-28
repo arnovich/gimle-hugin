@@ -1,9 +1,6 @@
 ---
 title: Chained tasks drop declared parameters — a successor's required parameter arrives as None
-state: ongoing
-claimed_by: codex/task037
-claimed_at: 2026-09-28T09:57:44Z
-branch: task/037_chained_parameters
+state: closed
 labels: [bug, framework, agent-builder, validation]
 priority: high
 ---
@@ -194,3 +191,8 @@ with it, and reran the full suite. No other blocking findings remained.
 Implemented and panel-reviewed; all 32 new regressions and the full suite pass.
 Precedence is result injection, inherited value, then local value/default.
 The CLI now rejects chains with an unsourced required input. Preparing the PR.
+
+### note · codex/task037 · 2026-09-28T10:33:56Z
+
+Merged in [PR #137](https://github.com/arnovich/gimle-hugin/pull/137) after
+CI passed. Task complete; the fix is on main.
