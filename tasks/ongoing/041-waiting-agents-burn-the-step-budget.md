@@ -90,6 +90,19 @@ parked agent is load-bearing — but neither defect is specific to that task.
   multiple agents/branches, and the delegated builder path. Run focused tests,
   full pytest and pre-commit checks before an independent review panel.
 
+## Integration verification
+
+The PR branch includes the reviewed 039 and 040 branches. Merge PR #140,
+then #141, then this scheduler PR. The two runtime conflicts preserve inbox
+wake/successor progress and the per-call budget guard.
+
+Combined full suite: **1,814 passed, 53 skipped**. Independent integration
+review passed all 53 focused tests, including a 120-second wait with three
+queued messages, a zero-call budget, fresh disk reload, and one-call resumed
+delivery. Changed-file/commit hooks passed; all-file hooks retain unrelated
+baseline findings. The final branch source and tests exactly match the tested
+integration tree.
+
 ## Conversation
 
 ### note · codex/task041 · 2026-09-28T10:44:00Z
@@ -128,3 +141,7 @@ found two initial blockers and three compatibility gaps. All were fixed:
 
 The judges approved the revised implementation with no remaining blockers.
 The task stays ongoing pending its PR and integration with tasks 039 and 040.
+
+### note · codex/task041 · 2026-09-28T11:45:09Z
+
+Integration and independent panel complete; preparing the stacked PR after #140 and #141.
