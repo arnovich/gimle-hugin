@@ -35,6 +35,7 @@ class Waiting(Interaction):
     - If condition returns False: chain to next_tool (return True)
     """
 
+    completed: bool = False
     condition: Optional[Condition] = None
     next_tool: Optional[str] = None
     next_tool_args: Dict[str, Any] = field(default_factory=dict)
@@ -46,6 +47,9 @@ class Waiting(Interaction):
             False if no condition (terminal state) or done waiting with no next tool.
             True if still waiting (condition True) or chaining to next tool.
         """
+        if self.completed:
+            return False
+
         # No condition - check if waiting for a child agent
         if not self.condition:
             from gimle.hugin.interaction.agent_call import AgentCall
@@ -93,7 +97,8 @@ class Waiting(Interaction):
             )
             return True
 
-        # No next tool - just done waiting
+        # No next tool - persist completion so a message can wake this branch.
+        self.completed = True
         return False
 
     @classmethod
@@ -117,6 +122,7 @@ class Waiting(Interaction):
         kwargs: Dict[str, Any] = {
             "stack": stack,
             "branch": data.get("branch"),
+            "completed": data.get("completed", False),
             "condition": (
                 Condition.from_dict(condition_data) if condition_data else None
             ),

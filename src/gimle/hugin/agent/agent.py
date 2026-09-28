@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from gimle.hugin.agent.config import Config
 from gimle.hugin.agent.config_state_machine import ConfigStateMachine
 from gimle.hugin.agent.environment import Environment
+from gimle.hugin.interaction.external_input import DEFAULT_CONTEXT_WINDOW
 from gimle.hugin.interaction.stack import Stack
 from gimle.hugin.interaction.task_definition import TaskDefinition
 from gimle.hugin.utils.uuid import with_uuid
@@ -358,14 +359,29 @@ class Agent:
             f"Agent {agent_id} transitioned: {old_state} -> {state_name}"
         )
 
-    def message_agent(self, message: str) -> None:
+    def message_agent(
+        self,
+        message: str,
+        *,
+        branch: Optional[str] = None,
+        source: str = "external",
+        context_window: int = DEFAULT_CONTEXT_WINDOW,
+    ) -> None:
         """Message the agent.
 
         Args:
             message: The message to send to the agent.
+            branch: Existing named branch, or None for the main branch.
+            source: Caller-supplied provenance label, not verified identity.
+            context_window: Positive model-turn window, including delivery.
         """
         logger.info(f"Message received by {self.id}: {message}")
-        self.stack.insert_external_input(message)
+        self.stack.insert_external_input(
+            message,
+            branch=branch,
+            source=source,
+            context_window=context_window,
+        )
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize the agent to a dictionary.
