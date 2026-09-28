@@ -170,7 +170,7 @@ class LocalStorage(Storage):
             with open(self.base_path / "sessions" / session.uuid, "w") as f:
                 json.dump(session.to_dict(), f)
 
-            # Write metadata file for monitor to discover extensions
+            # Record package provenance; readers must not use it to import code.
             # Supports multiple package paths from different agents
             if session.environment and session.environment.package_path:
                 metadata_path = self.base_path / ".hugin_metadata.json"

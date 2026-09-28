@@ -123,6 +123,9 @@ def cmd_monitor(args: argparse.Namespace) -> int:
     if args.log_level:
         sys.argv.extend(["--log-level", args.log_level])
 
+    for extension_path in getattr(args, "extension_path", []) or []:
+        sys.argv.extend(["--extension-path", extension_path])
+
     return monitor_main()
 
 
@@ -813,7 +816,9 @@ Examples:
         description="Launch the interactive TUI without running an agent",
     )
     interactive_parser.add_argument(
-        "-p", "--task-path", help="Path to agent directory"
+        "-p",
+        "--task-path",
+        help="Trusted agent directory (required to resume agents)",
     )
     interactive_parser.add_argument(
         "-s", "--storage-path", help="Path to agent storage"
@@ -834,6 +839,13 @@ Examples:
     )
     monitor_parser.add_argument(
         "--no-browser", action="store_true", help="Don't open browser"
+    )
+    monitor_parser.add_argument(
+        "--extension-path",
+        action="append",
+        metavar="DIRECTORY",
+        help="Import custom artifact/UI Python from this trusted package "
+        "directory (repeatable; storage metadata is ignored)",
     )
     monitor_parser.add_argument(
         "-l",
