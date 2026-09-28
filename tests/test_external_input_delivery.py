@@ -280,24 +280,34 @@ def test_completed_condition_delivers_within_same_run(
 def test_arrival_during_provider_call_is_queued_for_next_turn(
     external_input_run: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Draining one batch cannot consume messages that arrive during its call."""
+    """Run a plain-text completion to its result before waking later input."""
     run = external_input_run
     run.agent.message_agent("first batch")
 
     def arrive(**kwargs: Any) -> Any:
-        run.agent.message_agent("later batch")
-        return run.complete(**kwargs)
+        if not run.calls:
+            run.agent.message_agent("later batch")
+        run.complete(**kwargs)
+        return {
+            "role": "assistant",
+            "content": "Received",
+            "tool_call": None,
+            "tool_call_id": None,
+        }
 
     monkeypatch.setattr(completion, "chat_completion", arrive)
-    run.stack.step()
-    run.stack.step()
+    assert run.session.run(max_steps=30) < 30
+    assert len(run.calls) == 2
     assert "first batch" in str(run.calls[0])
     assert "later batch" not in str(run.calls[0])
-    assert len(run.stack.queued_interactions) == 1
-    monkeypatch.setattr(completion, "chat_completion", run.complete)
-    run.stack.add_interaction(Waiting(stack=run.stack))
-    run.stack.step()
     assert str(run.calls[-1]["messages"]).count("later batch") == 1
+    assert not run.stack.queued_interactions
+    from gimle.hugin.interaction.task_result import TaskResult
+
+    assert (
+        sum(isinstance(item, TaskResult) for item in run.stack.interactions)
+        == 2
+    )
 
 
 def test_failed_delivery_survives_reload(

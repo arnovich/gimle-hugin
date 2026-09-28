@@ -136,3 +136,12 @@ Claimed to implement, test, and panel-review a separate PR; merge awaits owner r
 Implemented durable ordered delivery, branch-aware wakeup, retry retention, and
 fenced external context with a default five-turn window; full tests and changed-file
 hooks pass. Awaiting independent review and PR integration.
+
+### note · codex/task040 · 2026-09-28T11:28:49Z
+
+Independent review found that a plain-text response could stop the session before
+its appended TaskResult ran, stranding a message received during the call.
+Added a failing real-session regression and made an appended branch successor
+count as progress; updated two legacy premature-stop assertions. The follow-up
+passes 122 focused stack/wait/delivery tests, 75 agent/session/integration tests,
+and the full suite again (1781 passed, 53 skipped).

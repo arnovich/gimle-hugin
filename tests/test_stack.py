@@ -634,8 +634,11 @@ class TestStackFullFlow:
             assert result is True
 
             result = stack.step()  # Steps OracleResponse
-            # OracleResponse with no tool_call returns False, so step returns False
-            assert result is False
+            # The appended TaskResult still has deterministic work to do.
+            assert result is True
+            assert isinstance(stack.interactions[-1], TaskResult)
+            assert stack.step() is True  # TaskResult appends terminal Waiting.
+            assert stack.step() is False
 
     @patch("gimle.hugin.llm.completion.chat_completion")
     def test_full_flow_with_finish_tool(
