@@ -1,9 +1,6 @@
 ---
 title: Storage-directory metadata can load arbitrary Python into the monitor
-state: ongoing
-claimed_by: codex/task039
-claimed_at: 2026-09-28T10:44:00Z
-branch: task/039_storage_extension_trust
+state: closed
 priority: high
 labels: [security, bug, storage]
 related: ["038"]
@@ -118,3 +115,7 @@ Implemented explicit trusted-path loading, removed metadata imports, and verifie
 ### note · codex/task039 · 2026-09-28T11:31:02Z
 
 Panel complete; preparing the implementation PR for owner review.
+
+### note · codex/task039 · 2026-09-28T12:48:08Z
+
+Merged https://github.com/arnovich/gimle-hugin/pull/140 after required CI passed. Closed after verifying the merged implementation matches the tested integration.

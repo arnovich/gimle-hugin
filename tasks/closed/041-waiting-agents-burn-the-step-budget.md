@@ -1,9 +1,6 @@
 ---
 title: A waiting agent spins the session loop and rewrites all storage each pass
-state: ongoing
-claimed_by: codex/task041
-claimed_at: 2026-09-28T10:44:00Z
-branch: task/041_waiting_scheduler
+state: closed
 priority: high
 labels: [bug, runtime, performance]
 related: ["038"]
@@ -145,3 +142,7 @@ The task stays ongoing pending its PR and integration with tasks 039 and 040.
 ### note · codex/task041 · 2026-09-28T11:45:09Z
 
 Integration and independent panel complete; preparing the stacked PR after #140 and #141.
+
+### note · codex/task041 · 2026-09-28T12:48:08Z
+
+Merged https://github.com/arnovich/gimle-hugin/pull/142 after required CI passed. Closed after verifying the merged implementation matches the tested integration.
