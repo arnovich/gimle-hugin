@@ -1,9 +1,6 @@
 ---
 title: External input delivery loses messages, buries a turn, and never leaves context
-state: ongoing
-claimed_by: codex/task040
-claimed_at: 2026-09-28T10:44:00Z
-branch: task/040_external_input_delivery
+state: closed
 priority: high
 labels: [bug, interaction, runtime]
 related: ["038"]
@@ -153,3 +150,7 @@ and the full suite again (1781 passed, 53 skipped).
 ### note · codex/task040 · 2026-09-28T11:31:02Z
 
 Panel complete; preparing the implementation PR for owner review.
+
+### note · codex/task040 · 2026-09-28T12:48:08Z
+
+Merged https://github.com/arnovich/gimle-hugin/pull/141 after required CI passed. Closed after verifying the merged implementation matches the tested integration.
