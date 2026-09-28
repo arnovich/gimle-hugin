@@ -5,7 +5,6 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from gimle.hugin.agent.task import Task
 from gimle.hugin.interaction.interaction import Interaction
 from gimle.hugin.interaction.task_definition import TaskDefinition
 from gimle.hugin.utils.uuid import with_uuid
@@ -97,7 +96,9 @@ class TaskChain(Interaction):
             logger.debug("No more tasks in chain, stopping")
             return False
 
-        current_task_def = self.stack.get_task_definition_interaction()
+        current_task_def = self.stack.get_task_definition_interaction(
+            branch=self.branch
+        )
         if current_task_def is None:
             raise ValueError("No task definition found for TaskChain")
         current_task = current_task_def.task
@@ -111,40 +112,36 @@ class TaskChain(Interaction):
 
         task_template = task_registry.get(task_name)
 
-        # Build new parameters (schema dicts) and inject previous result as value
-        new_params = deepcopy(task_template.parameters)
-        if self.previous_result and current_task.pass_result_as:
+        # Carry only declared inputs; defaults are fallbacks to live values.
+        # Clone both sides so mutable inputs cannot change earlier stages or
+        # the registry template. Result injection keeps its historical raw
+        # mapping shape, even when the receiving schema says "string".
+        chained_task = task_template.clone()
+        inputs = {
+            name: deepcopy(spec["value"])
+            for name, spec in current_task.parameters.items()
+            if name in chained_task.parameters
+            and name != "_chain_sequence_index"
+            and spec.get("value") is not None
+        }
+        if self.previous_result is not None and current_task.pass_result_as:
             param_name = current_task.pass_result_as
-            if param_name in new_params:
-                # Update existing parameter's value
-                new_params[param_name]["value"] = self.previous_result
-            else:
-                # Create a new parameter schema for the injected result
-                new_params[param_name] = {
+            inputs.pop(param_name, None)
+            if param_name not in chained_task.parameters:
+                chained_task.parameters[param_name] = {
                     "type": "object",
                     "description": "Result from previous task",
                     "required": False,
-                    "value": self.previous_result,
                 }
+            chained_task.parameters[param_name]["value"] = deepcopy(
+                self.previous_result
+            )
 
-        # Create new task instance with updated parameters
-        # Preserve chaining info for subsequent tasks in sequence
-        remaining_sequence = None
-        if self.task_sequence:
-            remaining_sequence = self.task_sequence
-
-        chained_task = Task(
-            name=task_template.name,
-            description=task_template.description,
-            parameters=new_params,
-            prompt=task_template.prompt,
-            tools=task_template.tools,
-            system_template=task_template.system_template,
-            llm_model=task_template.llm_model,
-            next_task=task_template.next_task,
-            task_sequence=remaining_sequence,
-            pass_result_as=task_template.pass_result_as,
-            chain_config=task_template.chain_config or self.chain_config,
+        # Validate before changing the config or appending a task definition.
+        chained_task = chained_task.set_input_parameters(inputs)
+        chained_task.task_sequence = deepcopy(self.task_sequence) or None
+        chained_task.chain_config = (
+            task_template.chain_config or self.chain_config
         )
 
         # Handle config switching if the NEXT task specifies a chain_config

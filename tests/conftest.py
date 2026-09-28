@@ -388,3 +388,91 @@ def improve_cli_run(
     monkeypatch.setattr(improve_agent.Environment, "load", load_with_delegation)
     run.args = [str(run.output), "--storage-path", str(run.output)]
     return run
+
+
+@pytest.fixture
+def versioned_release_pipeline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Any:
+    """Run the golden release pipeline with a model that cannot guess its input."""
+    from copy import deepcopy
+    from types import SimpleNamespace
+
+    from gimle.hugin.agent.environment import Environment
+    from gimle.hugin.agent.session import Session
+    from gimle.hugin.agent.task import Task
+    from gimle.hugin.llm.models.model_registry import get_model_registry
+    from tests.evals.golden_set import by_name
+
+    case = by_name("versioned_release_pipeline")
+    version = {
+        "type": "string",
+        "description": "Release version",
+        "required": True,
+    }
+    first = Task(
+        name="classify",
+        description=case.description,
+        prompt="Classify the titles for {{ version.value }}.",
+        parameters={"version": deepcopy(version)},
+        task_sequence=["write"],
+        pass_result_as="classified_titles",
+    )
+    second = Task(
+        name="write",
+        description="Write release notes",
+        prompt="Release version: {{ version.value }}\nTitles: {{ classified_titles.value }}",
+        parameters={"version": deepcopy(version)},
+    )
+    model = ScriptedToolModel(
+        "scripted-version-pipeline",
+        [
+            {
+                "tool": "finish",
+                "input": {
+                    "finish_type": "success",
+                    "result": "Features: faster loading",
+                },
+            },
+            {
+                "tool": "finish",
+                "input": {
+                    "finish_type": "success",
+                    "result": "Release written",
+                },
+            },
+        ],
+    )
+    observed = []
+    complete = model.chat_completion
+
+    def record(
+        system_prompt: str, messages: List[Dict[str, Any]], tools: Any = None
+    ) -> ModelResponse:
+        """Record the exact stage prompt rather than the combined history."""
+        observed.append(deepcopy(messages[-1]))
+        return complete(system_prompt, messages, tools)
+
+    monkeypatch.setattr(model, "chat_completion", record)
+    monkeypatch.setitem(
+        get_model_registry().models, "scripted-version-pipeline", model
+    )
+    monkeypatch.delenv("HUGIN_CTRLRTN", raising=False)
+    env = Environment(storage=LocalStorage(base_path=str(tmp_path)))
+    for task in (first, second):
+        env.task_registry.register(task, name=task.name)
+    session = Session(environment=env)
+    config = Config(
+        name=case.name,
+        description=case.description,
+        system_template="Finish each stage.",
+        llm_model="scripted-version-pipeline",
+        tools=["builtins.finish:finish"],
+    )
+    session.create_agent_from_task(
+        config, first.set_input_parameters({"version": "0.3.0"})
+    )
+    try:
+        yield SimpleNamespace(case=case, session=session, prompts=observed)
+    finally:
+        session.close()

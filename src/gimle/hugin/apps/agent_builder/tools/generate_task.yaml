@@ -15,7 +15,11 @@ parameters:
     required: true
   parameters:
     type: object
-    description: Dictionary of parameter names to parameter schema dicts (must include type + description; optional required/default/choices)
+    description: >-
+      Dictionary of parameter names to schema dicts (type + description; optional
+      required/default/choices). Declare shared inputs on every chained stage
+      that carries them: inherited non-None values override successor defaults.
+      Required inputs need a value/default or an upstream source.
     required: false
   tools:
     type: array
@@ -38,7 +42,8 @@ parameters:
     type: string
     description: >-
       Name of the parameter the next task receives this task's result as. The
-      successor does not need to declare it; the framework creates it.
+      successor does not need to declare it; the framework creates it. The raw
+      result dictionary overrides any inherited value or default for that name.
     required: false
   chain_config:
     type: string

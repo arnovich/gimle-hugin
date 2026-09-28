@@ -61,7 +61,9 @@ class TaskResult(Interaction):
         from gimle.hugin.interaction.agent_result import AgentResult
         from gimle.hugin.interaction.task_chain import TaskChain
 
-        task_def = self.stack.get_task_definition_interaction()
+        task_def = self.stack.get_task_definition_interaction(
+            branch=self.branch
+        )
         if task_def is None:
             raise ValueError("No task definition found for TaskResult")
 
