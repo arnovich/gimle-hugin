@@ -680,18 +680,15 @@ def setup_file_logging(log_dir: Path, log_level: str) -> Path:
 
 
 def step_cap_outcome(step_count: int, max_steps: int, wrote_files: bool) -> str:
-    """Decide what hitting the step cap means for a build.
+    """Classify a shared session-step cap by whether files were written.
 
-    ``test_agent`` runs *after* the write and out of the same allowance: its
-    sub-agent's steps count against the builder's budget. So a build that
-    produced a complete, validated agent could still exhaust the budget in the
-    optional test that follows -- and the agent was discarded to `.rejected`
-    for it. That happened twice while testing `--interactive`, which makes it
-    likelier again, since asking a question costs steps too.
+    Each session step advances the builder and its children. All build stages,
+    including the generated agent's test, share the default 200-step allowance.
+    Written files survive a cap, but do not prove the test started or finished.
 
     Returns:
-        ``"ok"``, ``"capped_after_write"`` (the build succeeded, the test did
-        not finish), or ``"capped_empty"`` (a real failure: nothing was made).
+        ``"ok"``, ``"capped_after_write"`` (files exist, session work remains),
+        or ``"capped_empty"`` (nothing was written).
     """
     if step_count < max_steps:
         return "ok"
@@ -787,7 +784,8 @@ Examples:
         "--max-steps",
         type=int,
         default=200,
-        help="Maximum steps for the builder agent (default: 200)",
+        help="Maximum session steps shared by the builder and its test agents "
+        "(default: 200)",
     )
     parser.add_argument(
         "--log-level",
@@ -940,7 +938,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
         started = time.monotonic()
         step_count, last_error = run_steps_with_spinner(
-            step_fn=agent.step,
+            step_fn=session.step,
             save_fn=lambda: storage.save_session(session),
             max_steps=args.max_steps,
             prefix="    ",
@@ -973,7 +971,9 @@ def main(argv: Optional[List[str]] = None) -> int:
             step_count, args.max_steps, bool(env.env_vars.get("written_keys"))
         )
         if cap_outcome == "capped_empty":
-            print(f"    Error: Reached maximum steps ({args.max_steps})")
+            print(
+                f"    Error: Reached maximum session steps ({args.max_steps})"
+            )
             print("    The agent may not have finished building.")
             print()
             _report_rejected(env, user_input["output_path"])
@@ -981,9 +981,18 @@ def main(argv: Optional[List[str]] = None) -> int:
             return 1
 
         if cap_outcome == "capped_after_write":
-            print(f"    Note: reached maximum steps ({args.max_steps}).")
-            print("    The agent was written; the test run after it did not")
-            print("    finish. Try it yourself, or re-run with --max-steps.")
+            print(
+                f"    Note: reached maximum session steps ({args.max_steps})."
+            )
+            print(
+                "    The agent was written, but the builder session did not finish."
+            )
+            print(
+                "    Check the session trace for unfinished build or test work."
+            )
+            print(
+                "    Run the agent yourself, or re-run with a larger --max-steps."
+            )
             print()
 
         dry_run_result = env.env_vars.get("dry_run_result")

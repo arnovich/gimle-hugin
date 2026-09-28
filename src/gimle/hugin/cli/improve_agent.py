@@ -297,7 +297,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--max-steps",
         type=int,
         default=DEFAULT_MAX_STEPS,
-        help=f"Maximum steps (default: {DEFAULT_MAX_STEPS})",
+        help=f"Maximum session steps (default: {DEFAULT_MAX_STEPS})",
     )
     parser.add_argument(
         "--apply",
@@ -365,10 +365,9 @@ def main(argv: Optional[List[str]] = None) -> int:
 
         session = Session(environment=env)
         session.create_agent_from_task(config, task)
-        agent = session.agents[0]
 
         _, last_error = run_steps_with_spinner(
-            step_fn=agent.step,
+            step_fn=session.step,
             save_fn=lambda: storage.save_session(session),
             max_steps=args.max_steps,
             prefix="    ",
