@@ -403,30 +403,38 @@ class Stack:
             self._step_lock = False
             return False
 
-        # Get all active branches
-        branches = self.get_active_branches()
+        try:
+            # Get all active branches
+            branches = self.get_active_branches()
 
-        # Step each branch that isn't complete
-        any_stepped = False
-        for branch in branches:
-            # if self.is_branch_complete(branch):
-            #     logger.debug(f"Branch {branch} is complete, skipping")
-            #     continue
+            # Step each branch that isn't complete
+            any_stepped = False
+            for branch in branches:
+                # if self.is_branch_complete(branch):
+                #     logger.debug(f"Branch {branch} is complete, skipping")
+                #     continue
 
-            last_interaction = self.get_last_interaction_for_branch(branch)
-            if last_interaction is None:
-                continue
+                last_interaction = self.get_last_interaction_for_branch(branch)
+                if last_interaction is None:
+                    continue
 
-            logger.debug(
-                f"Stepping branch {branch}: "
-                f"{last_interaction.__class__.__name__}"
-            )
-            step_result = last_interaction.step()
-            if step_result:
-                any_stepped = True
+                logger.debug(
+                    f"Stepping branch {branch}: "
+                    f"{last_interaction.__class__.__name__}"
+                )
+                if (
+                    isinstance(last_interaction, AskOracle)
+                    and not self.agent.session.can_call_model
+                ):
+                    self.agent.session.limit_reached = "llm_calls"
+                    continue
+                step_result = last_interaction.step()
+                if step_result:
+                    any_stepped = True
 
-        self._step_lock = False
-        return any_stepped
+            return any_stepped
+        finally:
+            self._step_lock = False
 
     def insert_external_input(self, input: str) -> None:
         """Insert a human interaction into the stack.

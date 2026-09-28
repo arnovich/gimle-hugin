@@ -80,8 +80,10 @@ def cmd_run(args: argparse.Namespace) -> int:
         sys.argv.extend(["--config", args.config])
     if args.parameters:
         sys.argv.extend(["--parameters", args.parameters])
-    if args.max_steps:
-        sys.argv.extend(["--max-steps", str(args.max_steps)])
+    if args.max_steps is not None:
+        sys.argv.extend(["--max-llm-calls", str(args.max_steps)])
+    if getattr(args, "max_iterations", None) is not None:
+        sys.argv.extend(["--max-iterations", str(args.max_iterations)])
     if args.storage_path:
         sys.argv.extend(["--storage-path", args.storage_path])
     if args.log_level:
@@ -772,7 +774,16 @@ Examples:
     run_parser.add_argument("-c", "--config", help="Config name to use")
     run_parser.add_argument("--parameters", help="JSON parameters for task")
     run_parser.add_argument(
-        "--max-steps", type=int, help="Maximum steps (default: 100)"
+        "--max-llm-calls",
+        "--max-steps",
+        dest="max_steps",
+        type=_non_negative_int,
+        help="Maximum LLM calls (default: 100)",
+    )
+    run_parser.add_argument(
+        "--max-iterations",
+        type=_non_negative_int,
+        help="Separate scheduler iteration guard (default: 10000)",
     )
     run_parser.add_argument("--storage-path", help="Path for agent storage")
     run_parser.add_argument(

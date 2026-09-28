@@ -101,6 +101,63 @@ class ScriptedToolModel(Model):
 
 
 @pytest.fixture
+def scheduler_clock(monkeypatch: pytest.MonkeyPatch) -> Any:
+    """Advance realistic wall-clock deadlines instantly, recording scheduler sleeps."""
+    from types import SimpleNamespace
+
+    from gimle.hugin.agent import session
+    from gimle.hugin.interaction import conditions, waiting
+
+    clock = SimpleNamespace(now=1000.0, sleeps=[])
+
+    def sleep(seconds: float) -> None:
+        """Advance only the injected runtime clock, leaving other threads alone."""
+        clock.sleeps.append(seconds)
+        clock.now += seconds
+
+    clock.sleep = sleep
+    clock.time = lambda: clock.now
+    for module in (session, conditions, waiting):
+        monkeypatch.setattr(module, "time", clock)
+    return clock
+
+
+@pytest.fixture
+def budget_session(monkeypatch: pytest.MonkeyPatch) -> Any:
+    """Create a real session whose model finishes each task in one call."""
+    from types import SimpleNamespace
+
+    from gimle.hugin.agent.environment import Environment
+    from gimle.hugin.agent.session import Session
+    from gimle.hugin.llm.models.model_registry import get_model_registry
+    from tests.memory_storage import MemoryStorage
+
+    model = ScriptedToolModel(
+        "budget-test-model",
+        [
+            {
+                "tool": "finish",
+                "input": {"finish_type": "success", "result": "Done"},
+            }
+        ],
+    )
+    monkeypatch.setitem(get_model_registry().models, "budget-test-model", model)
+    monkeypatch.delenv("HUGIN_CTRLRTN", raising=False)
+    session = Session(environment=Environment(storage=MemoryStorage()))
+    config = Config(
+        name="budget",
+        description="Budget",
+        system_template="Finish",
+        llm_model="budget-test-model",
+        tools=["builtins.finish:finish"],
+    )
+    try:
+        yield SimpleNamespace(session=session, config=config, model=model)
+    finally:
+        session.close()
+
+
+@pytest.fixture
 def mock_model_config():
     """Return standard configuration for mock models."""
     return {

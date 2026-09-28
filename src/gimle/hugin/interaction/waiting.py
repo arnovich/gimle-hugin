@@ -1,6 +1,7 @@
 """Waiting interaction."""
 
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
@@ -35,6 +36,7 @@ class Waiting(Interaction):
     - If condition returns False: chain to next_tool (return True)
     """
 
+    completed: bool = False
     condition: Optional[Condition] = None
     next_tool: Optional[str] = None
     next_tool_args: Dict[str, Any] = field(default_factory=dict)
@@ -46,6 +48,10 @@ class Waiting(Interaction):
             False if no condition (terminal state) or done waiting with no next tool.
             True if still waiting (condition True) or chaining to next tool.
         """
+        self._idle = False
+        if self.completed:
+            return False
+
         # No condition - check if waiting for a child agent
         if not self.condition:
             from gimle.hugin.interaction.agent_call import AgentCall
@@ -62,6 +68,7 @@ class Waiting(Interaction):
 
             if isinstance(prev, AgentCall):
                 # Keep alive while child agent runs
+                self._idle = True
                 return True
 
             return False
@@ -70,6 +77,7 @@ class Waiting(Interaction):
         still_waiting = self.condition.evaluate(self.stack, self.branch)
 
         if still_waiting:
+            self._idle = True
             logger.debug(
                 f"Condition {self.condition.evaluator} returned True, waiting"
             )
@@ -93,8 +101,22 @@ class Waiting(Interaction):
             )
             return True
 
-        # No next tool - just done waiting
+        # Persist completion so a later pass cannot restart a timed wait.
+        self.completed = True
         return False
+
+    def wake_delay(self) -> float:
+        """Read the next deadline without evaluating a condition a second time.
+
+        Unknown/custom conditions are polled once a second. Wall-clock waits
+        use their persisted start timestamp, including after session restore.
+        """
+        if self.condition and self.condition.evaluator == "wait_for_seconds":
+            start = self.stack.get_shared_state(f"_wait_seconds_{self.uuid}")
+            if start is not None:
+                seconds = (self.condition.parameters or {}).get("seconds", 0)
+                return max(0.0, float(start) + float(seconds) - time.time())
+        return 1.0
 
     @classmethod
     def _from_dict(
@@ -117,6 +139,7 @@ class Waiting(Interaction):
         kwargs: Dict[str, Any] = {
             "stack": stack,
             "branch": data.get("branch"),
+            "completed": data.get("completed", False),
             "condition": (
                 Condition.from_dict(condition_data) if condition_data else None
             ),

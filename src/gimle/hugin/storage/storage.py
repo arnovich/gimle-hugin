@@ -1,5 +1,6 @@
 """Storage interface module."""
 
+import json
 import logging
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, cast
@@ -9,6 +10,7 @@ from gimle.hugin.agent.session import Session
 from gimle.hugin.artifacts.artifact import Artifact
 from gimle.hugin.artifacts.feedback import ArtifactFeedback
 from gimle.hugin.interaction.interaction import Interaction
+from gimle.hugin.storage.json import SafeJSONEncoder, sanitize_for_json
 
 if TYPE_CHECKING:
     from gimle.hugin.agent.environment import Environment
@@ -27,6 +29,27 @@ class Storage(ABC):
         """Initialize the storage."""
         self.store: Dict[str, Any] = {}
         self.callback = callback
+        self._saved_records: Dict[str, str] = {}
+
+    def _save_if_changed(
+        self, kind: str, obj: Any, save: Callable[[Any], None]
+    ) -> bool:
+        """Persist changed records; snapshot only after the backend succeeds."""
+        key = f"{kind}:{obj.id}"
+        record = json.dumps(
+            sanitize_for_json(obj.to_dict()),
+            cls=SafeJSONEncoder,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        changed = (
+            key not in self._saved_records or self._saved_records[key] != record
+        )
+        if changed:
+            save(obj)
+            self._saved_records[key] = record
+        self.store[key] = obj
+        return changed
 
     @abstractmethod
     def list_sessions(self) -> List[str]:
@@ -98,9 +121,10 @@ class Storage(ABC):
         """Save an artifact."""
         if not getattr(artifact, "uuid", None):
             raise ValueError("Artifact must have a uuid")
-        self._save_artifact(artifact)
-        self.store[f"artifact:{artifact.id}"] = artifact
-        if self.callback:
+        changed = self._save_if_changed(
+            "artifact", artifact, self._save_artifact
+        )
+        if changed and self.callback:
             self.callback("artifact", artifact.id)
 
     @abstractmethod
@@ -198,6 +222,7 @@ class Storage(ABC):
         if artifact_exists:
             self._delete_artifact(artifact)
         self.store.pop(f"artifact:{artifact.id}", None)
+        self._saved_records.pop(f"artifact:{artifact.id}", None)
         self.store.pop(f"artifact_record:{artifact.id}", None)
 
     @abstractmethod
@@ -221,11 +246,11 @@ class Storage(ABC):
         logger.info(f"Saving session {session.id}")
         if not getattr(session, "uuid", None):
             raise ValueError("Session must have a uuid")
-        self._save_session(session)
+        changed = self._save_if_changed("session", session, self._save_session)
         for agent in session.agents:
             self.save_agent(agent)
         self.store[f"session:{session.id}"] = session
-        if self.callback:
+        if changed and self.callback:
             self.callback("session", session.id)
 
     @abstractmethod
@@ -238,6 +263,7 @@ class Storage(ABC):
             self.delete_agent(agent)
         self._delete_session(session)
         self.store.pop(f"session:{session.id}", None)
+        self._saved_records.pop(f"session:{session.id}", None)
 
     @abstractmethod
     def _load_agent(self, uuid: str, session: "Session") -> Agent:
@@ -258,11 +284,10 @@ class Storage(ABC):
         """Save an agent."""
         if not getattr(agent, "uuid", None):
             raise ValueError("Agent must have a uuid")
-        self._save_agent(agent)
-        self.store[f"agent:{agent.id}"] = agent
+        changed = self._save_if_changed("agent", agent, self._save_agent)
         for interaction in agent.stack.interactions:
             self.save_interaction(interaction)
-        if self.callback:
+        if changed and self.callback:
             self.callback("agent", agent.id)
 
     @abstractmethod
@@ -275,6 +300,7 @@ class Storage(ABC):
             self.delete_interaction(interaction)
         self._delete_agent(agent)
         self.store.pop(f"agent:{agent.id}", None)
+        self._saved_records.pop(f"agent:{agent.id}", None)
 
     @abstractmethod
     def _load_interaction(self, uuid: str, stack: "Stack") -> Interaction:
@@ -295,11 +321,12 @@ class Storage(ABC):
         """Save an interaction."""
         if not getattr(interaction, "uuid", None):
             raise ValueError("Interaction must have a uuid")
-        self._save_interaction(interaction)
-        self.store[f"interaction:{interaction.id}"] = interaction
+        changed = self._save_if_changed(
+            "interaction", interaction, self._save_interaction
+        )
         for artifact in interaction.artifacts:
             self.save_artifact(artifact)
-        if self.callback:
+        if changed and self.callback:
             self.callback("interaction", interaction.id)
 
     @abstractmethod
@@ -314,6 +341,7 @@ class Storage(ABC):
             self.delete_artifact(artifact)
         self._delete_interaction(interaction)
         self.store.pop(f"interaction:{interaction.id}", None)
+        self._saved_records.pop(f"interaction:{interaction.id}", None)
 
     # -- feedback --
 
