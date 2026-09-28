@@ -12,6 +12,34 @@ related: ["003", "004", "029"]
 
 # Agent-to-agent communication across machines
 
+## Current design — 2026-09-28
+
+The owner requested a decentralized design, automatic admission by private
+invite, and an initial scale of tens to hundreds of machines. LAN/private VPN
+connectivity is accepted. Deployment must cover AWS/Hetzner-style provisioned
+servers and many workers on one Linux host.
+
+The [self-forming swarm specification](../../docs/design/038-self-forming-swarms.md)
+is now the proposed implementation plan and acceptance contract. It supersedes
+conflicting decisions, plan and outcomes in the historical text below,
+including shared storage, unauthenticated board writers, first-k claims,
+exactly-once execution and unlimited automatic post fanout. The historical
+text is preserved for rationale. Tasks 036, 039, 040 and 041 are closed.
+
+Current scope is specification and independent panel review, not runtime
+implementation. See the [review report](../../docs/design/038-design-review.md).
+
+Current completion gates:
+
+- [ ] Private invites admit cloud hosts without per-machine registration.
+- [ ] One daemon supports multiple local runners on a large Linux host.
+- [ ] Authorized group boards replicate without a central Hugin service.
+- [ ] Durable admission/checkpoints and cost reservations pass crash tests.
+- [ ] Bounded ask/reply works across partitions with explicit deadlines.
+- [ ] Security, deployment and 100/300-host qualification gates pass.
+
+## Historical design (superseded where inconsistent)
+
 **Status: design settled 2026-09-22, revised the same day after a panel
 review.** The survey under `## Context` is the original capture and is
 unchanged. `## Decisions` records what was settled, and what the review
@@ -819,3 +847,17 @@ Deliberately left open, to be decided on evidence rather than up front:
 Claimed for specification and panel review. Owner selected automatic admission
 by private swarm invite and an initial scale of tens to hundreds of machines.
 Runtime implementation remains a subsequent step.
+
+### note · codex/task038 · 2026-09-28T15:28:15Z
+
+Owner confirmed LAN/private VPN first, targeting automatically provisioned
+AWS/Hetzner servers or many workers on one Linux box. Draft specification
+adds per-host boards, reusable private invites, bounded asks and a required
+crash-safe runner bridge; independent panel review is in progress.
+
+### note · codex/task038 · 2026-09-28T15:35:52Z
+
+Four independent design judges approved the revised specification after fixes
+and follow-up review. The review report records findings and their resolution.
+Design is ready for owner review; runtime implementation and qualification
+remain outstanding in six incremental stages.
