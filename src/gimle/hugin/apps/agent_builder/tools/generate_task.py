@@ -31,6 +31,9 @@ def generate_task(
         prompt: The prompt template with Jinja2 syntax
         stack: Agent stack (auto-injected)
         parameters: Dictionary of parameter names to parameter schema dicts.
+            Declare shared inputs on every chained stage that carries them.
+            Inherited values override successor defaults; pass_result_as
+            overrides both for its own name.
             Each parameter schema MUST include at least:
               - type: string|integer|number|boolean|array|object|categorical
               - description: string

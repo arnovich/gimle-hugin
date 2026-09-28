@@ -101,24 +101,96 @@ agents.
 
 ## Tasks
 
-- [ ] Confirm what a chained stage does today with a required parameter that has
+- [x] Confirm what a chained stage does today with a required parameter that has
       no value — silently `None`, or an error that is being swallowed.
-- [ ] Decide between carrying values forward, refusing at validation, or both.
-- [ ] Implement, with tests covering: value inherited by name, `pass_result_as`
+- [x] Decide between carrying values forward, refusing at validation, or both.
+- [x] Implement, with tests covering: value inherited by name, `pass_result_as`
       still wins for its own name, and a successor `default` interacting with an
       inherited value.
-- [ ] Add the validator check for an unsatisfiable required successor parameter.
-- [ ] Update the builder's guidance (`templates/builder_system.yaml`,
+- [x] Add the validator check for an unsatisfiable required successor parameter.
+- [x] Update the builder's guidance (`templates/builder_system.yaml`,
       `tasks/build_agent.yaml` step 5) to match whatever the framework does.
-- [ ] Update `AGENTS.md`'s "Task Parameters" and the `pass_result_as` note to
+- [x] Update `AGENTS.md`'s "Task Parameters" and the `pass_result_as` note to
       state the rule.
 
 ## Outcome
 
-- [ ] A two-stage agent whose second stage declares a parameter the first stage
+- [x] A two-stage agent whose second stage declares a parameter the first stage
       was given either receives that value, or fails to validate — not `None` at
       run time.
-- [ ] `hugin validate` reports an error for a chain that cannot supply a
+- [x] `hugin validate` reports an error for a chain that cannot supply a
       successor's required parameter.
-- [ ] The eval's golden set includes a multi-stage case that would fail if the
+- [x] The eval's golden set includes a multi-stage case that would fail if the
       value were dropped.
+
+## Plan
+
+- Resolve each successor from a cloned registry task. Carry non-None values
+  only into parameters declared by that successor; inherited values override
+  its defaults/existing values, and `pass_result_as` overrides both. Preserve
+  raw result dictionaries for compatibility with existing string-declared
+  result parameters, including empty result dictionaries.
+- Apply the existing input conversion and required-parameter validation before
+  switching config or adding the next TaskDefinition. Copy mutable values so
+  neither the predecessor nor registry template is changed. Read the current
+  task from the interaction's branch when chaining.
+- Extend static validation to follow actual sequence order and next-task
+  links. A required successor input must have a local value/default, a possible
+  inherited value, or the immediate predecessor's result. Track availability
+  through intervening stages and injected undeclared result parameters; avoid
+  infinite traversal of cycles. Optional entry inputs are possible sources,
+  with runtime validation deciding whether they were actually supplied.
+- Add red/green runtime and validator tests for required values, defaults,
+  falsy and mutable inputs, result precedence, branch isolation, sequences,
+  cycles, and malformed schemas. Add a release-version pipeline to the golden
+  set and a deterministic real-session regression that checks its second
+  stage's rendered prompt without relying on an LLM to recover the version.
+- Document the precedence and declaration rule in AGENTS.md and the builder's
+  system/task/tool guidance. Run focused checks, the full suite, all-file and
+  changed-file pre-commit checks, and a review panel before opening the PR.
+
+## Implementation and verification
+
+- Chained tasks clone the receiver, carry only declared non-None inputs with
+  independent copies, inject `pass_result_as` last, and use the existing input
+  conversion/required-parameter checks before changing config or stack state.
+- Both TaskResult and TaskChain look up the task on their own branch. Registry
+  templates and predecessor values remain unchanged, including mutable inputs.
+- Static validation follows configured chain entry paths and sequence order,
+  tracks available declared and injected parameters through intermediate
+  stages, checks shared-predecessor paths independently, and terminates on
+  cycles. Optional entry parameters are possible caller inputs; runtime checks
+  whether they were actually supplied.
+- Added 32 regression cases across parameter inheritance and the golden release
+  pipeline. The golden set now includes `versioned_release_pipeline`; its
+  deterministic runtime test asserts the second-stage prompt contains the
+  exact version while the first-stage result contains no version. This does
+  not claim a live builder-model evaluation; the existing eval harness scores
+  generated artifacts statically.
+- Red/green coverage reproduced the original parameter-loss and validation
+  failures. The final full suite passes: **1,761 passed, 53 skipped**, using
+  `TMPDIR=/private/tmp uv run pytest -x -q`.
+- Manual CLI check: `hugin validate` returns 1 and names the missing `version`
+  on a broken two-stage chain, then returns 0 with no warnings when the
+  predecessor declares that input.
+- Repository-wide pre-commit findings remain the existing baseline: 113 flake8
+  findings, one missing return annotation in `scripts/sync_packaged_examples.py`,
+  and four detect-secrets findings in existing replay/trace-analysis tests.
+  All hooks pass on the 13 changed files. No checks are disabled and no
+  secret baseline changes are included.
+
+## Review
+
+The panel covered runtime correctness, validator/test validity, and
+maintainability. All three reviewers found the same P2 edge case: an empty
+`task_sequence` must fall back to `next_task`, matching runtime execution.
+Normalized that case, added a regression that failed before the fix and passed
+with it, and reran the full suite. No other blocking findings remained.
+
+## Conversation
+
+### note · codex/task037 · 2026-09-28T10:15:43Z
+
+Implemented and panel-reviewed; all 32 new regressions and the full suite pass.
+Precedence is result injection, inherited value, then local value/default.
+The CLI now rejects chains with an unsourced required input. Preparing the PR.

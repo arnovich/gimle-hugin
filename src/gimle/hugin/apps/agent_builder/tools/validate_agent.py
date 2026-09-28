@@ -790,6 +790,108 @@ def _check_task_chains(files: Dict[str, str]) -> List[Finding]:
     return findings
 
 
+def _chain_parameter_schemas(document: Dict[str, Any]) -> Dict[str, Any]:
+    """Read task schemas defensively; malformed schemas are reported elsewhere."""
+    parameters = document.get("parameters")
+    if not isinstance(parameters, dict):
+        return {}
+    return {
+        name: spec
+        for name, spec in parameters.items()
+        if isinstance(name, str) and isinstance(spec, dict)
+    }
+
+
+def _check_chained_parameters(files: Dict[str, str]) -> List[Finding]:
+    """Reject required inputs with no possible source along a configured chain.
+
+    Entry parameters may be supplied by the caller, even when optional. Later
+    stages can only inherit names still available on the immediately preceding
+    stage. Follow each entry separately, so one path's injection cannot hide
+    another path's missing input. Runtime validation checks actual values.
+    """
+    tasks = {
+        document["name"]: (key, document)
+        for key, document in _load_yaml(files, "tasks").items()
+        if isinstance(document.get("name"), str)
+    }
+    incoming: Set[str] = set()
+    for _, document in tasks.values():
+        sequence = document.get("task_sequence")
+        if isinstance(sequence, list):
+            incoming.update(name for name in sequence if isinstance(name, str))
+        following = document.get("next_task")
+        if isinstance(following, str):
+            incoming.add(following)
+
+    # Start at actual entry tasks first. Then cover disconnected cycles, which
+    # have no root, without treating every intermediate stage as a new entry.
+    starts = [name for name in tasks if name not in incoming] + list(tasks)
+    covered: Set[str] = set()
+    findings = []
+    reported = set()
+    for start in starts:
+        if start in covered:
+            continue
+        current = start
+        document = tasks[current][1]
+        sequence = document.get("task_sequence") or None
+        if sequence is not None and not isinstance(sequence, list):
+            continue
+        index = (
+            sequence.index(start) + 1 if sequence and start in sequence else 0
+        )
+        available = set(_chain_parameter_schemas(document))
+        visited = set()
+        while True:
+            state = (current, frozenset(available), index)
+            if state in visited:
+                break
+            visited.add(state)
+            covered.add(current)
+            if sequence is not None:
+                if index >= len(sequence):
+                    break
+                following = sequence[index]
+                index += 1
+            else:
+                following = document.get("next_task")
+            if not isinstance(following, str) or following not in tasks:
+                break
+            key, successor = tasks[following]
+            schemas = _chain_parameter_schemas(successor)
+            supplied = available.intersection(schemas)
+            supplied.update(
+                name
+                for name, spec in schemas.items()
+                if spec.get("value") is not None
+                or spec.get("default") is not None
+            )
+            result_name = document.get("pass_result_as")
+            if isinstance(result_name, str) and result_name:
+                supplied.add(result_name)
+            for name, spec in schemas.items():
+                edge = (current, following, name)
+                if (
+                    spec.get("required")
+                    and name not in supplied
+                    and edge not in reported
+                ):
+                    findings.append(
+                        _finding(
+                            key,
+                            "task-chain-parameters",
+                            f"chain '{current}' -> '{following}' cannot supply "
+                            f"required parameter '{name}'; declare it on each "
+                            "preceding stage, provide a local value/default, or "
+                            "use the predecessor's pass_result_as",
+                        )
+                    )
+                    reported.add(edge)
+            current, document, available = following, successor, supplied
+    return findings
+
+
 def _pass_result_names(files: Dict[str, str]) -> Set[str]:
     """Parameters that upstream tasks create at runtime via pass_result_as.
 
@@ -1042,6 +1144,7 @@ def validate_files(
     errors += _check_reserved_names(files)
     errors += _check_task_parameter_schemas(files)
     errors += _check_task_chains(files)
+    errors += _check_chained_parameters(files)
 
     reference_errors, reference_warnings = _check_references(files)
     errors += reference_errors

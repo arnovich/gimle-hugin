@@ -375,7 +375,7 @@ string that happens to collide with a template name, force Jinja, e.g.
 ### Task Parameters
 Tasks support structured parameter definitions with type, description, required status, and defaults:
 
-**Structured format (recommended):**
+**Structured format (required):**
 ```yaml
 parameters:
   data_source:
@@ -389,19 +389,32 @@ parameters:
     default: 10
 ```
 
-**Simple format (still supported):**
-```yaml
-parameters:
-  questions: "What is the meaning of life?"
-```
+Scalar parameter definitions are not supported. Each parameter must have a
+schema with `type` and `description`.
 
-**Supported types:** `string`, `integer`, `number`, `boolean`, `array`
+**Supported types:** `string`, `integer`, `number`, `boolean`, `array`,
+`object`, `categorical` (with `choices`).
 
 **Validation:**
 - Required parameters must be provided or task creation fails
 - Optional parameters use defaults if not provided
-- Parameters are validated when creating agents from tasks
+- Parameters are validated when creating agents and before entering chained stages
 - CLI prompts show type hints, descriptions, and default values
+
+**Chained stages (`next_task` / `task_sequence`):**
+- A stage inherits non-`None` values for parameters it declares with the same
+  names as the immediately preceding stage. Declare shared inputs on every
+  intervening stage; undeclared inputs are not carried forward.
+- Precedence is `pass_result_as` injection, inherited value, then the
+  successor's existing value/default. Falsy values (`false`, `0`, `""`, empty
+  arrays/objects) are real inputs, not missing values.
+- Inherited inputs use the receiving schema's normal conversion/validation.
+  Missing required inputs fail before the next stage runs. `hugin validate`
+  rejects configured chain paths with no possible source for a required input.
+- `pass_result_as` belongs to the producing stage and injects its full result
+  dictionary into the immediate successor, creating the parameter if needed.
+  That raw dictionary is preserved even for an existing string-declared result
+  parameter; `{{ result_parameter.value }}` renders it as before.
 
 ### Testing
 - Mock dependencies using fixtures in `tests/conftest.py`

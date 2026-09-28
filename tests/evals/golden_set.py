@@ -79,6 +79,21 @@ GOLDEN_SET: List[EvalCase] = [
         tags=("text",),
     ),
     EvalCase(
+        name="versioned_release_pipeline",
+        description=(
+            "Create release notes in two chained stages. Accept a required "
+            "release version and merged pull request titles. First classify "
+            "the titles, then write release notes headed with the exact "
+            "input version. Both stages must declare the required version "
+            "parameter. Pass the classifications separately; do not recover "
+            "the version by guessing from the first stage's result text."
+        ),
+        expect_tools=0,
+        expect_tasks=2,
+        expect_architecture="pipeline",
+        tags=("pipeline", "multi_stage", "parameter_flow"),
+    ),
+    EvalCase(
         name="expense_categoriser",
         description=(
             "Given a bank transaction description and amount, categorise the "

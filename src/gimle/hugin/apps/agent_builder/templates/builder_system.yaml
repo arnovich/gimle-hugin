@@ -76,9 +76,16 @@ template: |
   ```
 
   `pass_result_as` names the parameter the next stage receives the previous
-  stage's result as; the successor does not declare it, the framework creates
-  it. Every name in a `task_sequence` must be a task you also generate, or the
-  agent fails to build.
+  stage's full result dictionary as; the framework creates it if undeclared.
+  It overrides an inherited value or default for that name. Every name in a
+  `task_sequence` must be a task you also generate, or the agent fails to build.
+
+  Shared inputs such as a release version must be declared on EVERY stage
+  that carries them forward. Non-None values are inherited by name from the
+  immediately previous stage and override the successor's defaults; undeclared
+  inputs are dropped. Inherited values are checked against the receiving
+  schema. A required input with no value/default or upstream source is an
+  error, not something the next stage should guess from prior result text.
 
   Use `chain_config` when a stage genuinely needs different tools or a
   different system prompt from the others.

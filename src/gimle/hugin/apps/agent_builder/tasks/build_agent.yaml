@@ -81,7 +81,10 @@ prompt: |
 
      If the description describes stages, generate one task per stage and chain
      them with `task_sequence` and `pass_result_as` rather than writing one
-     long prompt that does everything. Every name you chain to must be a task
+     long prompt that does everything. Declare shared input parameters on every
+     intervening stage: inherited values override successor defaults, and
+     `pass_result_as` overrides both for its own name. Required inputs without
+     a value/default or upstream source fail validation. Every name you chain to must be a task
      you also generate.
 
   6. **generate_tool** for each custom tool - The `implementation_code` must be
