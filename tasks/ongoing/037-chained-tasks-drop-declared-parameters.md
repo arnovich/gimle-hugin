@@ -1,11 +1,16 @@
 ---
 title: Chained tasks drop declared parameters — a successor's required parameter arrives as None
-state: OPEN
+state: ongoing
+claimed_by: codex/task037
+claimed_at: 2026-09-28T09:57:44Z
+branch: task/037_chained_parameters
 labels: [bug, framework, agent-builder, validation]
 priority: high
 ---
 
 # Chained tasks drop declared parameters
+
+## Context
 
 `TaskChain` injects the previous stage's result under `pass_result_as` and
 nothing else. A successor that declares any other parameter — including one the
@@ -108,7 +113,7 @@ agents.
 - [ ] Update `AGENTS.md`'s "Task Parameters" and the `pass_result_as` note to
       state the rule.
 
-## Success Criteria
+## Outcome
 
 - [ ] A two-stage agent whose second stage declares a parameter the first stage
       was given either receives that value, or fails to validate — not `None` at
