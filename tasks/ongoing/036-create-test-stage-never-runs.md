@@ -80,27 +80,27 @@ Worth fixing anyway so the two entry points cannot drift apart again.
 
 ## Tasks
 
-- [ ] Switch `cli/create_agent.py` to `step_fn=session.step` and confirm stage 4
+- [x] Switch `cli/create_agent.py` to `step_fn=session.step` and confirm stage 4
       runs the generated agent to a `TaskResult`.
-- [ ] Decide the step budget. `step_cap_outcome`'s docstring already assumes the
+- [x] Decide the step budget. `step_cap_outcome`'s docstring already assumes the
       child's steps count against the builder's allowance; once they actually do,
       check whether the default 200 still leaves room for a test run, or whether
       the test should get its own budget.
-- [ ] Re-check what `capped_after_write` means once the test really runs, and
+- [x] Re-check what `capped_after_write` means once the test really runs, and
       reword the note if it no longer fits.
-- [ ] Do the same for `cli/improve_agent.py:371`, or document why it differs.
-- [ ] Consider a guard so a `Waiting` that makes no progress cannot silently
+- [x] Do the same for `cli/improve_agent.py:371`, or document why it differs.
+- [x] Consider a guard so a `Waiting` that makes no progress cannot silently
       consume a step budget — spinning on a child that is not being stepped
       should be loud, not slow.
 
 ## Outcome
 
-- [ ] A build with default flags executes the generated agent in stage 4 and
+- [x] A build with default flags executes the generated agent in stage 4 and
       reports its result.
-- [ ] A test that drives a real build stage containing an `AgentCall` and asserts
+- [x] A test that drives a real build stage containing an `AgentCall` and asserts
       the child reached a `TaskResult` — not merely that an `AgentCall` was
       returned.
-- [ ] A build that hits the step cap does so for a reason the message states
+- [x] A build that hits the step cap does so for a reason the message states
       accurately.
 
 ## Plan
@@ -119,3 +119,45 @@ Worth fixing anyway so the two entry points cannot drift apart again.
 - Exercise `improve` through its real CLI loop with a scripted child as a
   regression against future delegation. Run focused tests, the full suite,
   pre-commit checks, and a correctness/test/maintainability review panel.
+
+## Implementation and verification
+
+- Both `hugin create` and `hugin improve` now use `Session.step`, matching
+  `hugin run`. Children advance and return their `TaskResult` to the parent.
+- The default remains 200 shared session steps for create. A scripted run of
+  all four shipped build stages finishes its child test and parent review
+  within that allowance. No separate child allowance was added.
+- Cap output names session steps and unfinished builder-session work, without
+  inferring the child's state from whether files were written. Written files
+  survive the cap. The regression covers both an unfinished child and a child
+  that finished before its parent exhausted the remaining budget.
+- The proposed general no-progress guard is deferred to task 041, which owns
+  idle scheduling, storage write amplification, and budget semantics.
+- Six CLI regression cases cover full build/child completion and parent
+  receipt, both post-write cap cases, pre-write failure, child exceptions and
+  cleanup, and future improve delegation. Model responses are scripted; no
+  paid provider calls are needed or claimed as validation.
+- `TMPDIR=/private/tmp uv run pytest -x -q`: 1,729 passed, 53 skipped. The real
+  temporary path avoids macOS's symlinked default in confinement tests.
+- The all-files pre-commit baseline has 113 existing flake8 findings, one mypy
+  error in `scripts/sync_packaged_examples.py`, and four detect-secrets findings
+  in `tests/test_replay.py` / `tests/test_trace_analysis.py`. They are unchanged
+  by this task; no checks were disabled. Every hook passes on the five
+  changed files, including flake8, mypy, and detect-secrets.
+
+## Review
+
+A panel reviewed runtime correctness, test validity, and maintainability.
+There were no blocking production-code findings. Resolved the test review's
+P2 missing `save_text` argument by supplying its format and requiring successful
+child tool results; resolved the P3 logging/import-path isolation finding in
+the fixture. Also aligned improve's help text with the session-step unit.
+The full suite above passed after these changes.
+
+## Conversation
+
+### note · codex/task036 · 2026-09-28T09:31:44Z
+
+Implemented and reviewed; all six new CLI regressions and the full suite pass.
+Repository-wide lint failures match the baseline; preparing the implementation
+PR. Task 037 parameter propagation and task 041 idle-loop work remain separate.

@@ -1,5 +1,6 @@
 """Pytest configuration and fixtures."""
 
+from pathlib import Path
 from typing import Any, Dict, List
 
 import pytest
@@ -232,3 +233,158 @@ def sample_prompt():
     from gimle.hugin.llm.prompt.prompt import Prompt
 
     return Prompt(type="text", text="Test prompt")
+
+
+@pytest.fixture
+def builder_cli_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
+    """Script a real four-stage builder run, recording its session and loop."""
+    import sys
+    from copy import deepcopy
+    from types import SimpleNamespace
+
+    from gimle.hugin.cli import create_agent, improve_agent, ui
+    from gimle.hugin.llm.models.model_registry import get_model_registry
+
+    output = tmp_path / "generated"
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "path", sys.path.copy())
+    monkeypatch.setattr(
+        create_agent,
+        "setup_file_logging",
+        lambda log_dir, log_level: tmp_path / "builder.log",
+    )
+    monkeypatch.delenv("HUGIN_CTRLRTN", raising=False)
+    monkeypatch.setattr(ui.AnimatedSpinner, "start", lambda self: None)
+    monkeypatch.setattr(ui.AnimatedSpinner, "stop", lambda *a, **kw: None)
+
+    def finish(result: str) -> Dict[str, Any]:
+        """Build a scripted successful finish call."""
+        return {
+            "tool": "finish",
+            "input": {"finish_type": "success", "result": result},
+        }
+
+    builder_script = [
+        {
+            "tool": "generate_config",
+            "input": {
+                "agent_name": "demo",
+                "description": "Say hello",
+                "system_template": "demo_system",
+                "llm_model": "haiku-latest",
+                "tools": ["builtins.finish:finish"],
+            },
+        },
+        {
+            "tool": "generate_template",
+            "input": {
+                "template_name": "demo_system",
+                "template_content": "Say hello and finish.",
+            },
+        },
+        {
+            "tool": "generate_task",
+            "input": {
+                "task_name": "hello",
+                "description": "Say hello",
+                "prompt": "Say hello and finish.",
+            },
+        },
+        finish("Preview ready"),
+        finish("APPROVED"),
+        {"tool": "write_and_finish", "input": {"result": "Agent written"}},
+        {
+            "tool": "test_agent",
+            "input": {"agent_path": str(output), "test_prompt": "Say hello"},
+        },
+        finish("Child test reviewed"),
+    ]
+    child_script = [finish("Hello from the generated child")]
+    builder = ScriptedToolModel("sonnet-latest", builder_script)
+    child = ScriptedToolModel("haiku-latest", child_script)
+    registry = get_model_registry()
+    monkeypatch.setitem(registry.models, "sonnet-latest", builder)
+    monkeypatch.setitem(registry.models, "haiku-latest", child)
+
+    observed = SimpleNamespace(
+        output=output,
+        builder_script=builder_script,
+        child_script=child_script,
+        child=child,
+        messages=[],
+        session=None,
+        steps=None,
+        error=None,
+        closed=False,
+    )
+    completion = builder.chat_completion
+
+    def record_completion(
+        system_prompt: str, messages: List[Dict[str, Any]], tools: Any = None
+    ) -> ModelResponse:
+        """Keep the actual model context, including returned child results."""
+        observed.messages.append(deepcopy(messages))
+        return completion(system_prompt, messages, tools)
+
+    monkeypatch.setattr(builder, "chat_completion", record_completion)
+    run_loop = ui.run_steps_with_spinner
+    close_session = create_agent.Session.close
+
+    def record_loop(**kwargs: Any) -> tuple[int, Exception | None]:
+        """Observe the production CLI loop without replacing its behavior."""
+        observed.session = kwargs["session"]
+        observed.steps, observed.error = run_loop(**kwargs)
+        return observed.steps, observed.error
+
+    def record_close(session: Any) -> None:
+        """Keep cleanup observable while releasing real session resources."""
+        observed.closed = True
+        close_session(session)
+
+    monkeypatch.setattr(create_agent, "run_steps_with_spinner", record_loop)
+    monkeypatch.setattr(improve_agent, "run_steps_with_spinner", record_loop)
+    monkeypatch.setattr(create_agent.Session, "close", record_close)
+    observed.args = [
+        "--yes",
+        "--name",
+        "demo",
+        "--description",
+        "Say hello",
+        "--output",
+        str(output),
+    ]
+    return observed
+
+
+@pytest.fixture
+def improve_cli_run(
+    builder_cli_run: Any, monkeypatch: pytest.MonkeyPatch
+) -> Any:
+    """Allow delegation in the improve task to exercise its session driver."""
+    from gimle.hugin.cli import improve_agent
+
+    run = builder_cli_run
+    for directory in ("configs", "tasks"):
+        (run.output / directory).mkdir(parents=True)
+    (run.output / "configs" / "demo.yaml").write_text(
+        "name: demo\ndescription: Say hello\n"
+        "system_template: Say hello and finish.\n"
+        "llm_model: haiku-latest\ntools: [builtins.finish:finish]\n"
+    )
+    (run.output / "tasks" / "hello.yaml").write_text(
+        "name: hello\ndescription: Say hello\nprompt: Say hello.\n"
+    )
+    run.builder_script[:] = run.builder_script[-2:]
+    load_environment = improve_agent.Environment.load
+
+    def load_with_delegation(*args: Any, **kwargs: Any) -> Any:
+        """Model a future improve tool that launches a child agent."""
+        env = load_environment(*args, **kwargs)
+        # The shipped improve task has no delegating tools today.
+        if "improve_agent" in env.task_registry.registered():
+            env.task_registry.get("improve_agent").tools.append("test_agent")
+        return env
+
+    monkeypatch.setattr(improve_agent.Environment, "load", load_with_delegation)
+    run.args = [str(run.output), "--storage-path", str(run.output)]
+    return run
