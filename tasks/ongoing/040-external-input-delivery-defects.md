@@ -90,6 +90,10 @@ turn for the life of the agent.
 - Defect 3's fix should settle drain *ordering*, not only persistence — those
   are separable and the ordering one is the more visible.
 
+## Review
+
+Three-role panel (correctness/security, compatibility/testing, maintainability/performance): the plain-text completion delivery gap was reproduced and fixed in dca0e08; follow-up independent review passed. No remaining blocking findings. Provider-adapter end-to-end coverage was suggested as a nonblocking extension.
+
 ## Conversation
 
 ### note · codex/task040 · 2026-09-28T10:44:00Z
@@ -145,3 +149,7 @@ Added a failing real-session regression and made an appended branch successor
 count as progress; updated two legacy premature-stop assertions. The follow-up
 passes 122 focused stack/wait/delivery tests, 75 agent/session/integration tests,
 and the full suite again (1781 passed, 53 skipped).
+
+### note · codex/task040 · 2026-09-28T11:31:02Z
+
+Panel complete; preparing the implementation PR for owner review.
