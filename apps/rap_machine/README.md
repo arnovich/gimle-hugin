@@ -203,7 +203,7 @@ Model precedence: `--rapper1-model` > config default (with `--random-agents`) > 
 uv run hugin app rap_machine -- --random-agents --monitor
 
 # Standalone monitor (point at session storage)
-uv run hugin monitor --storage-path ./data/rap_battles/sessions --port 8002
+uv run hugin monitor --storage-path ./data/rap_battles/sessions --port 8002 --extension-path ./apps/rap_machine
 
 # Verbose logging
 uv run hugin app rap_machine -- --random-agents --log-level DEBUG
