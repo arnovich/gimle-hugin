@@ -1,6 +1,9 @@
 ---
 title: External input delivery loses messages, buries a turn, and never leaves context
-state: open
+state: ongoing
+claimed_by: codex/task040
+claimed_at: 2026-09-28T10:44:00Z
+branch: task/040_external_input_delivery
 priority: high
 labels: [bug, interaction, runtime]
 related: ["038"]
@@ -86,3 +89,9 @@ turn for the life of the agent.
   leaves the window. Out of scope here; noted in 038.
 - Defect 3's fix should settle drain *ordering*, not only persistence — those
   are separable and the ordering one is the more visible.
+
+## Conversation
+
+### note · codex/task040 · 2026-09-28T10:44:00Z
+
+Claimed to implement, test, and panel-review a separate PR; merge awaits owner review.
