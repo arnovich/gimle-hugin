@@ -4,13 +4,13 @@ Demonstrates direct agent-to-agent communication using `agent.message_agent()`.
 
 ## Concept
 
-This example shows how agents can send messages directly to each other. When an agent calls `message_agent()` on another agent, it inserts an `ExternalInput` into the target's stack, which the target processes on its next step.
+This example shows how agents can send messages directly to each other. When an agent calls `message_agent()` on another agent, it queues durable external input for the target's next model turn. Multiple pending messages reach that turn together, alongside its original task or tool result.
 
 ## Key Features
 
 - **Direct messaging**: Agents send messages using `message_agent()`
 - **Ping-pong pattern**: Two agents passing messages back and forth
-- **Asynchronous communication**: Messages are processed on the next step
+- **Asynchronous communication**: Messages are processed on the next model turn
 - **Independent agents**: This pattern can be used to run agents independently, instead of sub-agents.
 You can see how to use a sub-agent pattern instead here in the [sub_agent](../sub_agent/) example.
 
@@ -56,7 +56,16 @@ The messaging tool wraps `agent.message_agent()`:
 def send_to_agent(target_agent_id: str, message: str, stack: "Stack"):
     session = stack.agent.session
     target = session.get_agent(target_agent_id)
-    target.message_agent(message)
+    target.message_agent(message, source=f"agent:{stack.agent.id}")
 ```
 
-When called, this inserts an `ExternalInput` interaction into the target agent's stack.
+Pending messages survive session save/reload. A completed agent wakes on its
+next session step; a child, tool, human, or condition wait finishes before
+messages are delivered. Each message is fenced as untrusted data with its source
+label. The label is provenance supplied by the caller, not authentication.
+
+By default, external text stays in context for five model turns, including the
+delivery turn. Set `context_window=1` to include it only in the delivery turn;
+the full history remains persisted. Use `branch="name"` to target an existing
+named branch; omitting it targets the main branch. Unknown branches and windows
+that are not positive integers are rejected.

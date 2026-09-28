@@ -12,8 +12,7 @@ def send_to_agent(agent_id: str, message: str, stack: "Stack") -> ToolResponse:
     """
     Send a message to another agent.
 
-    This wraps agent.message_agent() which inserts an ExternalInput
-    into the target agent's stack.
+    This queues input for the target agent's next model turn.
     """
     session = stack.agent.session
 
@@ -34,7 +33,7 @@ def send_to_agent(agent_id: str, message: str, stack: "Stack") -> ToolResponse:
         )
 
     # Send the message
-    target_agent.message_agent(message)
+    target_agent.message_agent(message, source=f"agent:{stack.agent.id}")
 
     return ToolResponse(
         is_error=False,
