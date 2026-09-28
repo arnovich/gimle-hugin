@@ -47,62 +47,6 @@ from gimle.hugin.ui.static import (
 logger = logging.getLogger(__name__)
 
 
-# Track which extension paths have been loaded to avoid reloading
-_loaded_extension_paths: set = set()
-
-
-def load_extensions_from_storage(storage_path: Path) -> bool:
-    """Load custom artifact types and UI components from storage metadata.
-
-    Checks for .hugin_metadata.json in the storage directory and loads
-    any extensions specified by the package_paths field.
-
-    Tracks loaded paths to avoid reloading on subsequent calls.
-
-    Args:
-        storage_path: Path to the storage directory
-
-    Returns:
-        True if any new extensions were loaded, False otherwise
-    """
-    metadata_path = storage_path / ".hugin_metadata.json"
-    new_extensions_loaded = False
-
-    if not metadata_path.exists():
-        logger.debug(f"No metadata file found at {metadata_path}")
-        return False
-
-    try:
-        with open(metadata_path) as f:
-            package_paths = json.load(f).get("package_paths", [])
-
-        for package_path in package_paths:
-            if package_path in _loaded_extension_paths:
-                continue  # Already loaded
-
-            logger.info(f"Loading extensions from: {package_path}")
-            print(f"  Loading extensions from: {package_path}")
-            try:
-                Environment._load_extensions(package_path)
-                _loaded_extension_paths.add(package_path)
-                new_extensions_loaded = True
-            except Exception as e:
-                logger.warning(
-                    f"Failed to load extensions from {package_path}: {e}"
-                )
-
-        if new_extensions_loaded:
-            from gimle.hugin.ui.components.base import ComponentRegistry
-
-            registered = ComponentRegistry.list_registered_types()
-            print(f"  Registered UI components: {registered}")
-
-    except Exception as e:
-        logger.warning(f"Failed to read metadata file: {e}")
-
-    return new_extensions_loaded
-
-
 # Global queue for storage update events
 _update_queue: "queue.Queue[Dict[str, str]]" = queue.Queue()
 
@@ -1432,9 +1376,6 @@ class AgentMonitorHTTPRequestHandler(BaseHTTPRequestHandler):
         This method uses load_agent_lightweight() to avoid loading all artifacts
         upfront. Artifacts are loaded on-demand via /api/interaction endpoint.
         """
-        # Check for new extensions before rendering (handles late metadata writes)
-        load_extensions_from_storage(self.storage_path)
-
         agent_data = self.load_agent_lightweight(agent_id)
         if not agent_data:
             self.send_error(404, "Agent not found")
@@ -1687,9 +1628,6 @@ class AgentMonitorHTTPRequestHandler(BaseHTTPRequestHandler):
 
     def serve_artifact_viewer(self, artifact_id: str) -> None:
         """Serve artifact in standalone full-page view for new tab viewing."""
-        # Check for extensions before rendering
-        load_extensions_from_storage(self.storage_path)
-
         try:
             storage = LocalStorage(base_path=str(self.storage_path))
             artifact = storage.load_artifact(artifact_id)
@@ -1815,9 +1753,6 @@ class AgentMonitorHTTPRequestHandler(BaseHTTPRequestHandler):
         This endpoint loads a single interaction with its artifacts rendered.
         Used for lazy loading when user clicks on an interaction in the timeline.
         """
-        # Check for extensions before rendering
-        load_extensions_from_storage(self.storage_path)
-
         try:
             storage = LocalStorage(base_path=str(self.storage_path))
 
@@ -1945,11 +1880,24 @@ def run_monitor_server(
     host: str = "localhost",
     port: int = 8080,
     open_browser: bool = True,
+    extension_paths: Optional[List[str]] = None,
 ) -> None:
-    """Run the agent monitoring web server."""
-    # Load custom artifact types and UI components from storage metadata
-    print(f"Loading extensions from storage: {storage_path}")
-    load_extensions_from_storage(Path(storage_path))
+    """Run the monitor, importing only explicitly trusted extension paths.
+
+    ``extension_paths`` is supplied by the caller or ``--extension-path``.
+    Storage metadata is provenance only and never authorizes Python imports.
+    """
+    for extension_path in dict.fromkeys(extension_paths or []):
+        resolved_path = Path(extension_path).expanduser().resolve()
+        if not resolved_path.is_dir():
+            raise ValueError(
+                f"Extension path is not a directory: {resolved_path}"
+            )
+        print(
+            "Loading extensions selected by --extension-path / "
+            f"extension_paths: {resolved_path}"
+        )
+        Environment._load_extensions(str(resolved_path))
 
     # Set class variables before creating server
     AgentMonitorHTTPRequestHandler._storage_path = storage_path
@@ -2031,6 +1979,14 @@ def main() -> int:
         help="Path to configuration directory (optional)",
     )
     parser.add_argument(
+        "--extension-path",
+        action="append",
+        default=[],
+        metavar="DIRECTORY",
+        help="Import custom artifact/UI Python from this trusted package "
+        "directory (repeatable; storage metadata is ignored)",
+    )
+    parser.add_argument(
         "--host",
         type=str,
         default="localhost",
@@ -2075,6 +2031,7 @@ def main() -> int:
         host=args.host,
         port=args.port,
         open_browser=not args.no_browser,
+        extension_paths=args.extension_path,
     )
 
     return 0

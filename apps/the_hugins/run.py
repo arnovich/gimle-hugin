@@ -495,7 +495,9 @@ def main() -> int:
         # Start the agent monitor using helper
         print("⏳ Waiting for agent monitor to start...")
         monitor_process = start_monitor_dashboard(
-            SESSION_DIR, args.monitor_port
+            SESSION_DIR,
+            args.monitor_port,
+            extension_paths=[str(Path(__file__).resolve().parent)],
         )
 
     # Start web server (world can be None, will be loaded via browser)

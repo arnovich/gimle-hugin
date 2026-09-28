@@ -101,7 +101,11 @@ def main() -> int:
     monitor_process = None
     if args.monitor:
         print(f"🌐 Starting monitor at http://localhost:{args.port}/")
-        monitor_process = start_monitor_dashboard(SAVE_DIR, args.port)
+        monitor_process = start_monitor_dashboard(
+            SAVE_DIR,
+            args.port,
+            extension_paths=[str(Path(__file__).resolve().parent)],
+        )
         open_in_browser(f"http://localhost:{args.port}/")
         print()
 

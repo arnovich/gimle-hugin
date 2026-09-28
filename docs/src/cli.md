@@ -100,6 +100,7 @@ hugin monitor [options]
 | `-s, --storage-path` | Path to agent storage |
 | `-p, --port` | Server port (default: 8000) |
 | `--no-browser` | Don't auto-open browser |
+| `--extension-path DIRECTORY` | Import custom artifact types and UI components from a trusted package directory; repeat for multiple packages |
 
 **Example:**
 
@@ -109,13 +110,42 @@ hugin monitor -s ./data/my_agent
 
 # Custom port
 hugin monitor -s ./storage -p 8080
+
+# Explicitly enable custom rendering from a trusted local agent package
+hugin monitor -s ./storage --extension-path ./my_agent
 ```
+
+The monitor ignores extension paths in storage `.hugin_metadata.json` files.
+Stored package paths record provenance; they do not authorize Python imports.
+Custom renderers now require `--extension-path`, which executes Python from the
+named package in the monitor process. Startup output identifies every selected
+path and the explicit argument that supplied it. `hugin run --monitor` forwards
+its already selected agent directory automatically.
 
 Features:
 - Real-time interaction flow visualization
 - Tool call inspection
 - Agent state browsing
 - Session/agent selection
+
+## hugin interactive
+
+Browse stored sessions without loading an agent package:
+
+```bash
+hugin interactive --storage-path ./storage
+```
+
+To resume an agent, provide its trusted local package explicitly:
+
+```bash
+hugin interactive --storage-path ./storage --task-path ./my_agent
+```
+
+Resumption loads Python tools and extensions from `--task-path`. It no longer
+discovers package paths from storage metadata, and a failed explicit load never
+falls back to those paths. With no task path, browsing remains available and a
+resume attempt logs guidance to supply `--task-path`.
 
 ## hugin rate
 

@@ -232,7 +232,9 @@ class AppState:
     def __init__(self, storage_path: str, task_path: Optional[str] = None):
         """Initialize the application state."""
         self.storage_path = Path(storage_path)
-        self.task_path = Path(task_path) if task_path else None
+        self.task_path = (
+            Path(task_path).expanduser().resolve() if task_path else None
+        )
         self.storage = LocalStorage(base_path=str(self.storage_path))
 
         # Current selections
@@ -1065,43 +1067,33 @@ class AppState:
         Returns:
             Tuple of (session, agent) if successful, None otherwise
         """
-        import json
-
         from gimle.hugin.agent.environment import Environment
 
-        try:
-            # Get package paths from metadata
-            metadata_path = self.storage_path / ".hugin_metadata.json"
-            if not metadata_path.exists():
-                return None
-
-            with open(metadata_path) as f:
-                metadata = json.load(f)
-
-            package_paths = metadata.get("package_paths", [])
-            if not package_paths:
-                return None
-
-            # Try each package path until we find one that works
-            for package_path in package_paths:
-                try:
-                    # Load environment from package path
-                    env = Environment.load(package_path, storage=self.storage)
-
-                    # Load session
-                    session = self.storage.load_session(session_id, env)
-
-                    # Find the agent
-                    for agent in session.agents:
-                        if agent.id == agent_id:
-                            return (session, agent)
-
-                except Exception:
-                    continue
-
+        logger = logging.getLogger(__name__)
+        if self.task_path is None:
+            logger.warning(
+                "Resuming requires an explicit trusted agent directory: "
+                "restart hugin interactive with --task-path DIRECTORY. "
+                "Storage metadata is not used to load Python code."
+            )
             return None
 
+        try:
+            if not self.task_path.is_dir():
+                raise ValueError(
+                    f"Task path is not a directory: {self.task_path}"
+                )
+            env = Environment.load(str(self.task_path), storage=self.storage)
+            session = self.storage.load_session(session_id, env)
+            agent = session.get_agent(agent_id)
+            if agent is not None:
+                return session, agent
+            session.close()
+            return None
         except Exception:
+            logger.exception(
+                "Could not resume agent from --task-path %s", self.task_path
+            )
             return None
 
     def submit_human_response(self, agent_id: str, response: str) -> bool:

@@ -43,14 +43,14 @@ shared over a network filesystem carries the same exposure.
 
 ## Outcome
 
-- [ ] The monitor and the interactive TUI no longer derive importable package
+- [x] The monitor and the interactive TUI no longer derive importable package
       paths from anything inside the storage directory.
-- [ ] Extension paths come from local CLI arguments or local config only, and a
+- [x] Extension paths come from local CLI arguments or local config only, and a
       `.hugin_metadata.json` found in storage is either ignored for this purpose
       or requires explicit opt-in naming the path.
-- [ ] A test asserts that a `.hugin_metadata.json` containing an attacker-chosen
+- [x] A test asserts that a `.hugin_metadata.json` containing an attacker-chosen
       `package_paths` entry does not cause an import when the monitor starts.
-- [ ] If the opt-in path is kept, `hugin monitor` states in its output which
+- [x] If the opt-in path is kept, `hugin monitor` states in its output which
       extension paths it loaded and where the instruction came from.
 
 ## Notes
@@ -66,8 +66,47 @@ shared over a network filesystem carries the same exposure.
   than the generic loader; a general audit of that assumption is out of scope
   here.
 
+## Plan
+
+- Remove the monitor's storage-metadata extension loader, including its late
+  reloads on agent, artifact, and interaction requests. Load extensions only
+  from repeatable explicit `--extension-path` arguments at startup, reporting
+  the selected paths and their CLI/API source.
+- Resume TUI agents only with the existing explicit `--task-path`; without
+  that trusted directory, keep browsing available and explain how to enable
+  resumption. Never fall back to metadata after a failed load.
+- Forward the trusted task directory from `hugin run --monitor` to preserve
+  custom artifact rendering. Document the opt-in and retain stored package
+  paths as provenance only.
+- Add sentinel-import regressions for monitor startup, later HTTP requests,
+  and TUI resume, plus positive explicit-path and CLI-forwarding tests. Run
+  focused and full tests and pre-commit, then an independent review panel.
+
+## Validation
+
+- Reproduced an actual sentinel Python import from attacker-chosen storage
+  metadata before the fix. The regression now passes; the new suite contains
+  13 startup/request/resume/browsing/explicit-path/CLI/helper cases.
+- `TMPDIR=/private/tmp uv run pytest -x -q`: **1,774 passed, 53 skipped**.
+- All pre-commit hooks pass for the changed files. All-file pre-commit still
+  reports baseline failures: 113 existing flake8 docstring findings, the
+  untyped function in `scripts/sync_packaged_examples.py:51`, and existing
+  secret-detector fixtures in `test_replay.py` and `test_trace_analysis.py`.
+  The hook-generated unrelated `.secrets.baseline` update was discarded.
+- A real localhost monitor returned HTTP 200 with metadata present and did
+  not import its sentinel. A second launch with `--extension-path` imported
+  the explicitly named package and identified it in startup output.
+- Independent review is pending. The pre-existing RapMachine `artifacts/`
+  and `components/` directories are not extension-loader conventions
+  (`artifact_types/` and `ui_components/`); this change does not expand those
+  conventions. App launchers now pass their package paths explicitly.
+
 ## Conversation
 
 ### note · codex/task039 · 2026-09-28T10:44:00Z
 
 Claimed to implement, test, and panel-review a separate PR; merge awaits owner review.
+
+### note · codex/task039 · 2026-09-28T11:20:06Z
+
+Implemented explicit trusted-path loading, removed metadata imports, and verified 1,774 tests plus live monitor HTTP startup; ready for independent panel review.

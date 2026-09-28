@@ -145,7 +145,11 @@ def main() -> int:
         print(f"Starting agent monitor at http://localhost:{args.port}/")
         print("(Use --no-monitor to disable)")
         print()
-        monitor_process = start_monitor_dashboard(str(SAVE_DIR), args.port)
+        monitor_process = start_monitor_dashboard(
+            str(SAVE_DIR),
+            args.port,
+            extension_paths=[str(Path(__file__).resolve().parent)],
+        )
         open_in_browser(f"http://localhost:{args.port}/")
 
     # Run analysis

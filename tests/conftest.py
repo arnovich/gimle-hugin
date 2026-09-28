@@ -16,6 +16,72 @@ from gimle.hugin.storage.local import LocalStorage
 from .mock_dependencies import MockTool
 
 
+@pytest.fixture
+def extension_trust_probe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Any:
+    """Provide stored sessions and real extensions that record their imports."""
+    import json
+    import sys
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    from gimle.hugin.agent.environment import Environment
+    from gimle.hugin.agent.session import Session
+    from gimle.hugin.agent.task import Task
+    from gimle.hugin.cli import monitor_agents
+
+    monkeypatch.setattr(sys, "path", sys.path.copy())
+    monkeypatch.setattr(Environment, "_loaded_extensions", set())
+    storage_path = tmp_path / "storage"
+    storage = LocalStorage(base_path=str(storage_path))
+    session = Session(environment=Environment(storage=storage))
+    agent = session.create_agent_from_task(
+        Config(name="probe", description="Probe", system_template="Probe"),
+        Task(name="probe", description="Probe", prompt="Probe"),
+    )
+    storage.save_session(session)
+    paths = {}
+    for name in ("attacker", "trusted"):
+        package = tmp_path / f"extension_trust_{name}"
+        extensions = package / "artifact_types"
+        extensions.mkdir(parents=True)
+        marker = tmp_path / f"{name}_imported"
+        (extensions / "probe.py").write_text(
+            "from pathlib import Path\n"
+            f"Path({str(marker)!r}).write_text('imported')\n"
+        )
+        paths[name] = package
+        paths[f"{name}_marker"] = marker
+    (storage_path / ".hugin_metadata.json").write_text(
+        json.dumps({"package_paths": [str(paths["attacker"])]})
+    )
+    server = MagicMock()
+    server.serve_forever.side_effect = KeyboardInterrupt
+    monkeypatch.setattr(
+        monitor_agents, "ThreadingHTTPServer", lambda *a: server
+    )
+    monkeypatch.setattr(
+        monitor_agents, "_watch_storage_directory", lambda *a: None
+    )
+    handler = monitor_agents.AgentMonitorHTTPRequestHandler
+    monkeypatch.setattr(handler, "_storage_path", str(storage_path))
+    monkeypatch.setattr(handler, "_config_path", None)
+    try:
+        yield SimpleNamespace(
+            storage_path=storage_path,
+            storage=storage,
+            session=session,
+            agent=agent,
+            **paths,
+        )
+    finally:
+        session.close()
+        for name in list(sys.modules):
+            if name.startswith("extension_trust_"):
+                del sys.modules[name]
+
+
 class MockModel(Model):
     """Mock model for testing without actual LLM calls."""
 
