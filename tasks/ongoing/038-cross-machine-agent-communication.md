@@ -1,6 +1,9 @@
 ---
 title: Agent-to-agent communication across machines, not just within one runner
-state: open
+state: ongoing
+claimed_by: codex/task038
+claimed_at: 2026-09-28T15:19:21Z
+branch: task/038_swarm_design
 priority: medium
 labels: [design, enhancement, multi-agent]
 depends_on: ["036", "039", "040", "041"]
@@ -808,3 +811,11 @@ Deliberately left open, to be decided on evidence rather than up front:
 - **Per-sender FIFO.** Not in v1 — messages are an unordered set. A monotonic
   per-sender sequence number in the envelope would give real ordering within a
   sender without any clock, if a use case appears.
+
+## Conversation
+
+### note · codex/task038 · 2026-09-28T15:19:21Z
+
+Claimed for specification and panel review. Owner selected automatic admission
+by private swarm invite and an initial scale of tens to hundreds of machines.
+Runtime implementation remains a subsequent step.
