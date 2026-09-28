@@ -63,21 +63,21 @@ turn for the life of the agent.
 
 ## Outcome
 
-- [ ] A message delivered to an agent is still delivered after the session has
+- [x] A message delivered to an agent is still delivered after the session has
       been saved and reloaded.
-- [ ] Delivering three messages before an agent's next turn results in all
+- [x] Delivering three messages before an agent's next turn results in all
       three reaching the model, in one turn.
-- [ ] The interaction that triggers a drain still takes its turn; no interaction
+- [x] The interaction that triggers a drain still takes its turn; no interaction
       is left appended-but-never-stepped.
-- [ ] Delivered message text participates in the context policy: after its
+- [x] Delivered message text participates in the context policy: after its
       configured window it is reduced or elided like any tool result, and the
       default window is finite. A test asserts rendered context does not grow
       without bound as messages accumulate.
-- [ ] A message can be delivered to a named branch and is observed by that
+- [x] A message can be delivered to a named branch and is observed by that
       branch.
-- [ ] Remote or externally-sourced text is rendered fenced from surrounding
+- [x] Remote or externally-sourced text is rendered fenced from surrounding
       content, with its provenance visible.
-- [ ] The mechanism has direct test coverage, which it has none of today.
+- [x] The mechanism has direct test coverage, which it has none of today.
 
 ## Notes
 
@@ -90,8 +90,66 @@ turn for the life of the agent.
 - Defect 3's fix should settle drain *ordering*, not only persistence — those
   are separable and the ordering one is the more visible.
 
+## Review
+
+Three-role panel (correctness/security, compatibility/testing, maintainability/performance): the plain-text completion delivery gap was reproduced and fixed in dca0e08; follow-up independent review passed. No remaining blocking findings. Provider-adapter end-to-end coverage was suggested as a nonblocking extension.
+
 ## Conversation
 
 ### note · codex/task040 · 2026-09-28T10:44:00Z
 
 Claimed to implement, test, and panel-review a separate PR; merge awaits owner review.
+
+## Plan
+
+- Persist the pending inbox inline in stack state, preserving message IDs,
+  branch, source label, and context window. Keep the existing string-only
+  delivery calls compatible and guard concurrent enqueue/drain operations.
+- Drain a branch's complete batch at its pending AskOracle execution boundary,
+  attaching durable message records to that oracle rather than burying its
+  original prompt or tool result. Retain the batch on failure for retry.
+- Wake completed branches with a message turn while leaving child, tool, and
+  human waits intact. Release the stack step lock even when a provider fails.
+- Render external text as fenced JSON data with visible provenance, separately
+  from trusted task/tool content. Elide it after a configurable positive window
+  of model turns (default five); retain the durable history on disk.
+- Add direct regressions for disk reload, ordered fan-in, trigger preservation,
+  retries, branch targeting, wait safety, bounded context, and hostile fence
+  content. Run focused and full tests, pre-commit checks, and independent review.
+
+## Verification
+
+- Added 20 direct delivery regressions; focused delivery, context-window,
+  storage, and waiting suites: 105 passed.
+- `TMPDIR=/private/tmp uv run pytest -x -q`: 1781 passed, 53 skipped.
+  Local socket tests require the approved unsandboxed test run; the first
+  sandboxed attempt stopped at an existing localhost bind restriction.
+- Changed-file pre-commit hooks all pass. Required all-file hooks were run;
+  remaining failures are existing docstring lint findings, the untyped
+  `scripts/sync_packaged_examples.py:51`, and four existing secret-test fixtures.
+  Restored the unrelated detect-secrets baseline rewrite.
+- No unresolved CLAUDE markers in touched files. Independent review and PR
+  integration remain with the coordinating agent.
+- Inbox persistence follows normal completed session saves; the existing
+  multi-file storage format does not provide crash-atomic session transactions.
+
+## Conversation
+
+### note · codex/task040 · 2026-09-28T11:22:54Z
+
+Implemented durable ordered delivery, branch-aware wakeup, retry retention, and
+fenced external context with a default five-turn window; full tests and changed-file
+hooks pass. Awaiting independent review and PR integration.
+
+### note · codex/task040 · 2026-09-28T11:28:49Z
+
+Independent review found that a plain-text response could stop the session before
+its appended TaskResult ran, stranding a message received during the call.
+Added a failing real-session regression and made an appended branch successor
+count as progress; updated two legacy premature-stop assertions. The follow-up
+passes 122 focused stack/wait/delivery tests, 75 agent/session/integration tests,
+and the full suite again (1781 passed, 53 skipped).
+
+### note · codex/task040 · 2026-09-28T11:31:02Z
+
+Panel complete; preparing the implementation PR for owner review.

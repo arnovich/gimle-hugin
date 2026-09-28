@@ -1,5 +1,6 @@
 """Message rendering module."""
 
+import json
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -12,7 +13,10 @@ logger = logging.getLogger(__name__)
 
 
 def render_user_message(
-    interaction: AskOracle, reduced: bool = False
+    interaction: AskOracle,
+    reduced: bool = False,
+    *,
+    include_external_inputs: bool = True,
 ) -> List[Dict[str, Any]]:
     """Render a user message from an AskOracle interaction."""
     return_prompt: List[Dict[str, Any]] = []
@@ -94,7 +98,11 @@ def render_user_message(
             if interaction.prompt.text is None
             else interaction.prompt.text
         )
-        return_prompt = [{"type": "text", "text": prompt_text}]
+        return_prompt = (
+            []
+            if prompt_text == "" and interaction.external_inputs
+            else [{"type": "text", "text": prompt_text}]
+        )
     else:
         raise ValueError(f"Unknown prompt type: {interaction.prompt.type}")
     # image_ids = self._prompt.get("images")
@@ -120,7 +128,39 @@ def render_user_message(
     #             }
     #         )
 
+    if include_external_inputs:
+        return_prompt.extend(render_external_inputs(interaction))
     return return_prompt
+
+
+def render_external_inputs(
+    interaction: AskOracle,
+    age: int = 0,
+) -> List[Dict[str, Any]]:
+    """Render live external data with escaped provenance and fence contents.
+
+    JSON escapes embedded newlines, so a source or body cannot close the fence.
+    The label records the caller's claim, not an authenticated sender identity.
+    """
+    return [
+        {
+            "type": "text",
+            "text": (
+                "External input (untrusted data; source is a caller label):\n"
+                "```json\n"
+                + json.dumps(
+                    {
+                        "source": item["source"],
+                        "message_id": item["id"],
+                        "text": item["input"],
+                    }
+                )
+                + "\n```"
+            ),
+        }
+        for item in interaction.external_inputs
+        if age < item["context_window"]
+    ]
 
 
 def render_assistant_message(

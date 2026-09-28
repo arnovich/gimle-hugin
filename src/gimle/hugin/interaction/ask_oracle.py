@@ -2,7 +2,7 @@
 
 import copy
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from gimle.hugin.interaction.ask_human import AskHuman
@@ -39,12 +39,14 @@ class AskOracle(Interaction):
         template_inputs: Template variables for rendering.
         include_in_context: Whether to include in LLM context rendering.
         tool_context_policy: Context options captured for this historical call.
+        external_inputs: Durable external messages attached to this turn.
     """
 
     prompt: Optional[Prompt] = None
     template_inputs: Optional[Dict[str, Any]] = None
     include_in_context: bool = True
     tool_context_policy: Optional[Dict[str, Any]] = None
+    external_inputs: List[Dict[str, Any]] = field(default_factory=list)
 
     @staticmethod
     def create_from_external_input(
@@ -63,9 +65,10 @@ class AskOracle(Interaction):
             branch=external_input.branch,
             prompt=Prompt(
                 type="text",
-                text=external_input.input,
+                text="",
             ),
             template_inputs={},
+            external_inputs=[external_input.to_message()],
         )
 
     @staticmethod
@@ -238,6 +241,7 @@ class AskOracle(Interaction):
             "prompt": prompt,
             "template_inputs": data.get("template_inputs", {}),
             "include_in_context": data.get("include_in_context", True),
+            "external_inputs": copy.deepcopy(data.get("external_inputs", [])),
             "tool_context_policy": copy.deepcopy(
                 data.get("tool_context_policy")
             ),
@@ -265,6 +269,25 @@ class AskOracle(Interaction):
             raise ValueError("AskOracle prompt is None")
         if self.template_inputs is None:
             raise ValueError("AskOracle template inputs is None")
+
+        # Keep the original prompt active, and retain drained messages here if
+        # the provider fails or the session budget refuses this turn.
+        self.external_inputs.extend(
+            self.stack.drain_external_inputs(self.branch)
+        )
+        if (
+            self.prompt.type == "text"
+            and self.prompt.text == ""
+            and self.external_inputs
+        ):
+            self.prompt.tool_name = "external_input"
+            self.tool_context_policy = {
+                "include_only_in_context_window": True,
+                "context_window": max(
+                    item["context_window"] for item in self.external_inputs
+                ),
+                "reduced_context_window_enabled": False,
+            }
 
         tools = self.stack.get_tools(branch=self.branch)
         interaction_messages = self.stack.render_stack_context(
