@@ -363,11 +363,14 @@ class TestAgentFullFlow:
             mock_chat_completion.call_count >= 1
         ), "chat_completion should have been called at least once"
 
-        # Verify final interaction is OracleResponse (text, no tool call)
+        # A plain-text response still needs its deterministic completion step.
         from gimle.hugin.interaction.oracle_response import OracleResponse
+        from gimle.hugin.interaction.task_result import TaskResult
+        from gimle.hugin.interaction.waiting import Waiting
 
-        final_interaction = agent.stack.interactions[-2]
-        assert isinstance(final_interaction, OracleResponse)
+        assert isinstance(agent.stack.interactions[-3], OracleResponse)
+        assert isinstance(agent.stack.interactions[-2], TaskResult)
+        assert isinstance(agent.stack.interactions[-1], Waiting)
 
         # Check that tools are registered and accessible
         tools = agent.config.tools

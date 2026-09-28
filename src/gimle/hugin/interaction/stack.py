@@ -2,12 +2,17 @@
 
 import json
 import logging
+from copy import deepcopy
+from threading import Lock
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Type
 
 from gimle.hugin.agent.task import Task
 from gimle.hugin.artifacts.artifact import Artifact
 from gimle.hugin.interaction.ask_oracle import AskOracle
-from gimle.hugin.interaction.external_input import ExternalInput
+from gimle.hugin.interaction.external_input import (
+    DEFAULT_CONTEXT_WINDOW,
+    ExternalInput,
+)
 from gimle.hugin.interaction.interaction import Interaction
 from gimle.hugin.interaction.oracle_response import OracleResponse
 from gimle.hugin.interaction.task_result import TaskResult
@@ -15,6 +20,7 @@ from gimle.hugin.interaction.tool_result import snapshot_tool_context_policy
 from gimle.hugin.interaction.waiting import Waiting
 from gimle.hugin.llm.prompt.message import (
     render_assistant_message,
+    render_external_inputs,
     render_user_message,
 )
 from gimle.hugin.tools.tool import Tool
@@ -50,7 +56,8 @@ class Stack:
         )
         self.agent: Agent = agent
         self.branches: Dict[str, List[Interaction]] = {}
-        self.queued_interactions: List[Interaction] = []
+        self.queued_interactions: List[ExternalInput] = []
+        self._inbox_lock = Lock()
         self._step_lock: bool = False
 
     @property
@@ -224,6 +231,7 @@ class Stack:
         message_groups = {}
         total_message_groups = 0
         finished = False
+        oracle_age = -1
         # Track the last AskOracle's include_in_context for its OracleResponse
         last_ask_oracle_include = True
         logger.debug(f"Rendering stack context for branch: {branch}")
@@ -232,6 +240,7 @@ class Stack:
                 finished = True
                 continue
             if isinstance(interaction, AskOracle):
+                oracle_age += 1
                 if interaction.prompt is None:
                     raise ValueError("AskOracle prompt is None")
 
@@ -318,30 +327,30 @@ class Stack:
                 # OracleResponse inherits include_in_context from its AskOracle
                 if not last_ask_oracle_include:
                     continue  # Skip this OracleResponse
-            if (
-                isinstance(interaction, (AskOracle, OracleResponse))
-                and append_to_context
-            ):
-                if isinstance(interaction, AskOracle):
-                    interactions_messages.append(
-                        {
-                            "role": "user",
-                            "content": render_user_message(
-                                interaction, reduced
-                            ),
-                        }
+            if isinstance(interaction, AskOracle):
+                content = (
+                    render_user_message(
+                        interaction, reduced, include_external_inputs=False
                     )
-                else:
+                    if append_to_context
+                    else []
+                )
+                content.extend(render_external_inputs(interaction, oracle_age))
+                if content:
                     interactions_messages.append(
-                        {
-                            "role": "assistant",
-                            "content": render_assistant_message(
-                                interaction,
-                                reduced,
-                                reduced_ignore_list,
-                            ),
-                        }
+                        {"role": "user", "content": content}
                     )
+            elif isinstance(interaction, OracleResponse) and append_to_context:
+                interactions_messages.append(
+                    {
+                        "role": "assistant",
+                        "content": render_assistant_message(
+                            interaction,
+                            reduced,
+                            reduced_ignore_list,
+                        ),
+                    }
+                )
         return [i for i in reversed(interactions_messages)]
 
     def add_interaction(
@@ -376,77 +385,121 @@ class Stack:
             f"[stack size: {len(self.interactions)}]"
         )
 
-        if self.queued_interactions and isinstance(interaction, AskOracle):
-            logger.debug(
-                f"Adding {len(self.queued_interactions)} queued interactions to the stack"
-            )
-            self.interactions.extend(self.queued_interactions)
-            self.queued_interactions = []
-
     def step(self) -> bool:
-        """Step all active branches in the stack.
-
-        Steps the last interaction on each branch that hasn't completed.
-        Returns True if any branch was stepped, False if all branches
-        are complete or the stack is empty.
-
-        Returns:
-            True if any branch was stepped, False if all branches
-            are complete or the stack is empty.
-        """
+        """Advance each branch, waking completed receivers with pending input."""
         if self._step_lock:
             raise ValueError("Step lock is active")
         self._step_lock = True
-        logger.debug(f"Stepping stack {self.agent.id}")
-
-        if not self.interactions:
-            self._step_lock = False
-            return False
-
         try:
-            # Get all active branches
-            branches = self.get_active_branches()
-
-            # Step each branch that isn't complete
+            self.wake_external_inputs()
             any_stepped = False
-            for branch in branches:
-                # if self.is_branch_complete(branch):
-                #     logger.debug(f"Branch {branch} is complete, skipping")
-                #     continue
-
-                last_interaction = self.get_last_interaction_for_branch(branch)
-                if last_interaction is None:
+            for branch in self.get_active_branches():
+                last = self.get_last_interaction_for_branch(branch)
+                if last is None:
                     continue
-
-                logger.debug(
-                    f"Stepping branch {branch}: "
-                    f"{last_interaction.__class__.__name__}"
-                )
                 if (
-                    isinstance(last_interaction, AskOracle)
+                    isinstance(last, AskOracle)
                     and not self.agent.session.can_call_model
                 ):
                     self.agent.session.limit_reached = "llm_calls"
                     continue
-                step_result = last_interaction.step()
-                if step_result:
+                stepped = last.step()
+                # Some interactions report completion while appending their
+                # deterministic successor (for example a plain-text result).
+                # That successor must run before the session can stop.
+                if (
+                    stepped
+                    or self.get_last_interaction_for_branch(branch) is not last
+                ):
                     any_stepped = True
-
-            return any_stepped
+            # A condition may have completed without appending a successor.
+            # Wake its inbox now so the session does not stop before delivery.
+            return self.wake_external_inputs() or any_stepped
         finally:
             self._step_lock = False
 
-    def insert_external_input(self, input: str) -> None:
-        """Insert a human interaction into the stack.
+    def has_pending_external_input(self, branch: Optional[str] = None) -> bool:
+        """Return whether a branch has undelivered inbox records."""
+        with self._inbox_lock:
+            return any(
+                item.branch == branch for item in self.queued_interactions
+            )
 
-        This creates a ExternalInput interaction with the input, which
-        will then create an AskOracle to process the external input.
+    def wake_external_inputs(self) -> bool:
+        """Wake terminal branches without burying child or condition waits."""
+        from gimle.hugin.interaction.agent_call import AgentCall
+        from gimle.hugin.llm.prompt.prompt import Prompt
 
-        Args:
-            input: The input from the external source to the agent
+        with self._inbox_lock:
+            if not self.queued_interactions:
+                return False
+        changed = False
+        for branch in self.get_active_branches():
+            if not self.has_pending_external_input(branch):
+                continue
+            last = self.get_last_interaction_for_branch(branch)
+            if not isinstance(last, Waiting):
+                continue
+            history = self.get_branch_interactions(branch)
+            child_wait = len(history) > 1 and isinstance(history[-2], AgentCall)
+            if not last.completed and (
+                last.condition is not None or child_wait
+            ):
+                continue
+            self.add_interaction(
+                AskOracle(
+                    stack=self,
+                    branch=branch,
+                    prompt=Prompt(type="text", text=""),
+                    template_inputs={},
+                )
+            )
+            changed = True
+        return changed
+
+    def drain_external_inputs(
+        self, branch: Optional[str]
+    ) -> List[Dict[str, Any]]:
+        """Take one branch's ordered batch while preserving concurrent arrivals."""
+        with self._inbox_lock:
+            batch = [
+                item
+                for item in self.queued_interactions
+                if item.branch == branch
+            ]
+            self.queued_interactions = [
+                item
+                for item in self.queued_interactions
+                if item.branch != branch
+            ]
+            return [item.to_message() for item in batch]
+
+    def insert_external_input(
+        self,
+        input: str,
+        *,
+        branch: Optional[str] = None,
+        source: str = "external",
+        context_window: int = DEFAULT_CONTEXT_WINDOW,
+    ) -> None:
+        """Queue source-labelled data for the branch's next model turn.
+
+        The positive context window counts model turns including delivery.
+        Source is a caller-provided provenance label, not authenticated identity.
         """
-        external_input = ExternalInput(stack=self, input=input)
-        self.queued_interactions.append(external_input)
+        if type(context_window) is not int or context_window < 1:
+            raise ValueError("context_window must be a positive integer")
+        if branch is not None and branch not in self.get_active_branches():
+            raise ValueError(f"Unknown branch {branch!r}")
+        external_input = ExternalInput(
+            stack=self,
+            input=input,
+            branch=branch,
+            source=source,
+            context_window=context_window,
+        )
+        with self._inbox_lock:
+            self.queued_interactions.append(external_input)
 
     def _get_last_interaction_of_type(
         self,
@@ -686,7 +739,10 @@ class Stack:
         Returns:
             A dictionary representation of the stack.
         """
+        with self._inbox_lock:
+            inbox = [item.to_dict() for item in self.queued_interactions]
         return {
+            "queued_interactions": inbox,
             "interactions": [
                 interaction.id for interaction in self.interactions
             ],
@@ -744,6 +800,14 @@ class Stack:
         else:
             stack.interactions = data.get("interactions", [])
 
+        for record in data.get("queued_interactions", []):
+            if record.get("type") != "ExternalInput":
+                raise ValueError("Inbox contains a non-external interaction")
+            stack.queued_interactions.append(
+                ExternalInput._from_dict(
+                    deepcopy(record["data"]), stack=stack, artifacts=[]
+                )
+            )
         return stack
 
     def rewind_to(
