@@ -395,7 +395,16 @@ class Stack:
             any_stepped = False
             for branch in self.get_active_branches():
                 last = self.get_last_interaction_for_branch(branch)
-                if last is not None and last.step():
+                if last is None:
+                    continue
+                stepped = last.step()
+                # Some interactions report completion while appending their
+                # deterministic successor (for example a plain-text result).
+                # That successor must run before the session can stop.
+                if (
+                    stepped
+                    or self.get_last_interaction_for_branch(branch) is not last
+                ):
                     any_stepped = True
             # A condition may have completed without appending a successor.
             # Wake its inbox now so the session does not stop before delivery.
@@ -415,6 +424,9 @@ class Stack:
         from gimle.hugin.interaction.agent_call import AgentCall
         from gimle.hugin.llm.prompt.prompt import Prompt
 
+        with self._inbox_lock:
+            if not self.queued_interactions:
+                return False
         changed = False
         for branch in self.get_active_branches():
             if not self.has_pending_external_input(branch):
