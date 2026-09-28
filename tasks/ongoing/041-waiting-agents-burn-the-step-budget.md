@@ -1,6 +1,9 @@
 ---
 title: A waiting agent spins the session loop and rewrites all storage each pass
-state: open
+state: ongoing
+claimed_by: codex/task041
+claimed_at: 2026-09-28T10:44:00Z
+branch: task/041_waiting_scheduler
 priority: high
 labels: [bug, runtime, performance]
 related: ["038"]
@@ -68,3 +71,9 @@ parked agent is load-bearing — but neither defect is specific to that task.
   demonstrated at realistic deadlines until this is fixed.
 - Any test written for a wait must use a realistic deadline; a sub-second
   deadline passes green while hiding exactly this defect.
+
+## Conversation
+
+### note · codex/task041 · 2026-09-28T10:44:00Z
+
+Claimed to implement, test, and panel-review a separate PR; merge awaits owner review.

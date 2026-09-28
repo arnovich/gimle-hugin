@@ -1,6 +1,9 @@
 ---
 title: Storage-directory metadata can load arbitrary Python into the monitor
-state: open
+state: ongoing
+claimed_by: codex/task039
+claimed_at: 2026-09-28T10:44:00Z
+branch: task/039_storage_extension_trust
 priority: high
 labels: [security, bug, storage]
 related: ["038"]
@@ -62,3 +65,9 @@ shared over a network filesystem carries the same exposure.
   own wire format by parsing envelopes with a dedicated strict parser rather
   than the generic loader; a general audit of that assumption is out of scope
   here.
+
+## Conversation
+
+### note · codex/task039 · 2026-09-28T10:44:00Z
+
+Claimed to implement, test, and panel-review a separate PR; merge awaits owner review.
