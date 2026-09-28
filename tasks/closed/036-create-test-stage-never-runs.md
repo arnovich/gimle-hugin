@@ -1,9 +1,6 @@
 ---
 title: "`hugin create`'s test stage never runs — the child agent is never stepped"
-state: ongoing
-claimed_by: codex/task036
-claimed_at: 2026-09-28T09:17:51Z
-branch: task/036_create_test_stage
+state: closed
 labels: [bug, agent-builder, cli]
 priority: high
 ---
@@ -161,3 +158,8 @@ The full suite above passed after these changes.
 Implemented and reviewed; all six new CLI regressions and the full suite pass.
 Repository-wide lint failures match the baseline; preparing the implementation
 PR. Task 037 parameter propagation and task 041 idle-loop work remain separate.
+
+### note · codex/task036 · 2026-09-28T09:43:26Z
+
+Merged in [PR #134](https://github.com/arnovich/gimle-hugin/pull/134) after
+CI passed. Task complete; the fix is on main.
