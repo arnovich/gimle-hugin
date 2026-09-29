@@ -3,7 +3,7 @@ title: Agent-to-agent communication across machines, not just within one runner
 state: ongoing
 claimed_by: codex/task038
 claimed_at: 2026-09-28T15:19:21Z
-branch: task/038_swarm_design
+branch: task/038_transport_admission
 priority: medium
 labels: [design, enhancement, multi-agent]
 depends_on: ["036", "039", "040", "041"]
@@ -861,3 +861,24 @@ Four independent design judges approved the revised specification after fixes
 and follow-up review. The review report records findings and their resolution.
 Design is ready for owner review; runtime implementation and qualification
 remain outstanding in six incremental stages.
+
+### note · codex/task038 · 2026-09-29T09:55:30Z
+
+Owner authorized the transport/admission implementation, with an explicit
+public-repository constraint: no secrets or private deployment information.
+Starting the isolated transport experiment; all credentials are ephemeral test
+material generated at runtime. Plan: docs/design/038-transport-experiment.md.
+
+### note · codex/task038 · 2026-09-29T10:17:13Z
+
+Transport experiment found that the tested cryptography path verifier rejects
+Ed25519 keys. An isolated OpenSSL verifier supports the probe, but its lifecycle
+is an explicit production dependency gate. Staff/panel feedback drove a fresh
+implementation, same-connection revocation tests and protocol-error redaction.
+
+### note · codex/task038 · 2026-09-29T10:20:18Z
+
+Revised loopback transport experiment approved by all three judges; security
+and protocol reviewers independently passed 33 strict tests. No production
+daemon, persistent join or discovery is claimed. Remaining provisioning work
+must resolve the documented verifier lifecycle gate before deployment.

@@ -197,3 +197,13 @@ crash.*.log
 
 # Lightning logs
 /lightning_logs
+
+# Local swarm credentials and cloud configuration (never publish)
+.hugin-swarm/
+*.invite
+*.swarm-invite
+*.pem
+*.key
+.aws/
+.env.*
+!.env.example
