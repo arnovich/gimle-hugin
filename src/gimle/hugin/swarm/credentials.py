@@ -7,13 +7,18 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from cryptography import x509
+from cryptography.exceptions import InvalidSignature, UnsupportedAlgorithm
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PrivateKey,
     Ed25519PublicKey,
 )
-from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
-from OpenSSL import crypto
+from cryptography.x509.oid import (
+    ExtendedKeyUsageOID,
+    ExtensionOID,
+    NameOID,
+    SignatureAlgorithmOID,
+)
 
 from gimle.hugin.swarm.wire import ProtocolError, decode, encode, sign
 
@@ -47,55 +52,207 @@ def certificate_pem(cert: x509.Certificate) -> str:
     return cert.public_bytes(serialization.Encoding.PEM).decode("ascii")
 
 
+_BASE_EXTENSIONS = {
+    ExtensionOID.BASIC_CONSTRAINTS,
+    ExtensionOID.KEY_USAGE,
+    ExtensionOID.SUBJECT_KEY_IDENTIFIER,
+    ExtensionOID.AUTHORITY_KEY_IDENTIFIER,
+}
+
+
+def _profile(
+    cert: x509.Certificate,
+    parent: x509.Certificate,
+    now: datetime,
+    depth: int | None,
+) -> None:
+    """Check every field of the one supported private-certificate profile."""
+    key = certificate_key(cert)
+    parent_key = certificate_key(parent)
+    identity = public_id(key)
+    if (
+        cert.signature_algorithm_oid != SignatureAlgorithmOID.ED25519
+        or cert.subject
+        != x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, identity)])
+        or not cert.not_valid_before_utc <= now < cert.not_valid_after_utc
+        or cert.not_valid_after_utc > parent.not_valid_after_utc
+    ):
+        raise ProtocolError()
+    cert.verify_directly_issued_by(parent)
+    allowed = set(_BASE_EXTENSIONS)
+    if depth is None:
+        allowed.update(
+            {
+                ExtensionOID.SUBJECT_ALTERNATIVE_NAME,
+                ExtensionOID.EXTENDED_KEY_USAGE,
+            }
+        )
+    if {extension.oid for extension in cert.extensions} != allowed:
+        raise ProtocolError()
+    expected_critical = {
+        ExtensionOID.BASIC_CONSTRAINTS,
+        ExtensionOID.KEY_USAGE,
+    }
+    for extension in cert.extensions:
+        if extension.critical != (extension.oid in expected_critical):
+            raise ProtocolError()
+    if cert.extensions.get_extension_for_class(
+        x509.BasicConstraints
+    ).value != x509.BasicConstraints(ca=depth is not None, path_length=depth):
+        raise ProtocolError()
+    ca = depth is not None
+    expected_usage = x509.KeyUsage(
+        True, False, False, False, False, ca, ca, False, False
+    )
+    if (
+        cert.extensions.get_extension_for_class(x509.KeyUsage).value
+        != expected_usage
+    ):
+        raise ProtocolError()
+    if cert.extensions.get_extension_for_class(
+        x509.SubjectKeyIdentifier
+    ).value != x509.SubjectKeyIdentifier.from_public_key(key):
+        raise ProtocolError()
+    if cert.extensions.get_extension_for_class(
+        x509.AuthorityKeyIdentifier
+    ).value != x509.AuthorityKeyIdentifier.from_issuer_public_key(parent_key):
+        raise ProtocolError()
+    if depth is None:
+        san = cert.extensions.get_extension_for_class(
+            x509.SubjectAlternativeName
+        ).value
+        if san != x509.SubjectAlternativeName(
+            [x509.DNSName(node_hostname(identity))]
+        ):
+            raise ProtocolError()
+        eku = cert.extensions.get_extension_for_class(
+            x509.ExtendedKeyUsage
+        ).value
+        if eku != x509.ExtendedKeyUsage(
+            [ExtendedKeyUsageOID.CLIENT_AUTH, ExtendedKeyUsageOID.SERVER_AUTH]
+        ):
+            raise ProtocolError()
+
+
+def verify_root(root: x509.Certificate, now: datetime) -> None:
+    """Validate the exact self-signed root profile before pinning it."""
+    try:
+        _profile(root, root, now, 1)
+    except (
+        ValueError,
+        TypeError,
+        InvalidSignature,
+        UnsupportedAlgorithm,
+        x509.ExtensionNotFound,
+        x509.DuplicateExtension,
+        x509.UnsupportedGeneralNameType,
+        x509.InvalidVersion,
+    ):
+        raise ProtocolError() from None
+
+
+def verify_issuer(
+    issuer: x509.Certificate, root: x509.Certificate, now: datetime
+) -> None:
+    """Validate the sole invitation intermediate beneath the pinned root."""
+    try:
+        verify_root(root, now)
+        _profile(issuer, root, now, 0)
+    except (
+        ValueError,
+        TypeError,
+        InvalidSignature,
+        UnsupportedAlgorithm,
+        x509.ExtensionNotFound,
+        x509.DuplicateExtension,
+        x509.UnsupportedGeneralNameType,
+        x509.InvalidVersion,
+    ):
+        raise ProtocolError() from None
+
+
 def verify_chain(
     leaf: x509.Certificate,
     issuer: x509.Certificate,
     root: x509.Certificate,
     now: datetime,
 ) -> None:
-    """Verify the fixed chain using OpenSSL, plus the experiment's leaf profile.
-
-    This adapter is provisional: cryptography's path verifier rejects Ed25519
-    keys in the tested version. Keep pyOpenSSL use confined to this function.
-    """
+    """Check the exact three-certificate hierarchy verified again by TLS."""
     try:
-        store = crypto.X509Store()
-        store.add_cert(crypto.X509.from_cryptography(root))
-        store.set_time(now)
-        store.set_flags(crypto.X509StoreFlags.X509_STRICT)
-        context = crypto.X509StoreContext(
-            store,
-            crypto.X509.from_cryptography(leaf),
-            [crypto.X509.from_cryptography(issuer)],
-        )
-        chain = [
-            item.to_cryptography() for item in context.get_verified_chain()
-        ]
-        if chain != [leaf, issuer, root]:
-            raise ProtocolError()
-        if leaf.extensions.get_extension_for_class(
-            x509.BasicConstraints
-        ).value.ca:
-            raise ProtocolError()
-        if issuer.extensions.get_extension_for_class(
-            x509.BasicConstraints
-        ).value != x509.BasicConstraints(ca=True, path_length=0):
-            raise ProtocolError()
-        usages = leaf.extensions.get_extension_for_class(
-            x509.ExtendedKeyUsage
-        ).value
-        if not {
-            ExtendedKeyUsageOID.SERVER_AUTH,
-            ExtendedKeyUsageOID.CLIENT_AUTH,
-        }.issubset(usages):
-            raise ProtocolError()
-        for cert in chain:
-            certificate_key(cert)
+        verify_issuer(issuer, root, now)
+        _profile(leaf, issuer, now, None)
     except (
         ValueError,
         TypeError,
-        crypto.X509StoreContextError,
+        InvalidSignature,
+        UnsupportedAlgorithm,
         x509.ExtensionNotFound,
+        x509.DuplicateExtension,
+        x509.UnsupportedGeneralNameType,
+        x509.InvalidVersion,
+    ):
+        raise ProtocolError() from None
+
+
+def verify_tls_leaf(leaf: x509.Certificate, now: datetime) -> str:
+    """Check seed identity after the TLS stack validated its pinned-root path."""
+    try:
+        node_id = public_id(certificate_key(leaf))
+        allowed = _BASE_EXTENSIONS | {
+            ExtensionOID.SUBJECT_ALTERNATIVE_NAME,
+            ExtensionOID.EXTENDED_KEY_USAGE,
+        }
+        if (
+            leaf.signature_algorithm_oid != SignatureAlgorithmOID.ED25519
+            or leaf.subject
+            != x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, node_id)])
+            or not leaf.not_valid_before_utc <= now < leaf.not_valid_after_utc
+            or {extension.oid for extension in leaf.extensions} != allowed
+        ):
+            raise ProtocolError()
+        for extension in leaf.extensions:
+            if extension.critical != (
+                extension.oid
+                in {ExtensionOID.BASIC_CONSTRAINTS, ExtensionOID.KEY_USAGE}
+            ):
+                raise ProtocolError()
+        if (
+            leaf.extensions.get_extension_for_class(x509.BasicConstraints).value
+            != x509.BasicConstraints(ca=False, path_length=None)
+            or leaf.extensions.get_extension_for_class(x509.KeyUsage).value
+            != x509.KeyUsage(
+                True, False, False, False, False, False, False, False, False
+            )
+            or leaf.extensions.get_extension_for_class(
+                x509.SubjectAlternativeName
+            ).value
+            != x509.SubjectAlternativeName(
+                [x509.DNSName(node_hostname(node_id))]
+            )
+            or leaf.extensions.get_extension_for_class(
+                x509.ExtendedKeyUsage
+            ).value
+            != x509.ExtendedKeyUsage(
+                [
+                    ExtendedKeyUsageOID.CLIENT_AUTH,
+                    ExtendedKeyUsageOID.SERVER_AUTH,
+                ]
+            )
+            or leaf.extensions.get_extension_for_class(
+                x509.SubjectKeyIdentifier
+            ).value
+            != x509.SubjectKeyIdentifier.from_public_key(certificate_key(leaf))
+        ):
+            raise ProtocolError()
+        return node_id
+    except (
+        ValueError,
+        TypeError,
+        UnsupportedAlgorithm,
+        x509.ExtensionNotFound,
+        x509.DuplicateExtension,
+        x509.UnsupportedGeneralNameType,
+        x509.InvalidVersion,
     ):
         raise ProtocolError() from None
 
@@ -230,15 +387,17 @@ class Invitation:
     root: x509.Certificate = field(repr=False)
     grant: bytes = field(repr=False)
 
-    def join(self, now: datetime) -> "Node":
-        """Issue a distinct node identity that cannot outlive this invitation."""
+    def join(
+        self, now: datetime, *, key: Ed25519PrivateKey | None = None
+    ) -> "Node":
+        """Issue a leaf for a new identity or renew an existing node key."""
         if (
             not self.certificate.not_valid_before_utc
             <= now
             < self.certificate.not_valid_after_utc
         ):
             raise ProtocolError()
-        key = Ed25519PrivateKey.generate()
+        key = key or Ed25519PrivateKey.generate()
         return Node(
             key,
             _issue(
