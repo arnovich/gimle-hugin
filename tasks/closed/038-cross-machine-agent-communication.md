@@ -1,13 +1,28 @@
 ---
 title: Agent-to-agent communication across machines, not just within one runner
-state: ongoing
-claimed_by: codex/task038
-claimed_at: 2026-09-28T15:19:21Z
-branch: task/038_transport_admission
+state: closed
 priority: medium
-labels: [design, enhancement, multi-agent]
-depends_on: ["036", "039", "040", "041"]
-related: ["003", "004", "029"]
+labels:
+- design
+- enhancement
+- multi-agent
+depends_on:
+- '036'
+- 039
+- '040'
+- '041'
+related:
+- '003'
+- '004'
+- 029
+claim_history:
+- claimed_by: codex/task038
+  claimed_at: 2026-09-28 15:19:21+00:00
+  branch: task/038_transport_admission
+  ended_at: '2026-10-12T10:24:36.580447+00:00'
+  outcome: finish
+  reason: ''
+accepted_at: '2026-10-12T10:24:36.580461+00:00'
 ---
 
 # Agent-to-agent communication across machines
