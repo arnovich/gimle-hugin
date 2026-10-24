@@ -24,6 +24,8 @@ console_approvals:
     expires_at: '2026-10-24T13:13:50.126456Z'
     observed_revision: 19aa1f2821f2ade24a44fbe7a44e6f19d8229d23ee4baef66f04240d77faf5bb:0d9a64f5ce2b2afe41e9b9b3fdd08f92fd89a950
     question_id: null
+review_requested: true
+pull_request: https://github.com/arnovich/gimle-hugin/pull/148
 ---
 
 ## Context
@@ -57,3 +59,7 @@ Owner explicitly requested: let's do Hugin for now and then let's move on to 2 a
 ### note · agent/dc5f861b-de59-46fe-b239-2c8d005c8155 · 2026-10-24T14:06:21Z
 
 Implemented native per-agent tool bindings and complete provider schemas; Taskvalet adds prepared asynchronous compute submit/status with durable receipt recovery. Three-role review found two recovery issues, both fixed with regressions. Final Hugin iteration is in gimle-hugin-taskvalet-final on the claimed branch; the original run journal remains authoritative. Focused and cross-package tests pass; full suites and CI-equivalent checks are running. All-files pre-commit has baseline docstring/secret-fixture failures and a mypy 1.16.1 dependency crash, reproduced on untouched origin/main. No production deployment or model calls yet.
+
+### note · agent/dc5f861b-de59-46fe-b239-2c8d005c8155 · 2026-10-24T16:25:18Z
+
+Native integration ready for review. Hugin: 1857 passed, 53 skipped; formatting/lint/types, 26 shipped-agent validation and changed-file commit hooks pass. Three-role panel cleared final iteration. Taskvalet companion PR https://github.com/arnovich/taskvalet/pull/7 adds prepared compute and sanitized tool responses; 517 tests covered including two unchanged timeout reruns, 105 browser tests and 3 authenticated cross-package tests pass. Existing unrelated all-files hook findings reproduced on base; fixed the old mypy hook crash by matching the locked development version. CI is pending. No owner acceptance, public release or production deployment performed.
