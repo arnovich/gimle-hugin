@@ -34,6 +34,18 @@ The owner requested the Hugin integration following Taskvalet external swarm par
 
 - [ ] Hugin supports complete JSON tool schemas through its providers; an operator can bind Taskvalet participation and asynchronous compute tools to one agent with identity isolation, structured errors and safe cleanup; behavioral tests and documentation cover multi-agent use and recovery.
 
+## Plan
+
+Implement native Taskvalet tools without putting runtime credentials into Hugin configs or storage.
+
+1. Add optional complete input_schema to Hugin Tool, preserve it through serialization and provider formatting, and keep legacy parameter behavior unchanged. Tool implementations remain responsible for runtime validation.
+2. Add a dependency-free Hugin Taskvalet provider protocol and scoped binding context. Each registered implementation uses a unique registry name with the stable model-facing alias, checks the exact calling Agent object, refuses duplicate binding, and unregisters only its own entries. The operator supplies an already-bound Taskvalet provider; models cannot choose servers, credentials or identities. Configs/tasks receive tool names explicitly, never credential objects.
+3. Extend Taskvalet's common participant/tool contract with immediate Lean compute submission and single-read status/results, using an operator-pinned environment/checker/context/path/resource policy. Preserve exact submission bytes and request UUID in the existing durable journal; return without waiting for the computation. Surface expected errors as structured tool results, with unknown failures reported without leaking credentials or source.
+4. Exercise real Hugin ToolCall/ToolResponse and provider schemas, multiple agents/alias isolation/cleanup, authenticated Taskvalet participation, compute submit -> unrelated checkpoint -> status, and lost-response recovery. Use scripted models and isolated services, with no paid live model calls during implementation.
+5. Run independent workflow, security/recovery, and integration reviews, apply valid fixes, and follow Hugin's staff-review/fresh-worktree workflow for the final implementation. Run full tests, pre-commit checks, and package checks; open PRs and retain the task in Review.
+
+After this increment, prepare the authorized deployment and bounded Causa/Forseti Lean pilot, then use pilot evidence to design the reviewed-knowledge retrieval/promotion loop. No LangChain adapter in this increment. Compute results remain evidence, not shared knowledge or proof authority.
+
 ## Conversation
 
 ### note · agent/dc5f861b-de59-46fe-b239-2c8d005c8155 · 2026-10-24T13:03:51Z
