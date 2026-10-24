@@ -651,3 +651,121 @@ def external_input_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
         )
     finally:
         session.close()
+
+
+@pytest.fixture
+def taskvalet_agents(tmp_path):
+    """Real independent Hugin agents with an in-memory tool provider per agent."""
+    from types import SimpleNamespace
+
+    from gimle.hugin.agent.agent import Agent
+    from gimle.hugin.agent.environment import Environment
+    from gimle.hugin.agent.session import Session
+
+    session = Session(Environment(storage=LocalStorage(str(tmp_path))))
+    agents = [
+        Agent(session, Config(str(i), "fixture", "fixture")) for i in range(2)
+    ]
+
+    class Provider:
+        """The adapter consumes this public Taskvalet provider contract."""
+
+        def __init__(self, identity):
+            """Keep calls attributed to this provider identity."""
+            self.identity = identity
+            self.calls = []
+
+        def definitions(self):
+            """Expose one strictly shaped checkpoint tool."""
+            return [
+                {
+                    "name": "taskvalet_checkpoint",
+                    "description": "Save progress",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "task": {"type": "string"},
+                            "text": {"type": "string"},
+                        },
+                        "required": ["task", "text"],
+                        "additionalProperties": False,
+                    },
+                }
+            ]
+
+        def invoke_result(self, name, arguments):
+            """Record calls and return an attributed tool response."""
+            self.calls.append((name, arguments))
+            return {
+                "is_error": False,
+                "content": {"actor": self.identity, "arguments": arguments},
+            }
+
+    try:
+        yield SimpleNamespace(
+            session=session,
+            agents=agents,
+            providers=[Provider(str(i)) for i in range(2)],
+        )
+    finally:
+        session.close()
+
+
+@pytest.fixture
+def complete_tool_schema():
+    """Nested schema with local references and explicit unknown-field refusal."""
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "$defs": {
+            "Artifact": {
+                "type": "object",
+                "properties": {"uri": {"type": "string"}},
+                "required": ["uri"],
+                "additionalProperties": False,
+            }
+        },
+        "properties": {
+            "artifacts": {
+                "type": "array",
+                "items": {"$ref": "#/$defs/Artifact"},
+            },
+            "limit": {"type": "integer", "minimum": 1, "maximum": 20},
+        },
+        "required": ["artifacts"],
+    }
+
+
+@pytest.fixture(params=["anthropic", "openai", "ollama"])
+def schema_wire(request, monkeypatch):
+    """Capture provider requests at the SDK boundary without network calls."""
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    import anthropic
+    import openai
+
+    from gimle.hugin.llm.models.anthropic import AnthropicModel
+    from gimle.hugin.llm.models.ollama import OllamaModel
+    from gimle.hugin.llm.models.openai import OpenAIModel
+
+    class Captured(BaseException):
+        """Stop before provider response handling or retry loops."""
+
+    call = Mock(side_effect=Captured)
+    if request.param == "anthropic":
+        client = Mock()
+        client.with_options.return_value.messages.create = call
+        monkeypatch.setattr(anthropic, "Anthropic", lambda: client)
+        model = AnthropicModel("fixture")
+    elif request.param == "openai":
+        client = Mock()
+        client.chat.completions.create = call
+        monkeypatch.setattr(openai, "OpenAI", lambda: client)
+        model = OpenAIModel("fixture")
+    else:
+        model = OllamaModel("fixture")
+        model._client = Mock(chat=call)
+    return SimpleNamespace(
+        model=model, call=call, captured=Captured, provider=request.param
+    )

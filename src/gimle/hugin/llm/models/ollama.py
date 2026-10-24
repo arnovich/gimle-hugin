@@ -1,5 +1,6 @@
 """Ollama model implementation module."""
 
+import copy
 import logging
 import threading
 import time
@@ -248,21 +249,25 @@ class OllamaModel(Model):
                     "function": {
                         "name": tool.name,
                         "description": tool.description,
-                        "parameters": {
-                            "type": "object",
-                            "properties": {
-                                name: {
-                                    "type": params["type"],
-                                    "description": params["description"],
-                                }
-                                for name, params in tool.parameters.items()
-                            },
-                            "required": [
-                                name
-                                for name, params in tool.parameters.items()
-                                if params.get("required")
-                            ],
-                        },
+                        "parameters": (
+                            copy.deepcopy(tool.input_schema)
+                            if getattr(tool, "input_schema", None) is not None
+                            else {
+                                "type": "object",
+                                "properties": {
+                                    name: {
+                                        "type": params["type"],
+                                        "description": params["description"],
+                                    }
+                                    for name, params in tool.parameters.items()
+                                },
+                                "required": [
+                                    name
+                                    for name, params in tool.parameters.items()
+                                    if params.get("required")
+                                ],
+                            }
+                        ),
                     },
                 }
             )
