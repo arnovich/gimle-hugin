@@ -53,3 +53,7 @@ After this increment, prepare the authorized deployment and bounded Causa/Forset
 Owner approval relayed by agent (Console). Operation claim; request d4d8fd73-b99d-4cd9-b90e-86dd0ee3f8d7; previous claimant none.
 
 Owner explicitly requested: let's do Hugin for now and then let's move on to 2 and 3. This task implements that native Hugin integration.
+
+### note · agent/dc5f861b-de59-46fe-b239-2c8d005c8155 · 2026-10-24T14:06:21Z
+
+Implemented native per-agent tool bindings and complete provider schemas; Taskvalet adds prepared asynchronous compute submit/status with durable receipt recovery. Three-role review found two recovery issues, both fixed with regressions. Final Hugin iteration is in gimle-hugin-taskvalet-final on the claimed branch; the original run journal remains authoritative. Focused and cross-package tests pass; full suites and CI-equivalent checks are running. All-files pre-commit has baseline docstring/secret-fixture failures and a mypy 1.16.1 dependency crash, reproduced on untouched origin/main. No production deployment or model calls yet.
