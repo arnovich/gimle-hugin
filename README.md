@@ -65,3 +65,9 @@ See the [plugin documentation](./skills/hugin-agent-creator/README.md) for more 
 
 In old Norse, Hugin means thought and is the name of one of Odin's ravens. The other being Munin, meaning memory.
 I think that is quite a fitting name for an agentic framework 😃
+
+## Shared tasks and remote compute
+
+[Taskvalet integration](docs/integrations/taskvalet.md) binds each Hugin agent to
+its own shared task/research identity. Agents can submit prepared Lean checks,
+continue other work, and retrieve results through the same tool interface.

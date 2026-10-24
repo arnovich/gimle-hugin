@@ -1,5 +1,6 @@
 """Anthropic model implementation module."""
 
+import copy
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -64,21 +65,25 @@ class AnthropicModel(Model):
                 {
                     "name": tool.name,
                     "description": tool.description,
-                    "input_schema": {
-                        "type": "object",
-                        "properties": {
-                            name: {
-                                "type": params["type"],
-                                "description": params["description"],
-                            }
-                            for name, params in tool.parameters.items()
-                        },
-                        "required": [
-                            name
-                            for name, params in tool.parameters.items()
-                            if params.get("required")
-                        ],
-                    },
+                    "input_schema": (
+                        copy.deepcopy(tool.input_schema)
+                        if getattr(tool, "input_schema", None) is not None
+                        else {
+                            "type": "object",
+                            "properties": {
+                                name: {
+                                    "type": params["type"],
+                                    "description": params["description"],
+                                }
+                                for name, params in tool.parameters.items()
+                            },
+                            "required": [
+                                name
+                                for name, params in tool.parameters.items()
+                                if params.get("required")
+                            ],
+                        }
+                    ),
                 }
             )
 

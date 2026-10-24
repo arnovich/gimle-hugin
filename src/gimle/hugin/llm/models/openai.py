@@ -1,5 +1,6 @@
 """OpenAI model implementation module."""
 
+import copy
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -72,18 +73,22 @@ class OpenAIModel(Model):
                     "function": {
                         "name": tool.name,
                         "description": tool.description,
-                        "parameters": {
-                            "type": "object",
-                            "properties": {
-                                name: self._build_param_schema(params)
-                                for name, params in tool.parameters.items()
-                            },
-                            "required": [
-                                name
-                                for name, params in tool.parameters.items()
-                                if params.get("required")
-                            ],
-                        },
+                        "parameters": (
+                            copy.deepcopy(tool.input_schema)
+                            if getattr(tool, "input_schema", None) is not None
+                            else {
+                                "type": "object",
+                                "properties": {
+                                    name: self._build_param_schema(params)
+                                    for name, params in tool.parameters.items()
+                                },
+                                "required": [
+                                    name
+                                    for name, params in tool.parameters.items()
+                                    if params.get("required")
+                                ],
+                            }
+                        ),
                     },
                 }
             )

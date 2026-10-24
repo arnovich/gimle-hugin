@@ -107,6 +107,24 @@ class Tool:
         None  # e.g., "mypackage.mymodule.myfunction" or "mypackage.mymodule:function_name"
     )
 
+    input_schema: Optional[Dict[str, Any]] = None
+
+    def __post_init__(self) -> None:
+        """Keep complete schemas separate from legacy parameter/default injection."""
+        if self.input_schema is None:
+            return
+        if self.parameters or self.options.include_reason:
+            raise ValueError(
+                "Complete input_schema cannot mix with parameters/include_reason"
+            )
+        if self.input_schema.get("type") != "object" or not isinstance(
+            self.input_schema.get("properties", {}), dict
+        ):
+            raise ValueError("Tool input_schema must describe an object")
+        if {"stack", "branch"} & self.input_schema.get("properties", {}).keys():
+            raise ValueError("Tool input_schema cannot expose injected context")
+        self.input_schema = copy.deepcopy(self.input_schema)
+
     def to_dict(self) -> Dict[str, Any]:
         """Serialize the tool to a dictionary.
 
@@ -118,6 +136,11 @@ class Tool:
             "description": self.description,
             "parameters": self.parameters,
             "options": self.options,
+            **(
+                {"input_schema": copy.deepcopy(self.input_schema)}
+                if self.input_schema is not None
+                else {}
+            ),
         }
 
     @staticmethod
@@ -292,6 +315,7 @@ class Tool:
             options=config,
             func=func,
             implementation_path=data.get("implementation_path"),
+            input_schema=data.get("input_schema"),
         )
         if register:
             return cls.registry.register(tool, replace=replace)
