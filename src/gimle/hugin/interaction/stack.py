@@ -255,10 +255,6 @@ class Stack:
                     reduced_ignore_list = None
                     tool_call = interaction.prompt.tool_name
                     if tool_call:
-                        if tool_call not in message_groups:
-                            message_groups[tool_call] = 0
-                        message_groups[tool_call] += 1
-                        total_message_groups += 1
                         # New interactions carry the exact policy used by the
                         # executed tool.  The registry is process-global and
                         # later environment loads may overwrite a tool with
@@ -266,7 +262,8 @@ class Stack:
                         # would make context change retroactively.  Fall back
                         # only for sessions saved before policy snapshots.
                         policy = interaction.tool_context_policy
-                        if policy is None:
+                        tool = None
+                        if policy is None or "context_group" not in policy:
                             tool = Tool.get_tool(tool_call, throw_error=False)
                             if tool is None:
                                 # Persisted prompts contain the public alias
@@ -292,13 +289,37 @@ class Stack:
                                     None,
                                 )
                             if tool is not None:
-                                policy = snapshot_tool_context_policy(tool)
+                                current_policy = snapshot_tool_context_policy(
+                                    tool
+                                )
+                                if policy is None:
+                                    policy = current_policy
+                                else:
+                                    # Sessions saved before context groups
+                                    # retain their historical limits while
+                                    # adopting the current family's group.
+                                    policy = {
+                                        **policy,
+                                        "context_group": current_policy[
+                                            "context_group"
+                                        ],
+                                    }
+                        context_group = (
+                            policy.get("context_group")
+                            if policy is not None
+                            else None
+                        )
+                        group = context_group or tool_call
+                        if group not in message_groups:
+                            message_groups[group] = 0
+                        message_groups[group] += 1
+                        total_message_groups += 1
                         if policy is not None:
                             if policy.get(
                                 "include_only_in_context_window", False
                             ) and (
                                 policy.get("context_window", 5)
-                                < message_groups[tool_call]
+                                < message_groups[group]
                                 or finished
                             ):
                                 append_to_context = False

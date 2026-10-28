@@ -107,6 +107,36 @@ def _stack_with_snapshotted_results(mock_agent, tool, count):
     return stack
 
 
+def _stack_with_mixed_results(mock_agent, tools):
+    """Build results from distinct tools that share one context group."""
+    stack = Stack(agent=mock_agent)
+    stack.add_interaction(
+        TaskDefinition(
+            stack=stack,
+            task=Task(
+                name="t", description="d", parameters={}, prompt="go", tools=[]
+            ),
+        )
+    )
+    for index, tool in enumerate(tools):
+        caller = ToolCall(
+            stack=stack,
+            tool=tool.name,
+            args={},
+            tool_call_id=f"mixed-{index}",
+        )
+        result = ToolResult.create_from_tool_response(
+            caller,
+            ToolResponse(
+                is_error=False,
+                content={"value": f"mixed result {index}"},
+            ),
+            tool=tool,
+        )
+        stack.add_interaction(AskOracle.create_from_tool_result(result))
+    return stack
+
+
 class TestCapIsApplied:
     """The option must change what the model actually sees."""
 
@@ -127,6 +157,84 @@ class TestCapIsApplied:
 
         assert "result number 0" in rendered
         assert "result number 2" in rendered
+
+    def test_context_group_caps_results_across_distinct_tools(self, mock_agent):
+        """A tool family shares one bounded history instead of one cap per alias."""
+        tools = [
+            Tool(
+                name=f"grouped_tool_{index}",
+                description="A tool in one bounded family",
+                parameters={},
+                is_interactive=False,
+                implementation_path="",
+                options=ToolConfig(
+                    include_only_in_context_window=True,
+                    context_window=2,
+                    context_group="shared_family",
+                ),
+            )
+            for index in range(3)
+        ]
+        stack = _stack_with_mixed_results(mock_agent, tools)
+
+        rendered = str(stack.render_stack_context(branch=None))
+
+        assert "mixed result 0" not in rendered
+        assert "mixed result 1" in rendered
+        assert "mixed result 2" in rendered
+
+    def test_legacy_snapshots_adopt_current_context_group_after_reload(
+        self, mock_agent
+    ):
+        """An upgraded session caps aliases saved before context groups existed."""
+        tools = [
+            Tool(
+                name=f"legacy_grouped_tool_{index}",
+                description="A current tool in one bounded family",
+                parameters={},
+                is_interactive=False,
+                implementation_path="",
+                options=ToolConfig(
+                    include_only_in_context_window=True,
+                    context_window=2,
+                    context_group="taskvalet",
+                ),
+            )
+            for index in range(3)
+        ]
+        stack = Stack(agent=mock_agent)
+        legacy_policy = {
+            "include_only_in_context_window": True,
+            "context_window": 2,
+            "reduced_context_window_enabled": True,
+            "reduced_context_window": 5,
+            "reduced_context_window_ignore_list": [],
+        }
+        for index, tool in enumerate(tools):
+            Tool.registry.register(tool, name=tool.name)
+            ask = AskOracle(
+                stack=stack,
+                prompt=Prompt(
+                    type="text",
+                    text=f"legacy result {index}",
+                    tool_name=tool.name,
+                ),
+                template_inputs={},
+                tool_context_policy=legacy_policy,
+            )
+            saved = ask.to_dict()
+            stack.add_interaction(
+                AskOracle._from_dict(saved["data"], stack=stack, artifacts=[])
+            )
+        try:
+            rendered = str(stack.render_stack_context(branch=None))
+
+            assert "legacy result 0" not in rendered
+            assert "legacy result 1" in rendered
+            assert "legacy result 2" in rendered
+        finally:
+            for tool in tools:
+                Tool.registry._items.pop(tool.name, None)
 
     def test_legacy_alias_resolves_through_historical_tools(self, mock_agent):
         """Pre-snapshot sessions store aliases, not registry-qualified names."""
@@ -215,6 +323,7 @@ class TestTheOriginalDefect:
         assert restored.tool_context_policy == {
             "include_only_in_context_window": True,
             "context_window": 1,
+            "context_group": None,
             "reduced_context_window_enabled": True,
             "reduced_context_window": 5,
             "reduced_context_window_ignore_list": ["private_argument"],

@@ -49,6 +49,7 @@ class ToolConfig:
 
     include_only_in_context_window: bool = False
     context_window: int = 5
+    context_group: Optional[str] = None
     reduced_context_window_enabled: bool = True
     reduced_context_window: int = 5
     reduced_context_window_ignore_list: List[str] = field(default_factory=list)

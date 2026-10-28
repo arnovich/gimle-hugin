@@ -21,6 +21,11 @@ def test_agent_bound_aliases_isolate_identity_and_close(taskvalet_agents):
         f.agents[1].config = replace(f.agents[1].config, tools=second)
         tools = [agent.stack.get_tools()[0] for agent in f.agents]
         assert tools[0].name == tools[1].name == "taskvalet_checkpoint"
+        assert all(
+            tool.options.include_only_in_context_window for tool in tools
+        )
+        assert all(tool.options.context_window == 2 for tool in tools)
+        assert all(tool.options.context_group == "taskvalet" for tool in tools)
         for index, tool in enumerate(tools):
             result = Tool.execute_tool(
                 tool,
