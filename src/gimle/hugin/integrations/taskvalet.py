@@ -116,7 +116,11 @@ def bind_taskvalet_tools(
                 description=definition["description"],
                 parameters={},
                 is_interactive=False,
-                options=ToolConfig(),
+                options=ToolConfig(
+                    include_only_in_context_window=True,
+                    context_window=2,
+                    context_group="taskvalet",
+                ),
                 input_schema=definition["input_schema"],
                 func=implementation(name),
             )

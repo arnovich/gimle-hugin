@@ -414,6 +414,7 @@ class TestBranchBinding:
             policy = {
                 "include_only_in_context_window": True,
                 "context_window": 5,
+                "context_group": None,
                 "reduced_context_window_enabled": True,
                 "reduced_context_window": 5,
                 "reduced_context_window_ignore_list": [],

@@ -24,6 +24,7 @@ def snapshot_tool_context_policy(tool: "Tool") -> Dict[str, Any]:
             options.include_only_in_context_window
         ),
         "context_window": options.context_window,
+        "context_group": options.context_group,
         "reduced_context_window_enabled": (
             options.reduced_context_window_enabled
         ),
