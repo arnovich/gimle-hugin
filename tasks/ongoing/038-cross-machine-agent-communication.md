@@ -3,7 +3,7 @@ title: Agent-to-agent communication across machines, not just within one runner
 state: ongoing
 claimed_by: codex/task038
 claimed_at: 2026-09-28T15:19:21Z
-branch: task/038_transport_admission
+branch: task/038_swarm_provisioning_v2
 priority: medium
 labels: [design, enhancement, multi-agent]
 depends_on: ["036", "039", "040", "041"]
@@ -26,8 +26,11 @@ including shared storage, unauthenticated board writers, first-k claims,
 exactly-once execution and unlimited automatic post fanout. The historical
 text is preserved for rationale. Tasks 036, 039, 040 and 041 are closed.
 
-Current scope is specification and independent panel review, not runtime
-implementation. See the [review report](../../docs/design/038-design-review.md).
+The specification and independent panel review are complete. The current
+increment implements restart-safe local provisioning and a root-pinned online
+policy check; it does not yet provide a supervised listener, discovery, board
+replication or cloud deployment. See the [provisioning plan](../../docs/design/038-provisioning.md)
+and [review report](../../docs/design/038-design-review.md).
 
 Current completion gates:
 
@@ -882,3 +885,11 @@ Revised loopback transport experiment approved by all three judges; security
 and protocol reviewers independently passed 33 strict tests. No production
 daemon, persistent join or discovery is claimed. Remaining provisioning work
 must resolve the documented verifier lifecycle gate before deployment.
+
+### note · codex/task038 · 2026-09-29T12:12:55Z
+
+Owner approved the next implementation increment after PR #146 merged.
+Starting local persistent create/invite/join provisioning and the verifier
+decision on `task/038_swarm_provisioning`; plan in
+docs/design/038-provisioning.md. Cloud credentials and real invites remain out
+of the public repository.

@@ -185,7 +185,6 @@ async def run_experiment() -> dict[str, object]:
                 "aiohttp",
                 "httpx",
                 "cryptography",
-                "pyopenssl",
                 "rfc8785",
             )
         },

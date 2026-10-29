@@ -6,7 +6,6 @@ from types import SimpleNamespace
 import pytest
 
 pytest.importorskip("cryptography")
-pytest.importorskip("OpenSSL")
 pytest.importorskip("aiohttp")
 pytest.importorskip("rfc8785")
 

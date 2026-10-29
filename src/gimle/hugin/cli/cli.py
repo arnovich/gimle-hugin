@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from gimle.hugin import __version__
+from gimle.hugin.cli.swarm import add_swarm_commands, cmd_swarm
 from gimle.hugin.cli.ui import HUGIN_LOGO
 from gimle.hugin.sandbox.sandbox import DEFAULT_SANDBOX_ROOT, sandbox_root_for
 
@@ -1111,6 +1112,14 @@ Examples:
     )
     sandbox_parser.set_defaults(func=cmd_sandbox)
 
+    # The optional swarm package is imported only when a provisioning action
+    # runs; ordinary Hugin commands retain their existing dependencies.
+    swarm_parser = subparsers.add_parser(
+        "swarm", help="Provision a private swarm and local node identity"
+    )
+    add_swarm_commands(swarm_parser)
+    swarm_parser.set_defaults(func=cmd_swarm)
+
     # The creator owns its command-line interface. Split at the subcommand so
     # option-style arguments such as ``--name`` are forwarded verbatim instead
     # of being rejected by this outer parser.
@@ -1141,6 +1150,8 @@ Examples:
     )
 
     # Load .env file if --env flag is set
+    if args.env and args.command == "swarm":
+        parser.error("--env cannot be used with swarm provisioning")
     if args.env:
         from dotenv import load_dotenv
 

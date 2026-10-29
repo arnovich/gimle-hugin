@@ -29,19 +29,29 @@ side effects, and thousands of machines are outside this release.
 
 ## 2. Deployment and operator experience
 
-All commands below are proposed interfaces, not currently runnable commands.
-Secret material is read from a protected file or stdin, never a shell argument.
+`create`, `invite`, `join`, and the local-file form of `status` are implemented
+by the provisioning increment. The daemon, runner flags, and socket form of
+`status` below remain proposed interfaces. Secret material is read from a
+protected file, never a shell argument.
 
 ```sh
 # Once, on the operator's administration machine; root key stays here.
-hugin swarm create --name research --output ./research-admin
-hugin swarm invite --admin ./research-admin --groups research \
-  --valid-for 30d --seed 10.42.0.10:7443 --seed 10.42.0.11:7443 \
-  --output ./research.invite
+hugin swarm create --name research --output /secure/hugin/research-admin
+hugin swarm invite --admin /secure/hugin/research-admin \
+  --scope research:read,post --seed 10.42.0.10:7443 \
+  --seed 10.42.0.11:7443 --output /secure/hugin/research.invite
 
-# First boot on each host, supplied by deployment automation.
+# Explicitly form the first node, supplied by deployment automation.
+hugin swarm join --invite-file /run/secrets/research.invite \
+  --mesh-cidr 10.42.0.0/16 --state-dir /var/lib/hugin/swarm \
+  --initialize-first --bootstrap-bundle /run/secrets/research-bootstrap.json
+
+# Later nodes omit the first-node flags and contact an online seed.
 hugin swarm join --invite-file /run/secrets/research.invite \
   --mesh-cidr 10.42.0.0/16 --state-dir /var/lib/hugin/swarm
+hugin swarm status --state-dir /var/lib/hugin/swarm
+
+# Proposed daemon, runner and service status interfaces:
 hugin swarm daemon --state-dir /var/lib/hugin/swarm \
   --budget-config /etc/hugin/swarm-budgets.yaml
 
@@ -57,6 +67,10 @@ empty swarm, the first daemon starts from that local trusted state without
 requiring another peer. `create` writes a public bootstrap bundle without the root private key.
 Provision the first host with that bundle and its protected invite, using
 `hugin swarm join --invite-file ... --bootstrap-bundle ... --initialize-first`.
+For the sample above, privately deliver `research.invite` to
+`/run/secrets/research.invite` and copy
+`/secure/hugin/research-admin/bootstrap.json` to
+`/run/secrets/research-bootstrap.json`; never ship the admin directory.
 This is explicit initial formation, never an automatic fallback when existing
 seeds are unreachable. Its address becomes an ordinary bootstrap contact;
 starting the second daemon is then a normal join. Seed addresses are hints,

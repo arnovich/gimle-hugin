@@ -54,21 +54,31 @@ def _header(payload: dict[str, Any], kind: str, root: x509.Certificate) -> None:
         raise ProtocolError()
 
 
-def _lifetime(payload: dict[str, Any], now: datetime, seconds: int) -> int:
+def _lifetime(
+    payload: dict[str, Any],
+    now: datetime,
+    seconds: int,
+    *,
+    allow_expired: bool = False,
+) -> int:
     issued, expires = integer(payload["issued_at"]), integer(
         payload["expires_at"]
     )
     if (
         not issued < expires <= issued + seconds
         or issued > now.timestamp() + 60
-        or now.timestamp() >= expires
+        or (not allow_expired and now.timestamp() >= expires)
     ):
         raise ProtocolError()
     return expires
 
 
 def verify_policy(
-    record: Any, root: x509.Certificate, now: datetime
+    record: Any,
+    root: x509.Certificate,
+    now: datetime,
+    *,
+    allow_expired: bool = False,
 ) -> Snapshot:
     """Validate a signed current policy without requiring client admission."""
     payload = verify(record, certificate_key(root))
@@ -88,7 +98,7 @@ def verify_policy(
     _header(payload, "policy", root)
     return Snapshot(
         integer(payload["generation"], 1),
-        _lifetime(payload, now, 7 * 86400),
+        _lifetime(payload, now, 7 * 86400, allow_expired=allow_expired),
         _identities(payload["revoked_nodes"]),
         _identities(payload["revoked_grants"]),
     )
@@ -113,6 +123,40 @@ def _permissions(value: Any) -> frozenset[tuple[str, str]]:
             raise ProtocolError()
         result.update((group, action) for action in actions)
     return frozenset(result)
+
+
+def verify_grant(
+    record: Any,
+    issuer: x509.Certificate,
+    root: x509.Certificate,
+    now: datetime,
+    *,
+    allow_expired: bool = False,
+) -> dict[str, Any]:
+    """Validate one root-signed grant bound to its invitation issuer."""
+    grant = verify(record, certificate_key(root))
+    fields(
+        grant,
+        {
+            "v",
+            "kind",
+            "swarm_id",
+            "grant_id",
+            "issuer_id",
+            "groups",
+            "issued_at",
+            "expires_at",
+        },
+    )
+    _header(grant, "grant", root)
+    issuer_id = public_id(certificate_key(issuer))
+    if grant["grant_id"] != issuer_id or grant["issuer_id"] != issuer_id:
+        raise ProtocolError()
+    expires = _lifetime(grant, now, 30 * 86400, allow_expired=allow_expired)
+    if expires > issuer.not_valid_after_utc.timestamp():
+        raise ProtocolError()
+    _permissions(grant["groups"])
+    return grant
 
 
 def verify_credential(
@@ -141,28 +185,8 @@ def verify_credential(
         verify_chain(leaf, issuer, root, now)
         node_id = public_id(certificate_key(leaf))
         issuer_id = public_id(certificate_key(issuer))
-        grant = verify(credential["grant"], certificate_key(root))
-        fields(
-            grant,
-            {
-                "v",
-                "kind",
-                "swarm_id",
-                "grant_id",
-                "issuer_id",
-                "groups",
-                "issued_at",
-                "expires_at",
-            },
-        )
-        _header(grant, "grant", root)
-        if grant["grant_id"] != issuer_id or grant["issuer_id"] != issuer_id:
-            raise ProtocolError()
-        expires = _lifetime(grant, now, 30 * 86400)
-        if (
-            leaf.not_valid_after_utc.timestamp() > expires
-            or expires > issuer.not_valid_after_utc.timestamp()
-        ):
+        grant = verify_grant(credential["grant"], issuer, root, now)
+        if leaf.not_valid_after_utc.timestamp() > grant["expires_at"]:
             raise ProtocolError()
         snapshot = verify_policy(policy, root, now)
         if (
@@ -173,12 +197,19 @@ def verify_credential(
         if (group, action) not in _permissions(grant["groups"]):
             raise ProtocolError()
         return node_id
-    except (ValueError, TypeError, UnicodeError):
+    except (
+        ValueError,
+        TypeError,
+        UnicodeError,
+        x509.DuplicateExtension,
+        x509.UnsupportedGeneralNameType,
+        x509.InvalidVersion,
+    ):
         raise ProtocolError() from None
 
 
 class PolicyState:
-    """In-memory policy floor only; durable enrollment is a later increment."""
+    """In-memory policy floor for the isolated transport experiment."""
 
     def __init__(
         self, root: x509.Certificate, record: dict[str, Any], now: datetime
