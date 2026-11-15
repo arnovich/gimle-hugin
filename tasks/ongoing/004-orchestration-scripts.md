@@ -365,3 +365,154 @@ This draft neither changes the task nor claims current implementation readiness.
 Owner approval relayed by agent (Console). Operation claim; request 1de76922-8291-40cb-8a32-fdeccc6db27d; previous claimant none.
 
 Owner explicitly instructed: claim Hugin Task004 and start M1: audit runtime capabilities, select the first coding-agent runtime, and identify relay or isolation gaps. Keep it offline; do not deploy or launch another experiment. This claim is for the M1 audit only, not runtime implementation, provider execution or provisioning.
+
+### note · agent/0570841b-092f-43c1-906c-07267cdf2b32 · 2026-11-15T21:40:41Z
+
+#### Task004 M1: native runtime capability audit
+
+Audit date: 2026-11-15. Scope: offline source inspection and installed CLI
+metadata. No agent session, fake-provider conversation, provider request,
+deployment or experiment was run. Task004 is Ongoing under its existing planning
+writer. M1 does not qualify a runtime or complete Task004.
+
+#### Decision
+
+Select **Codex CLI 0.166.0-alpha.5.1** as the first coding-runtime implementation
+candidate. Its installed help exposes noninteractive execution, JSONL events,
+explicit model/config selection, resume, no-daemon mode, strict config and
+user-config/rules controls. These are useful adapter surfaces, not evidence of
+sole model egress or complete tool mediation. This is an alpha build: an upgrade
+requires a new pin and repeat qualification, never an implicit replacement.
+
+Keep Claude Code 2.1.314 as a second candidate. Its help exposes print/stream-json,
+explicit tools/MCP settings, bare/restricted modes, session IDs and a native
+dollar limit. Those controls are promising; the native dollar limit cannot replace
+the shared Taskvalet meter. No comparative quality or performance claim is made.
+Codex is selected to keep the first implementation narrow, not because this audit
+has established that Claude cannot work.
+
+The Hugin candidate is source commit
+`cef8b1a6b8ca38ca6d7721daa4a695f4c392cd47`. It is not yet a built, installed,
+dependency-pinned runtime artifact. The Taskvalet contract reference is accepted
+main `522b928eba053e3860e12bc342897547dcf8a459`; the inspected Task045 worktree
+is `efa1effff1a7cec71c7040093c759763b6c21790`. The relevant Task045 sources
+must remain identical when constructing the implementation package.
+
+#### Evidence and its limits
+
+The adjacent [Codex metadata](task004-evidence/codex-metadata.json) and
+[Claude metadata](task004-evidence/claude-metadata.json) contain executable paths,
+SHA256 values and captured help/version outputs. Every recorded probe exited 0.
+They ran inside a macOS child sandbox denying network, file writes and access to
+the specific personal paths listed in each recorded sandbox policy. No complete
+credential-location inventory or filesystem read trace was collected. An earlier attempt to create that child
+sandbox from the desktop sandbox failed before either executable started; the
+successful probes used an approved outer command to install the stricter child
+sandbox. Codex warned that it could not create PATH aliases; this did not prevent
+metadata inspection. These controls are probe containment, not Linux qualification.
+
+| Artifact | Observed version/platform | SHA256 |
+| --- | --- | --- |
+| Codex executable | 0.166.0-alpha.5.1, packaged aarch64-apple-darwin | `58a91f6ea19bea477ae3a2ec48d619f0039afe75d3476260747e11d201fa7cea` |
+| Claude executable | 2.1.314, installed macOS executable | `21d6e7b9a6f07b4cfcb7df13760b3b72aa25e084e13a5354413382987ba832ed` |
+
+No Linux executable was downloaded, installed or hashed. Neither Mac hash can
+qualify Causa. No credential contents were requested or captured. Installed help is
+evidence that an interface is advertised, not that its full runtime behavior has
+passed a test. Provider routing configuration, event schemas, usage completeness,
+signal behavior and checkpoint contents remain unverified for the selected CLI.
+
+#### Capability matrix
+
+| Concern | Hugin source evidence | Codex installed help evidence | Required closure |
+| --- | --- | --- | --- |
+| Native loop | Session / AskOracle / OracleResponse / ToolCall / ToolResult | `exec`, `--json`, `exec resume` | Execute actual engines with deterministic provider transcripts; do not substitute a Python driver |
+| Tool schemas | Taskvalet integration forwards complete provider schemas; model wrappers use input_schema | MCP management advertised; final `--output-schema` is a final-answer schema | Pin broker tool schemas and error envelopes; prove call/result identity, rejection and replay through the engine |
+| Model route | OpenAI SDK chat completions and Anthropic SDK messages; Ollama is another route | model/config overrides; OSS/local providers advertised | Determine and pin native model wire protocol; reject all unadmitted routes, fallbacks and unsupported options |
+| Accounting | Session call budget includes children/branches, not money; SDK usage read after responses | JSONL advertised; no verified shared spend contract | Reserve before every provider attempt including retries, compaction and auxiliary calls; settle conservatively on uncertain outcome |
+| Stop / recovery | Session persistence exists separately from Taskvalet canonical host lifetime | resume/fork/ephemeral advertised | Exact session-to-run mapping, no counter/deadline reset, independent guardian and descendant cleanup; signal tests still needed |
+| Secrets / config | SDK clients constructed from ambient config; provider errors can log message content | `--ignore-user-config` explicitly still uses auth; plugin/hooks/search/daemon/cloud surfaces exist | Launcher-owned restricted configuration and sanitized environment; no personal auth mounts; deny unapproved hooks/plugins/MCP/IPC |
+| Isolation | In-process Taskvalet binding does not sandbox arbitrary Hugin tools | CLI sandbox is advertised for model-generated shell commands | External kernel confinement must cover the entire process tree and every model/tool route |
+
+Hugin sources inspected: `src/gimle/hugin/integrations/taskvalet.py`,
+`src/gimle/hugin/agent/session.py`, `src/gimle/hugin/interaction/ask_oracle.py`,
+`src/gimle/hugin/interaction/oracle_response.py`,
+`src/gimle/hugin/llm/models/{openai,anthropic,ollama}.py` and
+`src/gimle/hugin/llm/router_outcome.py`. The Anthropic wrapper explicitly requests
+five SDK retries. Its current error logging includes conversation/system text;
+managed mode needs bounded redacted diagnostics. Missing usage must not become a
+zero-cost settlement. Tool/LLM call counters alone cannot bound retry spend.
+
+Taskvalet sources inspected: `swarm_bridges.py` and
+`swarm_host/{manager,member,relay,costs,linux,budget}.py` under
+`src/taskvalet/`. Three existing patterns to reuse are immutable claim-bound
+MemberTools, the canonical HostRuns ledger and the LinuxHost/guardian resource
+boundary. A coding bridge is a tool provider, not a native CLI launcher.
+
+#### Gaps and implementation gates
+
+1. **Model protocol and cost contract — blocks managed execution.** The shipped
+   relay accepts `{model,max_output_tokens,prompt}` and synthetic text results;
+   its closed cost gate supports only `synthetic-only` with the fixed five-micro-USD
+   contract. Neither SDK's conversation/tool protocol is implemented there.
+   Do not route a real model through that contract. Specify versioned request,
+   tool/result, error, streaming and usage envelopes, maximum input/output and
+   bounded retry behavior, including cached/reasoning tokens and provider-side tool
+   charges. Unknown prices/models/usage remain refused or retain
+   reserved exposure. The CLI's exact model wire API is unresolved, not inferred
+   from its remote app-server `unix://` option.
+2. **Transport versus isolation — blocks qualification.** Task045 uses
+   `PrivateNetwork=yes`, `RestrictAddressFamilies=AF_UNIX`, `DynamicUser=yes`
+   and per-member LoadCredential. SDK HTTP defaults and a native CLI cannot be
+   assumed to work through this profile. First investigate a private Unix-socket
+   gateway with a pinned SDK/CLI-compatible client transport. If that is not
+   feasible, explicitly design a new confined profile; do not enable general
+   TCP or reuse old AF_UNIX rehearsal evidence to certify the change. Prove deny
+   behavior for IPv4/IPv6, DNS, loopback, host sockets, inherited descriptors,
+   descendants, proxy settings and alternate model/auth routes on Linux.
+3. **Native dispatcher — blocks complete runs.** HostRuns rehearsal accounting
+   and FixtureHost are not a production process launcher. A Taskvalet-owned
+   companion dispatcher must resolve existing journal/actor/claim bindings,
+   verify installed bytes before admission, record owned resources before
+   effects and start the guardian before relay/members. Reuse Task044/045;
+   do not create another scheduler, claim store or owner queue.
+4. **Ambient authority and auxiliary actions — blocks sole-route claims.** Use
+   an explicit allowlist for environment, built-ins, tools, MCP endpoints,
+   plugins, hooks, telemetry and update paths. CLI defaults are not such an
+   allowlist. Determine which controls actually disable these in the pinned
+   runtime; unknown behavior remains blocked. Hugin outcome reporting and
+   auxiliary/child calls also need explicit routing or exclusion. Host secrets
+   stay in the broker, not native workspaces/checkpoints. Every concrete agent,
+   including restored/child agents, needs explicit authority binding.
+5. **Lifecycle / diagnostics — blocks recovery claims.** Bound streamed logs,
+   redact errors, preserve original attribution and claim, and reconcile lost
+   responses under the same canonical ID before retry. Native resume/fork must
+   not create a fresh shared budget. Prove controller death, relay death,
+   cancellation during provider/tool calls and orphan cleanup independently.
+6. **Remote artifact contract — blocks remote support.** Task048 is a Lean-pool
+   backend, not an already agreed native-agent host API. Agree runtime artifact,
+   host incarnation, authoritative ledger, admission/lease/deadline, status,
+   storage capabilities and cleanup receipts. An uncertain SSH submission must
+   fence the same attempt; no automatic fresh host/local budget fallback.
+
+#### Next bounded work
+
+M1's output is the candidate decision and this gap register. M2 should first
+settle the model wire and private transport design, then implement the smallest
+dispatcher/adapter contract using existing lifecycle and authority primitives.
+Before claiming support, add offline regression tests for: wrong installed bytes
+causing zero admission; full native tool success/error/repeat fetch; every model
+attempt reserving from one ledger; unknown usage retaining exposure; cross-claim
+denial; no authority inheritance; same-ID restart; guardian cleanup; and exact
+Linux negative egress. A fresh fake-provider full-loop rehearsal is a separate
+next step, not something performed by this audit.
+
+Participation through a skill can be useful without a managed shared-budget
+profile. It must be labelled participation-only and cannot satisfy the bounded
+profile acceptance criteria. Neither candidate is presently qualified for that
+profile. No acceptance checkbox is marked complete by this M1 document; real
+local/SSH-Hetzner qualification still needs separate authorization or an explicit
+owner scope change. The owner's queue is unchanged.
+
+
+Owner authorized publication and model-wire/private-relay design in Console on 2026-11-15. No deployment or agent experiment authorized. Independent three-role panel review found no blocking architectural findings; two evidence precision corrections were incorporated. Repository checks could not start because offline dependencies lack pyarrow==22.0.0; the audit remains uncommitted. Full Task004 acceptance criteria remain open.
