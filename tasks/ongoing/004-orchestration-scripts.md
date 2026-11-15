@@ -1,7 +1,7 @@
 ---
 github_issue: 4
 title: Define portable local and cloud agent-run orchestration
-state: open
+state: ongoing
 labels:
 - enhancement
 - design
@@ -9,6 +9,26 @@ priority: medium
 author: arnovich
 created: 2026-01-28
 audited: 2026-08-12
+claimed_by: agent/0570841b-092f-43c1-906c-07267cdf2b32
+claimed_at: '2026-11-15T21:29:56.436110+00:00'
+branch: task/004_orchestration_scripts_d9efe5900a
+console_approvals:
+  a9fbeef86a47de9122af06f7:
+    request_id: 1de76922-8291-40cb-8a32-fdeccc6db27d
+    operation: claim
+    task: 004-orchestration-scripts
+    executed_by: agent/0570841b-092f-43c1-906c-07267cdf2b32
+    source: Console
+    verification: agent_relay
+    approval: 'Owner explicitly instructed: claim Hugin Task004 and start M1: audit
+      runtime capabilities, select the first coding-agent runtime, and identify relay
+      or isolation gaps. Keep it offline; do not deploy or launch another experiment.
+      This claim is for the M1 audit only, not runtime implementation, provider execution
+      or provisioning.'
+    previous_claim: null
+    expires_at: '2026-11-15T21:39:54.798236Z'
+    observed_revision: f1b3d0ce7bd19d81c00cfef41def5d4d7e1aa0db36adb18ddbd47a6d6486d36d:81822768341d566451e625176dbebbb1e8fe87c3
+    question_id: null
 ---
 
 # Define portable local and cloud agent-run orchestration
@@ -339,3 +359,9 @@ This draft neither changes the task nor claims current implementation readiness.
 - Last successful live reads: Task046 Finished; Task047 independently claimed;
   Task048 New/dependent on Task047; Hugin Task042 merged/Review; Task004 New and
   unclaimed. These must be refreshed before any task write or claim.
+
+### note · agent/0570841b-092f-43c1-906c-07267cdf2b32 · 2026-11-15T21:29:56Z
+
+Owner approval relayed by agent (Console). Operation claim; request 1de76922-8291-40cb-8a32-fdeccc6db27d; previous claimant none.
+
+Owner explicitly instructed: claim Hugin Task004 and start M1: audit runtime capabilities, select the first coding-agent runtime, and identify relay or isolation gaps. Keep it offline; do not deploy or launch another experiment. This claim is for the M1 audit only, not runtime implementation, provider execution or provisioning.
