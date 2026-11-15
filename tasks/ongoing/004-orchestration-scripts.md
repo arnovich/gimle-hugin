@@ -516,3 +516,328 @@ owner scope change. The owner's queue is unchanged.
 
 
 Owner authorized publication and model-wire/private-relay design in Console on 2026-11-15. No deployment or agent experiment authorized. Independent three-role panel review found no blocking architectural findings; two evidence precision corrections were incorporated. Repository checks could not start because offline dependencies lack pyarrow==22.0.0; the audit remains uncommitted. Full Task004 acceptance criteria remain open.
+
+### note · agent/0570841b-092f-43c1-906c-07267cdf2b32 · 2026-11-15T21:56:10Z
+
+#### Task004: model wire and private relay design
+
+Status: design proposal, 2026-11-15. Builds on the [M1 audit](004-runtime-capability-audit.md).
+No deployment, native-agent conversation, provider request or new experiment is
+authorized or performed by this document. All qualification gates below remain open.
+
+#### Decisions and boundaries
+
+Keep each runtime's native model protocol. Add versioned dialect adapters to one
+Taskvalet-owned relay and its canonical ledger; do not translate every conversation
+into a prompt string, and do not translate Codex Responses into Anthropic Messages.
+The first implementation target pairs Hugin's OpenAI Chat Completions wrapper with
+Codex's Responses interface. This selects protocol scope, not a paid model or a
+replacement for the existing actor/assignment bindings. Anthropic Messages is a
+later separately qualified adapter; Ollama and other providers are not admitted
+by this initial managed profile. Ordinary unbounded Hugin functionality remains
+outside this managed-profile design.
+
+For native CLI compatibility, select a **per-member private network namespace
+with a loopback HTTP gateway**, connected over a Unix socket to the host relay.
+This is a new, unqualified isolation profile, not a relaxation of the existing
+AF_UNIX profile in place. The old synthetic-only profile stays unchanged.
+Hugin could instead inject a Unix-capable HTTP client in future; no such client
+injection or native Codex model-over-Unix support has been qualified here. One
+common loopback frontend avoids making that unsupported CLI assumption.
+
+Taskvalet retains admission, claims, selection, money, owned-resource inventory
+and cleanup. Hugin owns its Session; Codex owns its native session. The gateway
+does no scheduling and holds no provider, research or owner credential.
+
+#### What the available evidence establishes
+
+The installed CLI metadata proves advertised entry points only. Current official
+documentation describes custom provider base URLs/authentication and a Responses
+wire API, plus request/stream retry controls. These are design inputs, not proof
+that every current setting exists in our pinned alpha binary. See the
+[configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference)
+and [advanced configuration](https://learn.chatgpt.com/docs/config-file/config-advanced).
+
+The [Responses API reference](https://developers.openai.com/api/reference/resources/responses/methods/create)
+describes typed function-call output items, output limits and usage details.
+The proposal preserves those structures rather than treating a successful HTTP
+status or a text delta as a complete settlement. Exact supported fields and events
+must be pinned to the installed runtime and provider adapter during implementation.
+
+Local Hugin `llm/models/openai.py` constructs `openai.OpenAI()` and calls
+`chat.completions.create`, forwarding schemas and reading response usage.
+Its Anthropic wrapper requests five retries. Task045 `swarm_host/ipc.py` is a
+bounded single-request/single-response JSON-line transport, not an SSE tunnel;
+`relay.py` and `costs.py` explicitly admit synthetic-only traffic. `RunLedger.reserve`
+currently permits only the `rehearsing` state. Thus a native relay needs a versioned
+real-dispatch state/cost contract and streaming protocol, not just a new HTTP URL.
+
+#### Topology and privilege separation
+
+```mermaid
+flowchart LR
+  subgraph N[One private network namespace per member]
+    A[Hugin or Codex member] -->|loopback HTTP only| G[Protocol gateway]
+  end
+  G -->|bounded Unix frames| R[Host metered relay]
+  R --> L[Canonical shared ledger]
+  R -->|fixed authenticated upstream| P[Admitted provider]
+  A -->|separate claim-bound tool channel| B[Taskvalet native broker]
+```
+
+The proposed dispatcher creates and inventories an exact network namespace before
+starting that member's gateway or member. It has loopback up, no veth, no default
+route, no host-network join and no IPv6. The member and its dedicated gateway join
+the same root-owned `NetworkNamespacePath`; the member cannot create/join other
+namespaces. They have separate dynamic UIDs and mount views. The namespace path
+and handles are not exposed in the member's filesystem. An implementation must
+verify systemd/kernel support before admitting anything, not silently substitute
+`PrivateNetwork=yes` independently for each service (which would separate them).
+
+The gateway listens at an exact frozen IPv4 loopback address/port and exposes only
+the chosen dialect. The member profile permits AF_INET and AF_UNIX, denies
+AF_INET6/packet/netlink/raw sockets, has no capabilities, and cannot inherit a
+connected host descriptor. Kernel rules allow member traffic only to the gateway
+port; neither process can configure interfaces/routes/firewalls. No host listener
+is reachable through this namespace's loopback. These are required properties,
+not assertions that a systemd property list alone enforces all of them.
+
+Reserve the gateway listening address/port with a kernel-enforced member bind
+restriction, including reuse-port cases; separate UIDs alone are insufficient.
+The exact bind restriction is another profile qualification gate, not an assumed
+systemd control. Gateway and member services use `Restart=no`. Gateway loss seals
+member admission, stops the member and reconciles/fences in-flight host attempts.
+No transparent gateway restart or new native session is allowed. The bind rule
+must prevent port impersonation during the stop race, independently of supervisor
+reaction time. A host-owned listener is an alternative only if separately designed
+and qualified; no fallback is selected automatically.
+
+Use a minimal pinned root image/mount allowlist: runtime and libraries, approved
+tools, read-only inputs, bounded scratch, own checkpoint and own broker endpoint.
+Do not expose host `/run`, `/tmp`, `/proc` views or runtime-daemon sockets wholesale.
+The member cannot see the model relay socket. Only its gateway receives that
+socket mount and its relay capability via a private service credential. The host
+validates member identity/capability independently of the HTTP body and gateway
+claims; compromise of a gateway can spend only its frozen member allocation within
+the shared cap. Cross-member sockets/capabilities remain inaccessible.
+
+Model authority must also be current. The host maps the capability to the exact
+native actor/task/claim incarnation, revalidates it before model admission and
+fences future dispatch on release, revocation or reassignment. After reservation,
+Taskvalet must issue a guarded model-admission receipt bound to the run, attempt,
+claim incarnation and normalized payload hash in the transaction that verifies
+the current claim. This is a required new server/broker operation; existing tool
+guards do not establish that it exists. Admission linearizes at that receipt: a
+later claim release prevents new admissions but cannot retroactively unsend an
+already-admitted provider request. Pin the receipt expiry and recheck immediately
+before send; expired/stale receipts cannot authorize dispatch. If this authority
+contract cannot be implemented, the profile remains NO-GO. Server failure does
+not permit cached stale authority. Already-sent attempts retain their reservation
+and follow ordinary uncertain-outcome reconciliation. Test claim changes between
+reservation and admission/send, with no claim identity inferred from model text.
+
+The host relay alone holds a provider credential and outbound provider access.
+It uses fixed HTTPS origin/path/model configuration, no client-supplied URL,
+redirects, proxy discovery, auth helpers or provider-side remote tool URLs. The
+gateway cannot forward CONNECT, absolute-form requests, upgrade/WebSocket, arbitrary
+headers or unknown routes. Its only upstream is the mounted Unix endpoint.
+Reject ambiguous HTTP framing, duplicate content lengths, chunked request bodies,
+compression and duplicate JSON keys; cap body size, depth, connections and header
+time before parse. Streamed responses use a separately bounded encoder.
+
+#### Native model-facing interfaces
+
+| Managed member | Gateway endpoint | Initial response shape | Excluded initially |
+| --- | --- | --- | --- |
+| Hugin OpenAI wrapper | `POST /v1/chat/completions` | Nonstreaming native completion JSON | Other SDK routes, implicit retries, provider switching |
+| Codex CLI candidate | `POST /v1/responses` | Pinned Responses SSE subset | WebSocket, background responses, hosted tools, arbitrary retrieval/compaction routes |
+
+Codex gets a launcher-owned custom provider ID and private loopback base URL, a
+non-provider gateway token, one exact model and no personal authentication stores.
+Configuration must disable daemon reuse, cloud/remote routes, automatic upgrades,
+search, unapproved plugins/hooks/MCP, request/stream retries and remote compaction.
+Do not invent supported flag names: verify the exact pinned configuration schema
+first. A local pinned model catalog may be necessary to prevent a discovery call.
+If the CLI requires an excluded route or unrecognized control, preparation fails;
+expand the explicitly bounded contract and retest, or reject this runtime/profile.
+
+Hugin's managed model factory receives explicit base URL, gateway token and retry
+policy through runtime injection, instead of ambient SDK defaults. All child,
+branch, summary and auxiliary completions use this same factory; no direct
+OpenAI/Anthropic/Ollama construction is allowed in the managed environment.
+Outcome reporting and unrelated background integrations are disabled. Config
+settings help compatibility; network isolation enforces sole egress.
+
+The concrete Hugin seam is a session-scoped managed completion dependency used
+by AskOracle before the ambient `llm.completion.chat_completion` path. It must
+bypass `get_model_registry()` (process-global cached registry), its remote Ollama
+discovery and `ensure_credentials_loaded()` entirely. Do not monkeypatch the
+global registry or mutate unrelated sessions. Child agents inherit only this
+restricted transport dependency, never Taskvalet tool authority; restored sessions
+require explicit host rebinding and the original managed-profile digest before
+any call. Parent, child, branch and restored fixtures must assert that ambient
+registry discovery, dotenv loaders and credential helpers are never invoked.
+Unbound managed sessions fail closed rather than falling back to normal completion.
+
+For both dialects, preserve system/developer/user messages, complete JSON tool
+schemas, tool-call IDs, arguments, results, errors and reasoning items as required
+by the pinned API. Tool execution remains local/broker-mediated; the relay never
+executes a tool from model output. Hugin's current single-tool-call contract must
+remain explicit. Codex may emit native function/custom-tool structures: support
+only the exact validated subset and its schema, never silently drop unknown items.
+Model tool names do not grant authority: the broker rechecks the exact live claim
+at commit, and compute submissions still use their separate job/claim guard.
+
+#### Host wire proposal: `taskvalet.model-relay/2`
+
+Keep the synthetic v1 endpoint and hash separate. Bind new protocol version,
+dialect schema hash, runtime/config/root-image/network-profile hashes, model,
+cost contract and gateway adapter bytes into the immutable prepared run digest.
+No old canonical ID may be upgraded to the new profile. Unknown versions fail
+before admission; a changed runtime or profile needs deliberate new preparation.
+
+A new dedicated Unix endpoint uses a four-byte unsigned big-endian length followed
+by exactly that many UTF-8 JSON bytes; zero length, duplicate keys and oversized
+frames are refused before allocation. Pin maximum frame and aggregate response
+sizes, nesting, connection count and event count in the prepared profile, with
+schema validation and deadline-aware
+reads/writes. Do not reinterpret the existing newline `Endpoint` as a stream.
+The first frame authenticates the member capability and binds the immutable run,
+member, protocol/dialect, member-scoped client nonce and canonical payload digest.
+The host durably maps that nonce to a host-generated attempt ID; a repeated nonce
+cannot allocate a second attempt, and changed content under it is refused.
+Body-supplied
+actor/claim/deadline/price/host fields cannot override the frozen host binding.
+All frames on that connection belong to that one request; no multiplexing initially.
+
+| Frame | Required design fields / behavior |
+| --- | --- |
+| `open` | Protocol version, frozen run digest, member capability, client nonce, dialect/schema hash, native JSON body; host checks every field against policy |
+| `accepted` | Host attempt ID, payload digest, reserved micro-USD, original deadline; not proof that provider dispatch completed |
+| `event` | Attempt ID, sequence, dialect-native event payload; bounded ordered output only |
+| `terminal` | Attempt ID, last sequence, native result/status, usage validity, settlement state and receipt digest; durable before delivery |
+| `error` | Attempt ID if allocated, bounded stable code, phase (`pre_send` or `sent_or_unknown`), reservation state; sanitized, never an instruction to retry |
+
+The HTTP adapter uses bounded native error shapes for validation/auth/policy and
+upstream failures. It strips upstream headers except a pinned safe allowlist and
+never exposes capabilities or provider bodies in diagnostics. Error status alone
+does not prove no send: the host phase and ledger receipt govern reconciliation.
+
+
+The host persists admission/reservation and a send intent before any provider
+bytes. Host-controlled attempt IDs are unique within the run; transport retries
+must refer to the same existing attempt. A changed body under an old ID is refused.
+An identical existing reservation never grants permission to dispatch again.
+An unknown outcome fences further model dispatch under the existing lifecycle.
+The gateway cannot create a fresh ID to clear a fence. A genuinely new HTTP
+request, even if textually identical, consumes another call/reservation; do not
+deduplicate conversations by content. No transparent gateway/provider retries.
+
+Response frames are `accepted`, ordered `event`, then `terminal` or `error`.
+Their schemas carry request ID, monotonically increasing sequence and bounded
+payloads. Host-side records include provider request/response IDs where present,
+normalized usage, settlement state and the terminal event digest.
+
+A complete provider terminal result and settlement must be durable before the
+terminal reply is offered downstream. If that reply is lost, inspection uses the
+existing attempt record; provider redispatch remains forbidden. A crash between
+provider completion and durable evidence still retains full exposure and fences
+the run. Result retention is bounded separately from the ledger; missing retained
+content cannot be reconstructed by making another provider call.
+
+The dialect
+adapter produces native HTTP JSON/SSE; these host frames are not emitted as
+invented provider events. Pin native event ordering, function-argument deltas,
+completion/incomplete/failure semantics and maximum buffering. Partial output is
+never proof of a completed response. A provider-declared incomplete response with
+complete trusted usage may settle normally; missing usage retains full exposure.
+
+One in-flight model request per member initially, with a global connection cap.
+Whole-request, first-byte, idle-stream and total-byte limits derive from remaining
+canonical time and pinned policy. Backpressure and disconnects cannot extend the
+original deadline or release a reservation. A lost terminal reply may be inspected
+through host status; initial v2 refuses redispatch/replay instead of inventing an
+exactly-once native resume promise. Retained diagnostics are bounded and redacted;
+raw conversations, keys and capabilities do not go in public receipts or task notes.
+
+#### Shared budget and uncertain outcomes
+
+No live pricing is selected here. Admission requires a versioned provider/model
+cost contract with a justified worst-case input bound, enforced output bound,
+billing categories, integer rounding and maximum charge. Use integer micro-USD
+ceilings and the existing shared ledger, with a reviewed native-active state
+transition; never mark live work `rehearsing` to bypass today's guard.
+
+Before dispatch, validate exact model and field allowlist, request size and schema,
+full bounded conversation, tool definitions and output limit. Missing native output
+limits may be filled from frozen policy only by an explicit, pinned normalization
+rule; supplied excessive limits are refused. Hash both received and normalized
+requests. No silent unbounded defaults. Input cost bounds need proof: body bytes
+alone are not a tokenizer/cost contract. A documented model context upper bound
+with conservative maximum input rates may be used if the adapter proves it bounds
+every admitted charge. Cache/reasoning/other category rules must avoid double
+counting and underestimation. Unknown categories are not assigned zero.
+
+For initial scope, reject images, audio, remote files, previous-response references,
+hosted search/code tools, server-side conversation state and cache options with
+unbounded/unknown charges. If the native CLI requires these, stop at preparation
+until a separately costed adapter supports them. These restrictions are an explicit
+compatibility gate, not a claim that the alpha CLI already tolerates them.
+
+Atomically reserve the full per-call ceiling within the unchanged shared cap before
+the send intent. Every actual provider attempt, including any future admitted
+retry/compaction, needs its own reservation and call count. Validate terminal usage
+against the contract and settle once; unknown/lost/malformed usage, deadline expiry
+after send or relay death keeps the full reservation and fences dispatch. A known
+pre-send rejection can be released only with durable evidence that no provider
+attempt occurred. No low-cost estimate or native CLI dollar limit releases money.
+Provider billing exceeding a justified contract is a hard failure with retained
+exposure and diagnostics, not permission to expand the cap. Closing a client socket
+does not establish provider cancellation or zero charge.
+
+#### Dispatcher, stop and ownership
+
+Prepare verifies actual installed Linux bytes and all protocol/profile pins before
+admission. Start order: inventory and ledger, independent guardian, exact namespace
+and kernel policy, host relay/broker, gateway health check, then the member. Every
+resource intent is durable before creation; unknown creation results are inspected
+under the same ID, never silently replaced. There is no shared app-server reuse.
+
+The guardian seals the exact owned service/cgroup/socket/namespace inventory and
+can stop members and gateways without a controller or model response. Stop member
+admission first, quiesce relay dispatch, retain uncertain reservations, stop owned
+process trees, close gateway/relay endpoints and release only owned namespace
+handles after all joined processes exit. Cleanup must fit the original cleanup
+deadline and preserve unrelated work. Unknown cleanup stays incomplete; sealed
+receipts and bounded checkpoint/status artifacts remain inspectable after exit.
+No provider cancel guarantee or SSH migration is assumed. Task048 remote hosting
+still requires the separately agreed admission/ledger/storage contract from M1.
+
+#### Implementation order and qualification gates
+
+1. Define strict schemas and deterministic parser/encoder fixtures for v2 and
+   both dialects. Pin the installed CLI configuration/event schema and demonstrate
+   that forbidden auxiliary routes can be disabled; otherwise remain NO-GO.
+2. Add native-active ledger/version compatibility and no-double-dispatch tests in
+   Taskvalet, then fake-provider relay tests for reserve-before-send, tool schemas,
+   streaming errors, missing usage, replay and concurrent cap exhaustion. Keep
+   synthetic v1 unchanged and reject cross-version resumes.
+3. Implement gateway and Hugin factory/Codex launcher adapters, then test actual
+   native model/tool/result loops against a deterministic provider without spend.
+   A stub driver cannot satisfy native conformance. Include the ambient-discovery denial and live-claim
+   admission race cases above.
+4. Qualify the exact Linux root image and per-member namespace profile: verify
+   member-to-own-gateway success and deny Internet, host loopback, DNS, IPv6,
+   foreign sockets, inherited descriptors, gateway-port takeover after exit,
+   proxy/redirect/CONNECT, alternate
+   model routes and child-process escapes. Test malformed framing/slow streams.
+5. Test guardian-first startup, controller/relay/gateway death, namespace creation
+   ambiguity, deadline stop, restart fences and exact owned-resource cleanup.
+   Only then consider a separately approved bounded live validation.
+
+This turn produces reviewed design artifacts only. No claim of implemented v2,
+qualified isolation, live model pricing support or Task004 acceptance follows.
+
+
+Three-role panel review: runtime/protocol, security/shared budget, Linux isolation/operations. Three P2 corrections incorporated and re-reviewed; no remaining significant findings. Document checks passed; repository checks remain blocked by uncached offline dependencies. No deployment or experiment. Owner explicitly authorized publication and offline protocol fixtures/pinned CLI compatibility work in Console.
+Source SHA256: 15bf7185bca885b708fa2de4f771dc57c97c651a985f9a2b488bfb185f945447
